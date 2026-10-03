@@ -86,6 +86,29 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.22. TikTok demo targeted — 1 link / 1 LIVE / 5 VOD
+
+Thời gian: **2026-10-04**.
+
+Mục tiêu:
+- demo riêng chỉ có một ô nhập link/handle TikTok;
+- không quét toàn bộ 171 kênh;
+- submit chỉ gọi Cloud `/refresh?user=<handle>` để check đúng 1 kênh;
+- nếu status=2, đọc `/tiktok/live-now` và dùng link LIVE đã có sẵn trong item;
+- không tìm/resolve link LIVE khi bấm;
+- lấy đúng 5 video gần nhất bằng Render `/tiktok/channel-videos?refresh=0&user=<handle>`;
+- VOD click thử TikWM/TDown xen kẽ; lỗi thật mới fallback sang nguồn còn lại;
+- MAIN vẫn giữ YouTube-only.
+
+Demo:
+- `/tiktok-live-cloud-demo.html`
+- mặc định điền `https://www.tiktok.com/@tu.thuong_lay_minh_1/live`.
+
+Resource:
+- 1 direct action = 1 targeted LIVE status check + 1 channel video read;
+- chỉ gọi `/tiktok/live-now` khi kênh thật sự status=2;
+- không `/sweep`, không cron, không full scan.
+
 ### 3.21. TikTok LIVE Cloud demo tối giản
 
 Thời gian: **2026-10-04**.

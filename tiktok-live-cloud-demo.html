@@ -4,145 +4,203 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0b0d">
-<title>TikTok LIVE · Cloud Demo</title>
+<title>TikTok LIVE + 5 Video Demo</title>
 <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"></script>
 <style>
-*{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}
-body{min-height:100vh}.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:12px 16px;background:#111;border-bottom:1px solid #27272a}
-.logo{font-weight:800;font-size:20px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#fe2c55;margin-right:7px}
-.count{color:#aaa;font-size:14px}.top button{margin-left:auto;border:0;border-radius:18px;padding:9px 14px;background:#27272a;color:#fff;cursor:pointer}
-.wrap{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);min-height:calc(100vh - 58px)}
-.list{border-right:1px solid #27272a;padding:10px;overflow:auto}.card{display:flex;gap:10px;width:100%;padding:10px;border:0;border-radius:12px;background:transparent;color:#fff;text-align:left;cursor:pointer}
-.card:hover,.card.active{background:#202024}.thumb{width:72px;height:96px;object-fit:cover;border-radius:9px;background:#222;flex:none}.fallback{display:grid;place-items:center;font-size:28px}
-.meta{min-width:0}.name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}.handle{color:#aaa;font-size:13px;margin-top:4px}.live{display:inline-flex;align-items:center;margin-top:9px;padding:4px 7px;border-radius:5px;background:#fe2c55;font-size:11px;font-weight:800}.viewers{font-size:12px;color:#bbb;margin-left:7px}
-.stage{display:grid;place-items:center;padding:18px;min-width:0}.playerbox{width:min(100%,900px);display:flex;flex-direction:column;gap:10px}.screen{width:100%;aspect-ratio:9/16;max-height:calc(100vh - 130px);background:#000;border-radius:14px;overflow:hidden;display:grid;place-items:center}
-video{width:100%;height:100%;object-fit:contain;background:#000}.title{font-size:16px;font-weight:700}.status{color:#aaa;font-size:13px}.empty{padding:30px 12px;color:#aaa;text-align:center}
-@media(max-width:760px){.wrap{grid-template-columns:1fr}.list{border-right:0;border-bottom:1px solid #27272a;max-height:38vh}.stage{padding:8px}.screen{max-height:58vh}}
+*{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}
+.top{position:sticky;top:0;z-index:5;padding:12px;background:#111;border-bottom:1px solid #26262a}
+.search{max-width:980px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}
+.page{max-width:980px;margin:auto;padding:14px}.status{font-size:13px;color:#aaa;margin-bottom:12px;min-height:18px}
+.grid{display:grid;grid-template-columns:minmax(280px,390px) minmax(0,1fr);gap:14px}.panel{background:#121216;border:1px solid #26262a;border-radius:14px;overflow:hidden}.head{padding:12px 14px;font-weight:800;border-bottom:1px solid #26262a}.body{padding:10px}
+.livecard,.vod{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:12px;padding:10px;text-align:left;cursor:pointer}.livecard{display:flex;gap:10px;align-items:center}.livecard[disabled]{opacity:.55;cursor:default}
+.avatar{width:58px;height:58px;border-radius:50%;object-fit:cover;background:#2a2a2f}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:4px}.pill{display:inline-block;margin-top:7px;background:#fe2c55;padding:4px 7px;border-radius:5px;font-size:11px;font-weight:800}
+.player{background:#000;border-radius:12px;overflow:hidden;aspect-ratio:9/16;display:grid;place-items:center}video{width:100%;height:100%;object-fit:contain;background:#000}.now{padding:10px 2px 0;font-size:14px;font-weight:700;min-height:28px}
+.vods{display:grid;gap:8px}.vod{display:grid;grid-template-columns:78px 1fr;gap:10px;align-items:center}.cover{width:78px;height:104px;object-fit:cover;border-radius:8px;background:#29292f}.vtitle{font-size:14px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:12px;color:#aaa;margin-top:5px}
+.empty{color:#999;padding:18px 6px;text-align:center}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.player{max-height:58vh}.search{gap:6px}.search button{padding:0 14px}}
 </style>
 </head>
 <body>
-<header class="top">
-  <div class="logo"><span class="dot"></span>TikTok LIVE Cloud</div>
-  <div class="count" id="count">Đang đọc LIVE…</div>
-  <button id="refresh">Kiểm tra LIVE</button>
-</header>
-<div class="wrap">
-  <aside class="list" id="list"><div class="empty">Đang tải danh sách LIVE…</div></aside>
-  <main class="stage">
-    <div class="playerbox">
-      <div class="screen"><video id="video" playsinline controls></video></div>
-      <div class="title" id="title">Chọn một kênh đang LIVE</div>
-      <div class="status" id="status">Cloud snapshot → click → phát trực tiếp.</div>
-    </div>
-  </main>
+<div class="top">
+  <form class="search" id="form">
+    <input id="input" value="https://www.tiktok.com/@tu.thuong_lay_minh_1/live" placeholder="Dán link TikTok bất kỳ…">
+    <button>Kiểm tra</button>
+  </form>
+</div>
+<div class="page">
+  <div class="status" id="status">Dán link TikTok rồi bấm Kiểm tra.</div>
+  <div class="grid">
+    <section class="panel">
+      <div class="head">Kênh / LIVE</div>
+      <div class="body" id="liveBox"><div class="empty">Chưa kiểm tra.</div></div>
+      <div class="head">5 video gần nhất</div>
+      <div class="body vods" id="vods"><div class="empty">Chưa tải video.</div></div>
+    </section>
+    <section class="panel">
+      <div class="head">Player</div>
+      <div class="body">
+        <div class="player"><video id="video" playsinline controls></video></div>
+        <div class="now" id="now">Chưa phát media.</div>
+      </div>
+    </section>
+  </div>
 </div>
 <script>
 const EDGE="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev";
-const listEl=document.getElementById("list");
-const countEl=document.getElementById("count");
-const video=document.getElementById("video");
-const titleEl=document.getElementById("title");
+const RENDER="https://one988-tiktok-session.onrender.com";
+const form=document.getElementById("form");
+const input=document.getElementById("input");
 const statusEl=document.getElementById("status");
-let items=[];
-let current="";
-let player=null;
-let busy=false;
+const liveBox=document.getElementById("liveBox");
+const vodsEl=document.getElementById("vods");
+const video=document.getElementById("video");
+const nowEl=document.getElementById("now");
+let flvPlayer=null;
+let handle="";
+let liveItem=null;
+let videos=[];
+let vodOpenCount=0;
+let vodSeq=0;
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+function parseHandle(raw){
+  raw=String(raw||"").trim();
+  const m=raw.match(/tiktok\.com\/@([^/?#]+)/i);
+  if(m)return decodeURIComponent(m[1]).replace(/^@/,"");
+  const h=raw.replace(/^@/,"");
+  return /^[A-Za-z0-9._]{2,32}$/.test(h)?h:"";
+}
 function stop(){
-  if(player){try{player.destroy()}catch{} player=null}
+  vodSeq++;
+  if(flvPlayer){try{flvPlayer.destroy()}catch{} flvPlayer=null}
   try{video.pause()}catch{}
+  video.onerror=null;
   video.removeAttribute("src");
   video.load();
 }
-function render(){
-  countEl.textContent=items.length+" LIVE";
-  if(!items.length){
-    listEl.innerHTML='<div class="empty">Chưa có LIVE trong snapshot hiện tại.</div>';
+function mediaUrl(h,id,source){
+  return EDGE+"/tiktok/video-stream?user="+encodeURIComponent(h)+"&id="+encodeURIComponent(id)+"&source="+encodeURIComponent(source)+"&try=1&t="+Date.now();
+}
+async function json(url,timeout=20000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const r=await fetch(url,{cache:"no-store",signal:controller.signal});
+    if(!r.ok)throw new Error(r.status+" "+r.statusText);
+    return await r.json();
+  }finally{clearTimeout(timer)}
+}
+function renderLive(state){
+  const isLive=Number(state?.status)===2;
+  if(!isLive){
+    liveBox.innerHTML='<div class="empty">@'+esc(handle)+' hiện không LIVE.</div>';
     return;
   }
-  listEl.innerHTML=items.map((x,i)=>{
-    const h=String(x.handle||"");
-    const img=String(x.thumbnail||x.preview||x.avatar||"");
-    const name=String(x.sourceName||("@"+h));
-    const viewers=Number(x.viewerCount)||0;
-    return '<button class="card'+(current===h?' active':'')+'" data-i="'+i+'">'+
-      (img?'<img class="thumb" src="'+esc(img)+'" alt="">':'<div class="thumb fallback">●</div>')+
-      '<div class="meta"><div class="name">'+esc(name)+'</div><div class="handle">@'+esc(h)+'</div>'+
-      '<span class="live">LIVE</span>'+(viewers?'<span class="viewers">'+viewers.toLocaleString("vi-VN")+' đang xem</span>':'')+
-      '</div></button>';
+  const ready=Boolean(liveItem&&(liveItem.streamUrl||liveItem.hlsUrl));
+  const avatar=String(liveItem?.avatar||"");
+  const name=String(liveItem?.sourceName||("@"+handle));
+  liveBox.innerHTML='<button class="livecard" id="playLive" '+(ready?'':'disabled')+'>'+
+    (avatar?'<img class="avatar" src="'+esc(avatar)+'" alt="">':'<div class="avatar"></div>')+
+    '<div class="meta"><div class="name">'+esc(name)+'</div><div class="sub">@'+esc(handle)+'</div>'+
+    '<span class="pill">LIVE</span><div class="sub">'+(ready?'Link phát đã có sẵn · bấm để xem':'Đang LIVE nhưng chưa có link lưu sẵn')+'</div></div></button>';
+  document.getElementById("playLive")?.addEventListener("click",()=>{
+    if(ready)playLive(liveItem);
+  });
+}
+function renderVideos(){
+  const rows=videos.slice(0,5);
+  if(!rows.length){vodsEl.innerHTML='<div class="empty">Kênh này chưa có video trong thư viện.</div>';return}
+  vodsEl.innerHTML=rows.map((v,i)=>{
+    const cover=String(v?.cover?.url||v?.cover?.sourceUrl||"");
+    const title=String(v?.title||("Video "+v?.id));
+    return '<button class="vod" data-i="'+i+'">'+
+      (cover?'<img class="cover" src="'+esc(cover)+'" alt="">':'<div class="cover"></div>')+
+      '<div><div class="vtitle">'+esc(title)+'</div><div class="vmeta">'+Number(v?.duration||0)+'s · '+esc(String(v?.id||""))+'</div></div></button>';
   }).join("");
 }
-async function readLive(){
-  const r=await fetch(EDGE+"/tiktok/live-now?t="+Date.now(),{cache:"no-store"});
-  if(!r.ok)throw new Error("live-now "+r.status);
-  const data=await r.json();
-  items=Array.isArray(data.items)?data.items.filter(x=>x&&x.live===true):[];
-  render();
-  return data;
-}
-async function refresh(){
-  if(busy)return;
-  busy=true;
-  document.getElementById("refresh").disabled=true;
-  statusEl.textContent="Cloud đang kiểm tra LIVE…";
-  try{
-    // Cloud only checks LIVE/OFFLINE; /live-now returns the already-saved media link.
-    await readLive().catch(()=>{});
-    const r=await fetch(EDGE+"/sweep?t="+Date.now(),{cache:"no-store"});
-    if(!r.ok)throw new Error("sweep "+r.status);
-    await r.json().catch(()=>null);
-    await readLive();
-    statusEl.textContent="Đã cập nhật từ Cloud.";
-  }catch(e){
-    statusEl.textContent="Không kiểm tra được LIVE: "+e.message;
-  }finally{
-    busy=false;
-    document.getElementById("refresh").disabled=false;
+function playLive(item){
+  stop();
+  const flv=String(item?.streamUrl||"");
+  const hls=String(item?.hlsUrl||"");
+  const nativeHls=Boolean(video.canPlayType("application/vnd.apple.mpegurl")||video.canPlayType("application/x-mpegURL"));
+  nowEl.textContent="@"+handle+" · LIVE";
+  if(nativeHls&&hls){
+    video.src=hls;video.load();video.play().catch(()=>{});return;
   }
-}
-function playHls(url,item){
-  stop();
-  video.src=url;
-  video.play().catch(()=>{});
-  statusEl.textContent="HLS trực tiếp từ Cloud check.";
-}
-function playFlv(url,item){
-  stop();
-  if(!window.mpegts?.isSupported?.()){
-    statusEl.textContent="Trình duyệt này không hỗ trợ FLV/MSE.";
+  if(flv&&window.mpegts?.isSupported?.()){
+    flvPlayer=mpegts.createPlayer({type:"flv",isLive:true,url:flv,cors:true,withCredentials:false},{enableStashBuffer:false,lazyLoad:false,liveSync:true});
+    flvPlayer.attachMediaElement(video);
+    flvPlayer.load();
+    flvPlayer.play().catch(()=>video.play().catch(()=>{}));
     return;
   }
-  player=mpegts.createPlayer({type:"flv",isLive:true,url,cors:true,withCredentials:false},{
-    enableStashBuffer:false,lazyLoad:false,liveSync:true,liveSyncMaxLatency:3,liveSyncTargetLatency:1.2
-  });
-  player.attachMediaElement(video);
-  player.load();
-  player.play().catch(()=>video.play().catch(()=>{}));
-  statusEl.textContent="FLV trực tiếp từ Cloud check.";
+  if(hls){video.src=hls;video.load();video.play().catch(()=>{});return}
+  statusEl.textContent="LIVE có trạng thái nhưng không có link phát sẵn.";
 }
-async function openItem(index){
-  let item=items[index];
-  if(!item)return;
-  current=String(item.handle||"");
-  render();
-  titleEl.textContent=(item.sourceName||("@"+current))+" · LIVE";
-  statusEl.textContent="Đang mở…";
-  const flv=String(item.streamUrl||"");
-  const hls=String(item.hlsUrl||"");
-  const nativeHls=Boolean(video.canPlayType("application/vnd.apple.mpegurl")||video.canPlayType("application/x-mpegURL"));
-  if(nativeHls&&hls){playHls(hls,item);return}
-  if(flv){playFlv(flv,item);return}
-  if(hls){playHls(hls,item);return}
+function playVod(index){
+  const item=videos[index];
+  if(!item?.id)return;
   stop();
-  statusEl.textContent="Kênh đang LIVE nhưng thư viện chưa có link sẵn.";
+  const mySeq=vodSeq;
+  const first=vodOpenCount++%2===0?"tikwm":"tdown";
+  const second=first==="tikwm"?"tdown":"tikwm";
+  const sources=[first,second];
+  let attempt=0;
+  nowEl.textContent=(item.title||("Video "+item.id))+" · "+first.toUpperCase();
+  const open=()=>{
+    if(mySeq!==vodSeq)return;
+    const source=sources[attempt];
+    video.onerror=()=>{
+      if(mySeq!==vodSeq)return;
+      attempt++;
+      if(attempt<sources.length){
+        nowEl.textContent=(item.title||("Video "+item.id))+" · fallback "+sources[attempt].toUpperCase();
+        open();
+      }else{
+        statusEl.textContent="Video lỗi cả TikWM và TDown.";
+      }
+    };
+    video.src=mediaUrl(handle,item.id,source);
+    video.load();
+    video.play().catch(()=>{});
+  };
+  open();
 }
-listEl.addEventListener("click",e=>{
-  const card=e.target.closest(".card[data-i]");
-  if(card)openItem(Number(card.dataset.i));
+vodsEl.addEventListener("click",e=>{
+  const row=e.target.closest(".vod[data-i]");
+  if(row)playVod(Number(row.dataset.i));
 });
-document.getElementById("refresh").addEventListener("click",refresh);
-readLive().catch(()=>{}).finally(()=>refresh());
+async function inspect(raw){
+  const h=parseHandle(raw);
+  if(!h){statusEl.textContent="Link/handle TikTok không hợp lệ.";return}
+  handle=h;
+  liveItem=null;
+  videos=[];
+  stop();
+  liveBox.innerHTML='<div class="empty">Đang kiểm tra @'+esc(h)+'…</div>';
+  vodsEl.innerHTML='<div class="empty">Đang lấy 5 video…</div>';
+  statusEl.textContent="Chỉ kiểm tra @"+h+"…";
+  try{
+    const state=await json(EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),15000);
+    const [liveNow,videoData]=await Promise.all([
+      Number(state?.status)===2
+        ?json(EDGE+"/tiktok/live-now?t="+Date.now(),20000).catch(()=>({items:[]}))
+        :Promise.resolve({items:[]}),
+      json(RENDER+"/tiktok/channel-videos?refresh=0&user="+encodeURIComponent(h)+"&t="+Date.now(),20000)
+    ]);
+    liveItem=(Array.isArray(liveNow?.items)?liveNow.items:[]).find(x=>String(x?.handle||"").toLowerCase()===h.toLowerCase())||null;
+    videos=Array.isArray(videoData?.videos)?videoData.videos.slice(0,5):[];
+    renderLive(state);
+    renderVideos();
+    statusEl.textContent="@"+h+" · "+(Number(state?.status)===2?"đang LIVE":"không LIVE")+" · "+videos.length+" video";
+  }catch(e){
+    statusEl.textContent="Lỗi kiểm tra: "+String(e?.message||e);
+    liveBox.innerHTML='<div class="empty">Không lấy được trạng thái LIVE.</div>';
+    vodsEl.innerHTML='<div class="empty">Không lấy được video.</div>';
+  }
+}
+form.addEventListener("submit",e=>{e.preventDefault();inspect(input.value)});
+inspect(input.value);
 </script>
 </body>
 </html>
