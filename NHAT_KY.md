@@ -384,3 +384,22 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - videoId/title GH AI Muzick không đổi;
   - `sourceAvatar` đã lấy đúng từ `yt1988_channel_directory`.
 - Data impact: chỉ bổ sung package metadata đã có sẵn trong canonical library; không thêm/xóa LIVE.
+
+
+## 2026-10-03 — Sửa LIVE Báo Tiền Phong title bị rơi thành tên kênh
+
+- videoId: `LI-7QtW-_bs`.
+- Trước sửa package ghi `title = Báo Tiền Phong News`.
+- Exact `yt1988?action=video_meta&id=LI-7QtW-_bs` trả:
+  `🔴Trực Tiếp: Tin tức an ninh trật tự nóng, thời sự Việt Nam mới nhất 24h Tối ngày 3/10`.
+- Patch `60e004cfdc07f34dcb60c0b7851de394432116e0`:
+  - LIVE title rỗng hoặc bằng sourceName → exact video_meta theo videoId;
+  - title khác giữ nguyên;
+  - không AI/heuristic/dọn title LIVE.
+- Regression test: `bca6596a4925076b3126f8c5af0ec6365ccb0010`.
+- Deploy: `yt1988-refresh v27` ACTIVE.
+- Production verify:
+  - package LIVE hash `23v6p2`;
+  - item count 31;
+  - `LI-7QtW-_bs` đã có đúng title gốc;
+  - UI không thay đổi.
