@@ -1,3 +1,11 @@
+## 2026-10-04 — Dán link LIVE dùng stateless /lookup
+
+- Tách thao tác thủ công khỏi `/refresh` có snapshot/KV.
+- Demo dùng `/lookup?user=...` → TikTok LIVE API → stream URL → phát ngay.
+- Không Render, không browser cache.
+- Commit `9ce1dedc35eee57231436325d30d8068ed6895a1`.
+- Edge `37159236550` SUCCESS; Player `37159236574` SUCCESS.
+
 ## 2026-10-04 — TikTok LIVE demo đơn giản hóa thành LIVE-only
 
 - Bỏ hẳn 5 video và toàn bộ VOD khỏi demo LIVE.

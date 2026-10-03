@@ -86,6 +86,25 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.34. TikTok LIVE demo — pasted link uses stateless /lookup
+
+Thời gian: **2026-10-04**.
+
+- Hiện tượng: link mặc định/đã có sẵn có thể lấy LIVE, nhưng link mới dán vào ô **Kiểm tra** đôi lúc browser báo `Failed to fetch`.
+- Demo không dùng `/refresh` nữa cho thao tác thủ công.
+- Thêm endpoint stateless `/lookup?user=<handle>`:
+  - chỉ normalize handle;
+  - gọi `checkTikTok(handle)`;
+  - trả trạng thái + stream URL ngay;
+  - không đọc/ghi snapshot KV;
+  - không Render;
+  - không cache browser.
+- `/refresh` cũ vẫn giữ nguyên cho flow LIVE hệ thống đã chốt.
+- Demo LIVE-only gọi `/lookup`, hiện stream URL mới và phát ngay.
+- Commit runtime: `9ce1dedc35eee57231436325d30d8068ed6895a1`.
+- Edge run `37159236550`: SUCCESS.
+- Player run `37159236574`: SUCCESS.
+
 ### 3.33. TikTok demo — LIVE-only, bỏ hẳn VOD khỏi trang test LIVE
 
 Thời gian: **2026-10-04**.
