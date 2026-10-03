@@ -1676,34 +1676,6 @@ async function resolveTikdownOrgVideoSource(handle,id,{refresh=false}={}){
   });
 }
 
-function vodPickTTDownloaderVideoUrl(html){
-  const text=String(html||"");
-  const rows=[];
-  const add=(url,label="",base=0)=>{
-    url=vodDecodeHtml(String(url||"").trim());
-    if(!/^https?:\/\//i.test(url))return;
-    const lower=(String(label||"")+" "+url).toLowerCase();
-    if(/(?:mp3|m4a|audio|music)/i.test(lower))return;
-    let score=base;
-    if(/no[\s_-]*watermark|without[\s_-]*watermark|watermark[\s_-]*free|no[\s_-]*wm/.test(lower))score+=700;
-    else if(/watermark|wmplay|wm=/.test(lower))score-=500;
-    if(/(?:^|\D)(?:2160|1440|1080)(?:p|\D|$)|full[\s_-]*hd|high[\s_-]*quality|\bhd\b|original/.test(lower))score+=260;
-    if(/\.mp4(?:$|[?#])/.test(lower))score+=120;
-    if(/(?:video|download|play)/.test(lower))score+=40;
-    rows.push({url,score});
-  };
-  for(const m of text.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi)){
-    const open="<a "+String(m[1]||"")+">";
-    const href=vodHtmlAttr(open,"href");
-    const label=vodDecodeHtml(String(m[2]||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim());
-    add(href,label,100);
-  }
-  for(const url of vodExtractUrls(text))add(url,"",0);
-  for(const m of text.matchAll(/(https?:\/\/[^"'\s<>]+?\.php\?v=[^"'\s<>]+)/gi))add(m[1],"legacy",20);
-  rows.sort((a,b)=>b.score-a.score);
-  return rows[0]?.url||"";
-}
-
 async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
   return vodCachedResolver("ttdownloader",handle,id,{refresh,ttl:240},async()=>{
     const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
@@ -1741,9 +1713,9 @@ async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
     });
     if(!r.ok)throw new Error("ttdownloader_http_"+r.status);
     const text=await r.text();
-    // TTDownloader returns separate options (no-watermark / watermarked / audio).
-    // Prefer the highest-quality no-watermark video option before generic URL fallback.
-    const mediaUrl=vodPickTTDownloaderVideoUrl(text);
+    const urls=vodExtractUrls(text);
+    const legacy=[...text.matchAll(/(https?:\/\/[^"'\s<>]+?\.php\?v=[^"'\s<>]+)/gi)].map(m=>vodDecodeHtml(m[1]));
+    const mediaUrl=vodPickVideoUrl([...legacy,...urls]);
     if(!mediaUrl)throw new Error("ttdownloader_no_media_url");
     return {
       url:mediaUrl,
