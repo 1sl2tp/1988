@@ -108,6 +108,29 @@ Khi mở web:
 - Non-LIVE source edit chỉ refresh package của scope vừa sửa.
 - `tab-open` YouTube LIVE được phép một catch-up wake để sửa package stale; các vòng sau không lặp wake.
 
+### 1.2.3. TikTok LIVE direct-link contract
+
+Đối với TikTok LIVE targeted check, Cloudflare phải dùng đúng một response TikTok:
+
+```text
+/api-live/user/room
+→ liveRoom.status
+→ liveRoom.streamData / pull_data
+→ FLV/HLS
+→ browser
+```
+
+Resource guardrails:
+- không Render hop cho LIVE link;
+- không resolver/probe vòng hai;
+- không media HEAD/GET validation trước khi publish item;
+- không scan toàn bộ selected channels khi user chỉ nhập/mở một handle;
+- không lưu/proxy video bytes qua Supabase;
+- không cron;
+- browser/player phát trực tiếp URL media từ TikTok CDN khi có thể.
+
+Mục tiêu của rule này là vừa đúng dữ liệu, vừa giảm request, latency, egress và log. Nếu `status=2` nhưng media trong cùng response rỗng thì báo thiếu media của **lần check đó**; không tự fan-out sang nhiều nguồn trong cùng action.
+
 ### 1.3. Ngoại lệ truy vấn trực tiếp
 
 Chỉ các hành động có chủ ý của người dùng mới được gọi API trực tiếp:

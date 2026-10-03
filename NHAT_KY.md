@@ -844,3 +844,16 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - MAIN TikTok vẫn bị khóa bằng `TIKTOK_UI_ENABLED=false`; demo độc lập.
 - Demo URL: `https://yt.taphoa.xyz/tiktok-live-cloud-demo.html`.
 - Rollback: revert `a81055a6d01d19ba73f6a58ea5bfac1814c75a15`.
+
+
+## 2026-10-04 — Khóa kiến trúc TikTok LIVE direct Cloud → TikTok
+
+- Chốt lại cơ chế đúng sau khi đối chiếu lịch sử trước khoảng 02:00 giờ Việt Nam.
+- TikTok LIVE targeted check phải dùng đúng một request Cloudflare → TikTok `/api-live/user/room`.
+- `status=2` thì lấy FLV/HLS ngay trong cùng `liveRoom.streamData / pull_data`.
+- UI nhận item đã có link và click phát trực tiếp.
+- Cấm Render LIVE resolver, `resolveTikTokLiveEdge()` vòng hai, probe HEAD/GET trước render và click-to-resolve.
+- Không full scan khi chỉ test/mở một handle; không cron/background discovery.
+- Render chỉ còn profile/video-list/VOD metadata; Supabase không truyền media bytes.
+- Các mô tả TikTok LIVE cũ có nhiều tầng trong CURRENT_WORK 3.21/3.22 được supersede bởi rule 3.23.
+- Đây là **docs/rule lock**, chưa tuyên bố runtime production đã được sửa theo rule này.

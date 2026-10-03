@@ -86,6 +86,28 @@ Bắt buộc áp dụng `README_NO_WAIT_WORKFLOW.md`:
 - **Nhật ký:** `NHAT_KY.md`.
 - **Rollback/checkpoint:** `CHECKPOINT.md`.
 
+## 1.1. TikTok LIVE — rule khóa direct Cloud/TikTok
+
+TikTok LIVE là ngoại lệ realtime riêng và phải giữ luồng ngắn nhất:
+
+```text
+Cloudflare → TikTok /api-live/user/room
+status=2 → đọc FLV/HLS ngay từ liveRoom.streamData / pull_data
+→ trả thẳng cho browser/player
+```
+
+Bắt buộc:
+- một targeted check chỉ gọi TikTok user-room một lần;
+- LIVE link lấy từ **chính response xác định status=2**;
+- không qua Render để tìm/resolve LIVE;
+- không resolver/probe lần hai trước khi render;
+- không HEAD/GET media chỉ để quyết định có hiển thị LIVE;
+- click LIVE không được kích hoạt một quy trình “tìm link” mới;
+- không full-scan nếu thao tác chỉ liên quan một handle;
+- Render vẫn là owner profile/video-list/VOD metadata, không phải owner của TikTok LIVE direct link.
+
+Nếu code hiện tại khác rule này, coi đó là regression kiến trúc và sửa về direct path trước khi thêm fallback mới.
+
 ## 2. Trước mọi lần sửa
 
 1. **Bắt buộc đọc `CURRENT_WORK.md` trước** để biết incident/trạng thái/commit/runtime gần nhất. Không được sửa chỉ dựa vào trí nhớ hội thoại.

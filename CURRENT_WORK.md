@@ -86,6 +86,47 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.23. KHÓA KIẾN TRÚC — TikTok LIVE direct từ API TikTok qua Cloud
+
+Thời gian: **2026-10-04**.
+
+Đây là rule **bắt buộc** cho TikTok LIVE từ mốc này:
+
+```text
+UI nhập/mở đúng 1 handle TikTok
+→ Cloudflare gọi TikTok /api-live/user/room đúng 1 lần
+→ đọc liveRoom.status
+→ status=2: lấy luôn FLV/HLS từ chính liveRoom.streamData / pull_data
+→ trả item LIVE đã có link cho UI
+→ click = phát thẳng link đó
+```
+
+**Cấm làm phức tạp lại luồng LIVE:**
+- không chuyển LIVE qua Render;
+- không gọi Render để lấy link LIVE;
+- không `resolveTikTokLiveEdge()` sau khi đã có `liveRoom`;
+- không gọi API TikTok lần hai chỉ để lấy lại link;
+- không HEAD/GET probe URL rồi mới cho item xuất hiện;
+- không tìm link khi người dùng bấm card;
+- không dùng `/tiktok/live-now` như một bước resolver thứ hai cho targeted check;
+- không quét 171 kênh khi chỉ đang test/mở 1 handle;
+- không cron/background discovery khi không có bề mặt LIVE đang dùng.
+
+Nguồn sự thật cho một targeted LIVE check:
+- TikTok `/api-live/user/room?aid=1988&sourceType=54&uniqueId=<handle>`;
+- `status=2` = LIVE;
+- media lấy **ngay trong cùng response** từ `liveRoom.streamData/pull_data` (FLV/HLS variants);
+- `status=4` = OFFLINE;
+- response UNKNOWN/upstream lỗi không được tự suy thành OFFLINE.
+
+Player:
+- ưu tiên FLV từ response bằng `mpegts.js` khi browser hỗ trợ;
+- Safari/iOS có thể dùng HLS **nếu HLS đã có trong chính response đó**;
+- không đưa media bytes qua Supabase;
+- Render chỉ còn dành cho profile/video-list/VOD metadata khi cần, **không thuộc LIVE direct path**.
+
+Demo hiện tại cần được đưa về đúng rule này trước khi dùng làm chuẩn. Các mô tả cũ ở 3.21/3.22 có `/sweep`, `/tiktok/live-now`, Render LIVE hoặc resolver vòng hai được coi là **superseded** bởi mục 3.23.
+
 ### 3.22. TikTok demo targeted — 1 link / 1 LIVE / 5 VOD
 
 Thời gian: **2026-10-04**.

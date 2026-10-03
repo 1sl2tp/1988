@@ -1,42 +1,51 @@
 # 1988 TikTok LIVE + video edge
 
-Cloudflare Worker control-plane cho TikTok LIVE/VOD. Runtime này là **demand-only**: không có cron discovery và không tự chạy khi không có người dùng mở bề mặt cần dữ liệu.
+## LOCKED LIVE CONTRACT — direct TikTok response only
 
-## Ownership
-
-- Supabase `yt1988_tiktok_channels.selected` là membership canonical của kênh TikTok đã chọn.
-- Render production `https://one988-tiktok-session.onrender.com` giữ session/profile/library và trả membership metadata qua `/tiktok/live-statuses`; Render không phải scheduler LIVE.
-- Cloudflare Worker xác minh LIVE, giữ snapshot/KV nhỏ và thực hiện resolver/relay media TikTok theo request.
-- Browser chỉ gọi scan khi TikTok LIVE đang visible; đóng/ẩn/đổi tab thì không tạo discovery mới.
-
-## LIVE demand flow
+TikTok LIVE phải giữ đúng luồng này:
 
 ```text
-TikTok LIVE visible
-→ GET /sweep (bounded rotation batch, ưu tiên kênh đang LIVE)
-→ TikTok room/status verification
-→ material state changed only: write KV snapshot
-→ GET /tiktok/live-now
-→ UI render TikTok LIVE snapshot
+GET TikTok /api-live/user/room?aid=1988&sourceType=54&uniqueId=<handle>
+→ đọc data.liveRoom
+→ status === 2
+→ collect FLV/HLS trực tiếp từ liveRoom.streamData / pull_data
+→ trả cùng response Cloud cho UI/player
 ```
 
-- `/sweep` kiểm tra tối đa 40 channel cho mỗi demand call; LIVE hiện tại được ưu tiên trước.
-- UI hiện gọi lại khoảng tối đa một lần/phút khi LIVE vẫn visible.
-- Không có browser mở LIVE → không có `/sweep` định kỳ.
-- `/refresh?user=@handle` là targeted check đúng một kênh.
-- Unknown/upstream failure không được xóa last-known-good chỉ vì một probe lỗi.
+Không được thêm lại vào LIVE targeted path:
+- Render LIVE resolver;
+- `resolveTikTokLiveEdge()` sau status check;
+- TikTok API call thứ hai để lấy media;
+- HEAD/GET probe media trước khi trả item;
+- `/tiktok/live-now` như resolver trung gian cho một handle vừa check;
+- click-to-resolve;
+- full sweep khi user chỉ check một handle.
 
-## Video fingerprint
+`status=4` = OFFLINE. UNKNOWN/upstream failure = UNKNOWN, không tự đổi thành OFFLINE.
 
-Video change detection dùng TikTok `api/post/item_list?count=1` và chỉ giữ latest video ID trong KV state. Mỗi demand sweep xoay tối đa 6 channel cho fingerprint; đây **không phải cron nền**. Khi fingerprint thực sự đổi, Worker mới wake targeted Render refresh cho channel đó.
+Player dùng FLV bằng `mpegts.js`; HLS chỉ là lựa chọn native khi HLS đã có trong **cùng user-room response**. Media bytes không qua Supabase. Render chỉ phục vụ profile/video-list/VOD metadata khi cần.
+
+## Runtime ownership
+
+- Cloudflare: targeted TikTok LIVE status + direct media URL từ cùng TikTok response.
+- TikTok CDN: media bytes.
+- Render: profile/video list/VOD metadata; **không tham gia đường LIVE direct**.
+- Supabase: canonical metadata/state khi cần; **không proxy LIVE media**.
+
+## Demand-only
+
+- Không cron.
+- Không có người dùng/bề mặt LIVE → không discovery.
+- Một input/handle → một targeted check.
+- Không fan-out ẩn.
 
 ## VOD/media
 
-Worker còn có các đường TikTok origin/resolver/relay theo request, gồm `/tiktok/video-origin`, `/tiktok/video-direct`, `/tiktok/video-stream` và các helper liên quan. Media bytes không đi qua Supabase.
+VOD là nhánh khác hoàn toàn với LIVE. Worker có thể giữ các đường VOD resolver/relay theo request như `/tiktok/video-stream`, nhưng các resolver VOD không được tái sử dụng để làm phức tạp TikTok LIVE.
 
 ## Deploy guard
 
 - `wrangler.toml` bắt buộc `crons = []`.
 - Worker không được export `scheduled()`.
-- Workflow `deploy-tiktok-live-state-edge.yml` sau deploy chủ động PUT schedules về `[]` và verify Cloudflare trả schedule count = 0.
-- Contract `demand-only-contract.test.cjs` khóa ba điều trên để cron không thể vô tình quay lại.
+- Workflow deploy phải verify schedule count = 0.
+- Contract test phải khóa direct LIVE rule nêu trên.
