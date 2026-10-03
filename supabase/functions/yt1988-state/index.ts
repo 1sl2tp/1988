@@ -543,7 +543,7 @@ Deno.serve(async (req) => {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 7000);
             const response = await fetch(
-              supabaseUrl + "/functions/v1/yt1988?action=channel&id=" + encodeURIComponent(id),
+              supabaseUrl + "/functions/v1/yt1988?action=channel&id=" + encodeURIComponent(id) + "&profile=1",
               {
                 signal: controller.signal,
                 headers: {
@@ -615,7 +615,7 @@ Deno.serve(async (req) => {
               handle,
               description,
               verified: data?.verified === true,
-              verified_known: typeof data?.verified === "boolean",
+              verified_known: data?.verifiedKnown === true || typeof data?.verified === "boolean",
               subscriber_count: subscriberCount,
               view_count: viewCount,
               video_count: videoCount,
