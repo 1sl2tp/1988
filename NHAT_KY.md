@@ -619,7 +619,10 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - suggestion identity upsert canonical directory trước;
   - source-state suggestion row chỉ ID/state.
 - `yt1988-refresh v31` ACTIVE.
-- Production probes enqueued:
-  - pg_net 585 = no-view;
-  - pg_net 586 = `?view=lite`.
+- Production probes:
+  - pg_net 585 = no-view → HTTP 200, 24,781 bytes, `view=lite`;
+  - pg_net 586 = `?view=lite` → HTTP 200, 24,781 bytes, `view=lite`;
+  - no-view và lite có cùng shape/size, xác nhận default/full fallback không còn đi full-library path.
+- Frontend contract + Pages/custom-domain deploy run `37141879904`: SUCCESS.
+- PWA cache production: v78.
 - Rule mới: backward compatibility không được phép đồng nghĩa với monolithic full payload; client cũ chỉ nhận compact lite.
