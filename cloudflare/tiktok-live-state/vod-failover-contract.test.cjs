@@ -46,4 +46,9 @@ const tikwm=worker.slice(tikwmStart,tikwmEnd);
 assert.match(tikwm,/body\.hdplay \|\| body\.play \|\| ""/);
 assert.doesNotMatch(tikwm,/wmplay/);
 
+assert.match(worker,/function vodPickTTDownloaderVideoUrl\(html\)/);
+assert.match(worker,/no\[\\s_-\]\*watermark/);
+assert.match(worker,/high\[\\s_-\]\*quality/);
+assert.match(worker,/const mediaUrl=vodPickTTDownloaderVideoUrl\(text\)/);
+
 console.log('tiktok VOD failover contract ok');
