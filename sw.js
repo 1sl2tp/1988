@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-simple-media-v46';
+const CACHE='1988-simple-media-v47';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const TIKTOK_IMAGE_CACHE='1988-tiktok-image-assets-v1';
 const TIKTOK_IMAGE_CACHE_MAX=480;
@@ -127,7 +127,6 @@ async function cacheAvatarUrls(urls=[]){
 const SHELL=[
   './',
   './index.html',
-  './pip-simple-proof.html',
   './manifest.webmanifest',
   './src/api.js',
   './src/media-meta.js',
