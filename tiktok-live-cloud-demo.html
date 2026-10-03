@@ -46,10 +46,10 @@
       <div class="body">
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
           <button type="button" data-source="tikwm_hd" class="active">TikWM</button>
-          <button type="button" data-source="tdown">TDown</button>
+          <button type="button" data-source="ttdownloader">TTDownloader</button>
           <button type="button" data-source="bhwa_get">BHWA</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">Auto: TikWM → TDown → BHWA. Mỗi lần chỉ gọi 1 nguồn; lỗi thật mới chuyển nguồn. Luôn ưu tiên chất lượng cao nhất.</div>
+        <div class="sourceinfo" id="sourceInfo">Auto: TikWM → TTDownloader → BHWA. Mỗi lần chỉ gọi 1 nguồn; lỗi thật mới chuyển nguồn. Luôn ưu tiên chất lượng cao nhất.</div>
         <div class="sourceinfo" id="candidateInfo"></div>
         <div class="player">
           <video id="video" playsinline controls></video>
@@ -98,7 +98,7 @@ let vodSeq=0;
 let playerMode="auto";
 let selectedSource="tikwm_hd";
 let currentVodIndex=-1;
-const VOD_AUTO_SOURCES=["tikwm_hd","tdown","bhwa_get"];
+const VOD_AUTO_SOURCES=["tikwm_hd","ttdownloader","bhwa_get"];
 const LIVE_CACHE_MS=60_000;
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
@@ -208,7 +208,7 @@ async function fetchBhwaParse(item,{force=false}={}){
   renderBhwaCandidates(rows);
   return result;
 }
-const EDGE_VOD_SOURCES=new Set(["tdown"]);
+const EDGE_VOD_SOURCES=new Set(["ttdownloader"]);
 function isEdgeVodSource(source){return EDGE_VOD_SOURCES.has(String(source||""))}
 async function resolveVodDirect(item,source,{force=false}={}){
   const cached=!force&&!isEdgeVodSource(source)?readVodLinkCache(item,source):"";
