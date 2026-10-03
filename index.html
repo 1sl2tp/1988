@@ -4124,11 +4124,60 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function channelDirectorySignature(row={}){
-    return [
+    return JSON.stringify([
       String(row?.name||"").trim(),
       String(row?.thumbnailUrl||"").trim(),
-      String(row?.subscribers||"").trim()
-    ].join("\u001f");
+      String(row?.subscribers||"").trim(),
+      String(row?.handle||"").trim(),
+      String(row?.description||"").trim(),
+      row?.verifiedKnown===true||row?.verified_known===true
+        ?(row?.verified===true?"1":"0")
+        :"",
+      Math.max(0,Number(row?.subscriberCount||row?.subscriber_count)||0),
+      Math.max(0,Number(row?.viewCount||row?.view_count)||0),
+      Math.max(0,Number(row?.videoCount||row?.video_count)||0),
+      String(row?.profileUrl||row?.profile_url||"").trim(),
+      String(row?.profileCheckedAt||row?.profile_checked_at||"").trim()
+    ]);
+  }
+
+  function mergeChannelDirectoryRow(previous={},next={}){
+    const verifiedKnown=
+      next?.verifiedKnown===true||
+      next?.verified_known===true||
+      previous?.verifiedKnown===true||
+      previous?.verified_known===true;
+    const nextVerifiedKnown=next?.verifiedKnown===true||next?.verified_known===true;
+
+    return {
+      id:String(next?.id||previous?.id||"").trim(),
+      name:String(next?.name||previous?.name||"").trim(),
+      thumbnailUrl:String(next?.thumbnailUrl||previous?.thumbnailUrl||"").trim(),
+      subscribers:String(next?.subscribers||previous?.subscribers||"").trim(),
+      handle:String(next?.handle||previous?.handle||"").trim(),
+      description:String(next?.description||previous?.description||"").trim(),
+      verified:nextVerifiedKnown
+        ?next?.verified===true
+        :(verifiedKnown?previous?.verified===true:undefined),
+      verifiedKnown,
+      subscriberCount:Math.max(
+        0,
+        Number(next?.subscriberCount)||Number(previous?.subscriberCount)||0
+      ),
+      viewCount:Math.max(
+        0,
+        Number(next?.viewCount)||Number(previous?.viewCount)||0
+      ),
+      videoCount:Math.max(
+        0,
+        Number(next?.videoCount)||Number(previous?.videoCount)||0
+      ),
+      profileUrl:String(next?.profileUrl||previous?.profileUrl||"").trim(),
+      profileCheckedAt:String(
+        next?.profileCheckedAt||previous?.profileCheckedAt||""
+      ).trim(),
+      source:String(next?.source||previous?.source||"metadata").trim()
+    };
   }
 
   function applyChannelDirectoryLocal(row={}){
@@ -4162,10 +4211,88 @@ html.tiktok-ui.tiktok-watch .rows{
     }
     if(subscribers)current.subscribers=subscribers;
 
+    const key=channelLibraryKey("youtube",id);
+    const existing=channelLibraryByKey.get(key)||{};
+    const existingAvatar=String(
+      existing?.avatar?.url||
+      existing?.avatar?.storedUrl||
+      existing?.avatar?.sourceUrl||
+      ""
+    ).trim();
+    const avatar=thumbnailUrl||existingAvatar;
+    const verifiedKnown=
+      row?.verifiedKnown===true||
+      row?.verified_known===true||
+      existing?.verification?.known===true;
+    const verified=
+      row?.verifiedKnown===true||row?.verified_known===true
+        ?row?.verified===true
+        :existing?.verified===true;
+    const stats={
+      ...(existing?.stats&&typeof existing.stats==="object"?existing.stats:{}),
+      followers:
+        Math.max(0,Number(row?.subscriberCount)||0)||
+        Number(existing?.stats?.followers)||0,
+      subscribers:
+        Math.max(0,Number(row?.subscriberCount)||0)||
+        Number(existing?.stats?.subscribers)||0,
+      subscriberText:
+        subscribers||
+        String(existing?.stats?.subscriberText||""),
+      views:
+        Math.max(0,Number(row?.viewCount)||0)||
+        Number(existing?.stats?.views)||0,
+      videos:
+        Math.max(0,Number(row?.videoCount)||0)||
+        Number(existing?.stats?.videos)||0
+    };
+
+    channelLibraryByKey.set(key,{
+      ...existing,
+      key,
+      platform:"youtube",
+      id,
+      userId:id,
+      handle:String(row?.handle||existing?.handle||"").trim(),
+      name:name||String(existing?.name||"").trim(),
+      description:String(row?.description||existing?.description||"").trim(),
+      profileUrl:String(
+        row?.profileUrl||
+        existing?.profileUrl||
+        ("https://www.youtube.com/channel/"+id)
+      ).trim(),
+      avatar:{
+        ...(existing?.avatar&&typeof existing.avatar==="object"?existing.avatar:{}),
+        url:avatar,
+        sourceUrl:avatar,
+        storedUrl:String(existing?.avatar?.storedUrl||"").trim()
+      },
+      verified:verifiedKnown?verified:null,
+      verification:{
+        ...(existing?.verification&&typeof existing.verification==="object"
+          ?existing.verification:{}),
+        known:verifiedKnown,
+        verified:verifiedKnown?verified:null,
+        badge:verified===true?"verified":""
+      },
+      badges:verified===true?["verified"]:[],
+      stats,
+      source:String(row?.source||existing?.source||"metadata").trim(),
+      checkedAt:String(row?.profileCheckedAt||existing?.checkedAt||"").trim()||null,
+      updatedAt:new Date().toISOString()
+    });
+
     const known=sourceIdentityCache.get(id)||{};
     sourceIdentityCache.set(id,{
+      ...known,
       sourceName:name||String(known.sourceName||"").trim(),
-      sourceAvatar:thumbnailUrl||String(known.sourceAvatar||"").trim()
+      sourceAvatar:avatar||String(known.sourceAvatar||"").trim(),
+      sourceVerified:verified===true,
+      sourceStats:stats,
+      sourceHandle:String(row?.handle||known?.sourceHandle||"").trim(),
+      sourceProfileUrl:String(
+        row?.profileUrl||known?.sourceProfileUrl||""
+      ).trim()
     });
     return true;
   }
@@ -4201,19 +4328,56 @@ html.tiktok-ui.tiktok-watch .rows{
     const id=String(meta?.sourceId||"").trim();
     if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
 
+    const verifiedKnown=
+      meta?.sourceVerifiedKnown===true||
+      meta?.verifiedKnown===true||
+      meta?.verified_known===true;
     const row={
       id,
       name:String(meta?.sourceName||"").replace(/\s+/g," ").trim().slice(0,180),
       thumbnailUrl:String(meta?.sourceAvatar||"").trim().slice(0,1000),
       subscribers:String(
         meta?.sourceSubscribers||
+        meta?.subscriberText||
         meta?.subscribers||
-        meta?.subscriberCount||
         ""
       ).replace(/\s+/g," ").trim().slice(0,120),
+      handle:String(meta?.sourceHandle||meta?.handle||"").replace(/^@/,"").trim().slice(0,120),
+      description:String(meta?.sourceDescription||meta?.description||"").replace(/\s+/g," ").trim().slice(0,2000),
+      verified:verifiedKnown
+        ?(meta?.sourceVerified===true||meta?.verified===true)
+        :undefined,
+      verifiedKnown,
+      subscriberCount:Math.max(
+        0,
+        Number(meta?.sourceSubscriberCount)||
+        Number(meta?.subscriberCount)||
+        0
+      ),
+      viewCount:Math.max(
+        0,
+        Number(meta?.sourceViewCount)||
+        Number(meta?.channelViewCount)||
+        0
+      ),
+      videoCount:Math.max(
+        0,
+        Number(meta?.sourceVideoCount)||
+        Number(meta?.channelVideoCount)||
+        0
+      ),
+      profileUrl:String(meta?.sourceProfileUrl||meta?.profileUrl||"").trim().slice(0,1000),
+      profileCheckedAt:String(
+        meta?.sourceProfileCheckedAt||
+        meta?.profileCheckedAt||
+        ""
+      ).trim(),
       source:String(source||"metadata").replace(/\s+/g," ").trim().slice(0,80)
     };
-    if(!row.name&&!row.thumbnailUrl&&!row.subscribers)return false;
+    if(
+      !row.name&&!row.thumbnailUrl&&!row.subscribers&&!row.handle&&
+      !row.description&&!row.profileUrl&&!row.profileCheckedAt
+    )return false;
 
     applyChannelDirectoryLocal(row);
 
@@ -4221,19 +4385,13 @@ html.tiktok-ui.tiktok-watch .rows{
     if(channelDirectorySentSig.get(id)===sig)return true;
 
     const previous=channelDirectoryPending.get(id)||{};
-    const merged={
-      id,
-      name:row.name||String(previous.name||""),
-      thumbnailUrl:row.thumbnailUrl||String(previous.thumbnailUrl||""),
-      subscribers:row.subscribers||String(previous.subscribers||""),
-      source:row.source||String(previous.source||"metadata")
-    };
-    channelDirectoryPending.set(id,merged);
+    channelDirectoryPending.set(id,mergeChannelDirectoryRow(previous,row));
 
     clearTimeout(channelDirectoryFlushTimer);
+    const discovery=/^(?:live|search)/i.test(String(source||""));
     channelDirectoryFlushTimer=setTimeout(()=>{
       void flushYoutubeChannelDirectory();
-    },900);
+    },discovery?120:900);
     return true;
   }
 
@@ -4270,13 +4428,10 @@ html.tiktok-ui.tiktok-watch .rows{
       }catch(_){
         for(const row of batch){
           const existing=channelDirectoryPending.get(row.id)||{};
-          channelDirectoryPending.set(row.id,{
-            id:row.id,
-            name:String(existing.name||row.name||""),
-            thumbnailUrl:String(existing.thumbnailUrl||row.thumbnailUrl||""),
-            subscribers:String(existing.subscribers||row.subscribers||""),
-            source:String(existing.source||row.source||"metadata")
-          });
+          channelDirectoryPending.set(
+            row.id,
+            mergeChannelDirectoryRow(row,existing)
+          );
         }
         return false;
       }finally{
@@ -4297,8 +4452,109 @@ html.tiktok-ui.tiktok-watch .rows{
   // missing identity in the background and persist it into the shared library.
   const discoveredYoutubeHydrationPending=new Map();
   const discoveredYoutubeHydrationQueue=[];
+  const discoveredYoutubeProfilePending=new Map();
+  const discoveredYoutubeProfileDone=new Set();
   let discoveredYoutubeHydrationWorkers=0;
   const DISCOVERED_YOUTUBE_HYDRATION_CONCURRENCY=4;
+
+  function youtubeProfileNeedsHydration(sourceId=""){
+    sourceId=String(sourceId||"").trim();
+    if(!/^UC[A-Za-z0-9_-]+$/.test(sourceId))return false;
+    const canonical=channelLibraryEntry("youtube",sourceId);
+    const avatar=String(
+      canonical?.avatar?.url||
+      canonical?.avatar?.sourceUrl||
+      ""
+    ).trim();
+    return (
+      !canonical||
+      !String(canonical?.name||"").trim()||
+      !avatar||
+      !String(canonical?.checkedAt||"").trim()
+    );
+  }
+
+  async function hydrateYoutubeDiscoveredChannelProfile(meta={},source="discovery"){
+    const sourceId=String(meta?.sourceId||"").trim();
+    if(
+      !/^UC[A-Za-z0-9_-]+$/.test(sourceId)||
+      !window.YT1988_API?.channel
+    )return false;
+
+    if(
+      discoveredYoutubeProfileDone.has(sourceId)&&
+      !youtubeProfileNeedsHydration(sourceId)
+    )return true;
+    if(discoveredYoutubeProfilePending.has(sourceId)){
+      return discoveredYoutubeProfilePending.get(sourceId);
+    }
+
+    const task=(async()=>{
+      try{
+        const payload=await window.YT1988_API.channel(sourceId,true);
+        const profile=dataRow(payload);
+        if(!profile||typeof profile!=="object")return false;
+
+        const avatar=String(
+          profile?.avatarUrl||
+          profile?.thumbnailUrl||
+          profile?.avatar||
+          meta?.sourceAvatar||
+          ""
+        ).trim();
+        const name=String(
+          profile?.name||
+          profile?.channelName||
+          meta?.sourceName||
+          ""
+        ).replace(/\s+/g," ").trim();
+
+        const enriched={
+          ...meta,
+          provider:"youtube",
+          sourceId,
+          sourceName:name,
+          sourceAvatar:avatar,
+          sourceSubscribers:String(
+            profile?.subscriberText||
+            meta?.sourceSubscribers||
+            ""
+          ).trim(),
+          sourceSubscriberCount:Math.max(0,Number(profile?.subscriberCount)||0),
+          sourceViewCount:Math.max(0,Number(profile?.viewCount)||0),
+          sourceVideoCount:Math.max(0,Number(profile?.videoCount)||0),
+          sourceHandle:String(profile?.handle||"").replace(/^@/,"").trim(),
+          sourceDescription:String(profile?.description||"").trim(),
+          sourceProfileUrl:String(
+            profile?.profileUrl||
+            ("https://www.youtube.com/channel/"+sourceId)
+          ).trim(),
+          sourceVerified:profile?.verified===true,
+          sourceVerifiedKnown:profile?.verifiedKnown===true,
+          sourceProfileCheckedAt:new Date().toISOString()
+        };
+
+        if(name)meta.sourceName=name;
+        if(avatar)meta.sourceAvatar=avatar;
+
+        applySourceIdentityToVideo(meta?.id,{
+          sourceId,
+          sourceName:name,
+          sourceAvatar:avatar
+        });
+        queueYoutubeChannelDirectory(enriched,source+"-profile");
+        return true;
+      }catch(_){
+        return false;
+      }finally{
+        discoveredYoutubeProfilePending.delete(sourceId);
+        discoveredYoutubeProfileDone.add(sourceId);
+      }
+    })();
+
+    discoveredYoutubeProfilePending.set(sourceId,task);
+    return task;
+  }
 
   function youtubeDiscoveryNeedsHydration(meta={}){
     if(String(meta?.provider||"youtube").toLowerCase()!=="youtube")return false;
@@ -4347,14 +4603,23 @@ html.tiktok-ui.tiktok-watch .rows{
 
         const identity={sourceId,sourceName,sourceAvatar};
         applySourceIdentityToVideo(id,identity);
-        queueYoutubeChannelDirectory({
+        const discoveredMeta={
           ...full,
           ...meta,
           provider:"youtube",
           sourceId,
           sourceName,
           sourceAvatar
-        },source);
+        };
+        queueYoutubeChannelDirectory(discoveredMeta,source);
+
+        // A newly discovered LIVE/search channel is promoted immediately into
+        // the canonical library. The visible card gets whatever identity the
+        // video endpoint already knows, while a channel-profile request fills
+        // avatar/stats/verification in the background and persists them.
+        if(sourceId&&youtubeProfileNeedsHydration(sourceId)){
+          void hydrateYoutubeDiscoveredChannelProfile(discoveredMeta,source);
+        }
         return true;
       }catch(_){
         return false;
@@ -4392,7 +4657,16 @@ html.tiktok-ui.tiktok-watch .rows{
       seen.add(id);
 
       // Complete identities still go straight into the persistent directory.
+      // If this is a previously unseen channel, also fetch its full profile once
+      // so later UI surfaces only have to read the canonical library.
+      const sourceId=String(meta?.sourceId||"").trim();
       queueYoutubeChannelDirectory(meta,source);
+      if(
+        /^UC[A-Za-z0-9_-]+$/.test(sourceId)&&
+        youtubeProfileNeedsHydration(sourceId)
+      ){
+        void hydrateYoutubeDiscoveredChannelProfile(meta,source);
+      }
       if(!youtubeDiscoveryNeedsHydration(meta))continue;
       if(discoveredYoutubeHydrationPending.has(id))continue;
       if(discoveredYoutubeHydrationQueue.some(job=>String(job?.meta?.id||"")===id))continue;
