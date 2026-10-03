@@ -98,6 +98,16 @@ Khi mở web:
 
 **LIVE Cloudflare không được có cron schedule.** Runtime production phải giữ schedule count = 0; nhiều browser chỉ được join/reuse work hiện có hoặc bị lease/dedupe chặn, không tạo crawler độc lập.
 
+### 1.2.2. Một LIVE event chỉ có một wake owner
+
+- Full LIVE scan: Cloudflare là realtime owner.
+- Snapshot Cloudflare thay đổi → Cloudflare wake `yt1988-refresh(live)`.
+- Browser recurring scan/focus chỉ đợi manifest/hash; không wake package lần hai.
+- Source edit: `yt1988-state` ghi canonical row → targeted Cloudflare sync đúng một channel.
+- Targeted snapshot thay đổi → Cloudflare wake LIVE package.
+- Non-LIVE source edit chỉ refresh package của scope vừa sửa.
+- `tab-open` YouTube LIVE được phép một catch-up wake để sửa package stale; các vòng sau không lặp wake.
+
 ### 1.3. Ngoại lệ truy vấn trực tiếp
 
 Chỉ các hành động có chủ ý của người dùng mới được gọi API trực tiếp:
@@ -109,6 +119,8 @@ Chỉ các hành động có chủ ý của người dùng mới được gọi 
 - thao tác quản lý nguồn.
 
 Không biến những hành động này thành polling nền.
+
+**Direct action không được fan-out ẩn:** search/channel result có 20 card không được tự tạo 20 resolver/meta jobs. Chỉ reuse cache; metadata thiếu được resolve khi người dùng thật sự mở item cần nó.
 
 ## 2. Lịch tải / refresh chuẩn
 
