@@ -148,7 +148,10 @@ if(simpleProduction){
   assert.match(html,/html\.viewer-active\.one-col \.media-col[\s\S]{0,360}position:relative!important/);
   assert.match(html,/657–999px keeps the header in document\/sticky flow[\s\S]{0,260}padding:0!important/);
   assert.match(html,/Only the <=656px breakpoint uses fixed top chrome[\s\S]{0,260}html\.viewer-active\.one-col main[\s\S]{0,120}padding:var\(--top-boundary\) 0 0!important/);
-  assert.match(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,360}border-radius:var\(--floating-radius\) var\(--floating-radius\) 0 0!important/);
+  assert.match(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,360}width:min\(calc\(100% - 32px\),480px\)!important/);
+  assert.match(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,420}margin-left:auto!important[\s\S]{0,120}margin-right:auto!important/);
+  assert.match(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,520}border-radius:var\(--floating-radius\)!important/);
+  assert.doesNotMatch(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,360}border-radius:var\(--floating-radius\) var\(--floating-radius\) 0 0!important/);
   assert.match(html,/html\.viewer-active\.one-col \.rows[\s\S]{0,180}grid-template-columns:minmax\(0,1fr\)!important/);
   assert.match(html,/Desktop watch uses the right side as a queue/);
   assert.match(html,/scrolling must never create a floating player/);
