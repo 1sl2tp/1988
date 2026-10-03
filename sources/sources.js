@@ -32,6 +32,78 @@ const PIN="8881";
 const AUTH_KEY="1988-sources-auth-8881-v2";
 const UI_EVENT_KEY="1988-source-ui-event-v1";
 const LOCAL_RESET_EVENT_KEY="1988-local-reset-event-v1";
+const SOURCE_CACHE_DB="yt1988-source-cache-v1";
+const SOURCE_CACHE_STORE="entries";
+let sourceCacheDbPromise=null;
+
+function openSourceCacheDb(){
+  if(sourceCacheDbPromise)return sourceCacheDbPromise;
+  sourceCacheDbPromise=new Promise((resolve,reject)=>{
+    if(!("indexedDB" in window)){
+      reject(new Error("indexeddb_unavailable"));
+      return;
+    }
+    const request=indexedDB.open(SOURCE_CACHE_DB,1);
+    request.onupgradeneeded=()=>{
+      const db=request.result;
+      if(!db.objectStoreNames.contains(SOURCE_CACHE_STORE)){
+        db.createObjectStore(SOURCE_CACHE_STORE,{keyPath:"key"});
+      }
+    };
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error||new Error("source_cache_open_failed"));
+  }).catch(error=>{
+    sourceCacheDbPromise=null;
+    throw error;
+  });
+  return sourceCacheDbPromise;
+}
+
+async function readSourceCache(key){
+  try{
+    const db=await openSourceCacheDb();
+    return await new Promise((resolve,reject)=>{
+      const tx=db.transaction(SOURCE_CACHE_STORE,"readonly");
+      const req=tx.objectStore(SOURCE_CACHE_STORE).get(String(key));
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>reject(req.error||new Error("source_cache_read_failed"));
+    });
+  }catch{
+    return null;
+  }
+}
+
+async function writeSourceCache(key,value){
+  try{
+    const db=await openSourceCacheDb();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(SOURCE_CACHE_STORE,"readwrite");
+      tx.objectStore(SOURCE_CACHE_STORE).put({
+        key:String(key),
+        value,
+        updatedAt:Date.now()
+      });
+      tx.oncomplete=()=>resolve(true);
+      tx.onerror=()=>reject(tx.error||new Error("source_cache_write_failed"));
+      tx.onabort=()=>reject(tx.error||new Error("source_cache_write_aborted"));
+    });
+    return true;
+  }catch{
+    return false;
+  }
+}
+
+function mergeSourceRemote(liteState={},libraryPayload={},manifest={}){
+  const remote={
+    ...(liteState&&typeof liteState==="object"?liteState:{}),
+    channelLibrary:Array.isArray(libraryPayload?.channelLibrary)
+      ?libraryPayload.channelLibrary
+      :[],
+    channelLibraryVersion:String(manifest?.libraryHash||libraryPayload?.libraryHash||"")
+  };
+  return remote;
+}
+
 const SYSTEM_SCOPES=[
   {key:"live",label:"Live"},
   {key:"latest",label:"Ngày"},
@@ -264,10 +336,13 @@ function setLocalStatus(id,status,scope){
   if(status==="blocked")ensureArray(state.remote.scopedBlocked,scope).push(id);
 }
 
-function stateFetch(method="GET",body,{timeout=9000}={}){
+function stateFetch(method="GET",body,{timeout=9000,view=""}={}){
   const controller=typeof AbortController==="function"?new AbortController():null;
   const timer=setTimeout(()=>controller?.abort(),timeout);
-  return fetch(STATE_URL,{
+  const url=view
+    ?STATE_URL+"?view="+encodeURIComponent(view)
+    :STATE_URL;
+  return fetch(url,{
     method,
     cache:"no-store",
     signal:controller?.signal,
@@ -955,6 +1030,7 @@ async function writeStatus(id,status,scope=state.scope){
     };
     try{bc?.postMessage(event)}catch{}
     try{localStorage.setItem(UI_EVENT_KEY,JSON.stringify(event))}catch{}
+    void writeSourceCache("manifest",{});
     return true;
   }catch(error){
     state.remote.scopedSelected=state.remote.scopedSelected||{};
@@ -977,9 +1053,14 @@ async function writeStatus(id,status,scope=state.scope){
 async function savePresentationState(){
   if(!state.remote)return false;
 
+  const {
+    channelLibrary:_channelLibrary,
+    channelLibraryVersion:_channelLibraryVersion,
+    ...remotePresentation
+  }=state.remote||{};
   const next={
-    ...state.remote,
-    sourceLabels:{...(state.remote.sourceLabels||{})}
+    ...remotePresentation,
+    sourceLabels:{...(state.remote?.sourceLabels||{})}
   };
 
   if(state.keywords.length)next.sourceLabels.__live_keywords=state.keywords.join("\n");
@@ -998,9 +1079,6 @@ async function savePresentationState(){
 }
 
 async function loadState(){
-  // Paint the shell immediately so the page never looks frozen while the
-  // network state is loading. GET is read-only/public; writes still use the
-  // admin PIN header in stateFetch().
   state.remote=state.remote||{};
   state.scopes=scopeList(state.remote);
   state.scope=state.scopes.some(s=>s.key===state.scope)
@@ -1013,8 +1091,67 @@ async function loadState(){
   updateSearchBack();
   if(el.searchStatus)el.searchStatus.textContent="Đang tải dữ liệu nguồn…";
 
-  const result=await stateFetch("GET",null,{timeout:9000});
-  state.remote=result.state||{};
+  const [cachedManifestRow,cachedLiteRow,cachedLibraryRow]=await Promise.all([
+    readSourceCache("manifest"),
+    readSourceCache("lite"),
+    readSourceCache("library")
+  ]);
+
+  const cachedManifest=cachedManifestRow?.value||{};
+  const cachedLite=cachedLiteRow?.value||{};
+  const cachedLibrary=cachedLibraryRow?.value||{};
+
+  if(cachedLite?.state){
+    state.remote=mergeSourceRemote(
+      cachedLite.state,
+      cachedLibrary,
+      cachedManifest
+    );
+    state.scopes=scopeList(state.remote);
+    state.keywords=clean(state.remote?.sourceLabels?.__live_keywords||"")
+      .split(/\r?\n/)
+      .map(clean)
+      .filter(Boolean);
+
+    const wanted=new URL(location.href).searchParams.get("scope")||"latest";
+    state.scope=state.scopes.some(s=>s.key===wanted)
+      ?wanted
+      :(state.scopes[0]?.key||"latest");
+
+    renderScopes();
+    renderColumns();
+    renderSearch();
+    renderKeywords();
+    updateSearchBack();
+  }
+
+  const manifest=await stateFetch("GET",null,{timeout:7000,view:"manifest"});
+  const stateHash=clean(manifest?.stateHash||"");
+  const libraryHash=clean(manifest?.libraryHash||"");
+
+  let litePayload=cachedLite;
+  if(!litePayload?.state||!stateHash||clean(cachedManifest?.stateHash||"")!==stateHash){
+    litePayload=await stateFetch("GET",null,{timeout:9000,view:"lite"});
+    await writeSourceCache("lite",litePayload);
+  }
+
+  let libraryPayload=cachedLibrary;
+  if(
+    !Array.isArray(libraryPayload?.channelLibrary)||
+    !libraryHash||
+    clean(cachedManifest?.libraryHash||"")!==libraryHash
+  ){
+    libraryPayload=await stateFetch("GET",null,{timeout:12000,view:"library"});
+    await writeSourceCache("library",libraryPayload);
+  }
+
+  await writeSourceCache("manifest",manifest);
+
+  state.remote=mergeSourceRemote(
+    litePayload?.state||{},
+    libraryPayload||{},
+    manifest
+  );
   state.scopes=scopeList(state.remote);
   state.keywords=clean(state.remote?.sourceLabels?.__live_keywords||"")
     .split(/\r?\n/)
@@ -1528,6 +1665,9 @@ qs("#resetLocal").addEventListener("click",async()=>{
       if(key.startsWith("1988-"))await caches.delete(key);
     }
   }
+  try{
+    indexedDB.deleteDatabase(SOURCE_CACHE_DB);
+  }catch{}
 
   location.reload();
 });
