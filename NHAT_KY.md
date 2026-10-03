@@ -340,3 +340,27 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Data impact: không đổi Supabase/Cloudflare data, không sửa package builder.
 - Rollback: `d3c08aeab7fb757d55dec19330b4ca55e4f87672`.
 - Rule: package đúng mà UI thiếu → chỉ kiểm tra hash/cache/swap; không sửa discovery/backend identity.
+
+
+## 2026-10-03 — Thêm NO-WAIT workflow bắt buộc
+
+- Mục tiêu: không để repair/deploy/probe bị đứng chờ thụ động hoặc tự tạo giới hạn do retry/polling/job trùng.
+- Tạo `README_NO_WAIT_WORKFLOW.md`.
+- Quy tắc chính:
+  - job/lease/deploy đang chạy → không tạo job thứ hai;
+  - còn việc độc lập → làm tiếp ngay, không trả lời “đợi”;
+  - cùng một cơ chế fail 2 lần → dừng retry mù, đổi owner/runtime hoặc rollback;
+  - quota/429/403/CAPTCHA → dừng spam request, dùng batch/cache/fallback và đúng runtime owner;
+  - không full-scan để chữa một lỗi mẫu;
+  - timeout hữu hạn + last-known-good;
+  - không hỏi lại nếu yêu cầu đã đủ rõ, patch nhỏ, rollback được và không destructive;
+  - hard limit là constraint thiết kế, không được né bằng fan-out/job/account song song.
+- `CURRENT_WORK.md` đã thêm file này vào trình tự đọc bắt buộc.
+- `README_MAINTENANCE.md` đã thêm mục NO-WAIT và bắt buộc đọc trước sửa.
+- `README_RESOURCE_GUARDRAILS.md` đã liên kết retry/lease với NO-WAIT rule.
+- Commits:
+  - `5c9ae9e7e5e1a7600c670533e927bffd917c1ab8` — tạo rule;
+  - `823eafce0d2298d6c1b127f919631d6be42c369e` — bắt buộc trong handoff;
+  - `3ffc8f0c68fcd4fb66f196ffc9d2c38b7c795d6c` — Maintenance;
+  - `85a801918d87c3eaefbe2c5d40ca642f0c4a3f3b` — Resource Guardrails.
+- Data/runtime impact: docs-only; không đổi production data/package/API.
