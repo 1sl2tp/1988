@@ -192,19 +192,28 @@ function directScopeSet(kind,scope=state.scope){
   return new Set(Array.isArray(src?.[scope])?src[scope]:[]);
 }
 
-function liveEffectiveSelectedSet(){
-  const blocked=directScopeSet("blocked","live");
-  const selected=new Set();
-
-  // LIVE uses one effective selected library:
-  // 1) channels selected manually in LIVE
-  // 2) every channel selected in any enabled non-LIVE source
-  // 3) LIVE's own blocked list always wins
+function liveEffectiveBlockedSet(){
+  const blocked=new Set(
+    Array.isArray(state.remote?.blocked)?state.remote.blocked.map(String):[]
+  );
   for(const scope of state.scopes){
-    for(const id of directScopeSet("selected",scope.key)){
-      if(!blocked.has(id))selected.add(id);
-    }
+    for(const id of directScopeSet("blocked",scope.key))blocked.add(id);
   }
+  return blocked;
+}
+
+function liveEffectiveSelectedSet(){
+  const blocked=liveEffectiveBlockedSet();
+  const selected=new Set(
+    Array.isArray(state.remote?.selected)?state.remote.selected.map(String):[]
+  );
+
+  // LIVE is the union of every selected source. Any blocked source wins,
+  // exactly matching Cloudflare's stateTargets contract.
+  for(const scope of state.scopes){
+    for(const id of directScopeSet("selected",scope.key))selected.add(id);
+  }
+  for(const id of blocked)selected.delete(id);
   return selected;
 }
 
@@ -214,12 +223,20 @@ function isInheritedLiveSelected(id){
   return liveEffectiveSelectedSet().has(id)&&!directScopeSet("selected","live").has(id);
 }
 
+function isInheritedLiveBlocked(id){
+  id=String(id||"").trim();
+  if(state.scope!=="live"||!id)return false;
+  return liveEffectiveBlockedSet().has(id)&&!directScopeSet("blocked","live").has(id);
+}
+
 function scopeSet(kind,scope=state.scope){
-  if(kind==="selected"&&scope==="live")return liveEffectiveSelectedSet();
+  if(scope==="live"&&kind==="selected")return liveEffectiveSelectedSet();
+  if(scope==="live"&&kind==="blocked")return liveEffectiveBlockedSet();
   return directScopeSet(kind,scope);
 }
 
 function sourceStatus(id,scope=state.scope){
+  if(scope==="live"&&liveEffectiveBlockedSet().has(id))return"blocked";
   if(directScopeSet("blocked",scope).has(id))return"blocked";
   if(scopeSet("selected",scope).has(id))return"selected";
   if(directScopeSet("suggested",scope).has(id))return"suggested";
@@ -388,7 +405,9 @@ function actionLabel(kind){
 
 function cardMarkup(row,kind){
   let actions="";
-  const inherited=kind==="selected"&&isInheritedLiveSelected(row.id);
+  const inherited=
+    (kind==="selected"&&isInheritedLiveSelected(row.id))||
+    (kind==="blocked"&&isInheritedLiveBlocked(row.id));
   if(kind==="suggested"){
     actions=
       '<button class="action-icon select" data-card-action="selected" data-id="'+esc(row.id)+'" title="Chọn" aria-label="Chọn">✓</button>'+
@@ -398,12 +417,16 @@ function cardMarkup(row,kind){
       ?'<button class="action-icon block" data-card-action="blocked" data-id="'+esc(row.id)+'" title="Chặn khỏi Live" aria-label="Chặn khỏi Live">×</button>'
       :'<button class="action-icon remove" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ khỏi nguồn" aria-label="Bỏ khỏi nguồn">×</button>';
   }else{
-    actions=
-      '<button class="action-icon restore" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ chặn" aria-label="Bỏ chặn">↺</button>';
+    actions=inherited
+      ?'<button class="action-icon restore" type="button" disabled title="Đã chặn từ nguồn khác" aria-label="Đã chặn từ nguồn khác">↺</button>'
+      :'<button class="action-icon restore" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ chặn" aria-label="Bỏ chặn">↺</button>';
   }
 
+  const inheritedText=kind==="blocked"
+    ?"Đã chặn từ nguồn khác"
+    :"Đã chọn từ nguồn khác";
   const sub=inherited
-    ?[clean(row.subscribers||""),"Đã có từ nguồn khác"].filter(Boolean).join(" · ")
+    ?[clean(row.subscribers||""),inheritedText].filter(Boolean).join(" · ")
     :clean(row.subscribers||"");
 
   return '<div class="channel-card'+(inherited?' inherited':'')+'" data-card-id="'+esc(row.id)+'">'+
@@ -464,9 +487,10 @@ function searchResultMarkup(row){
     '</button>';
   }
 
-  const inheritedLive=state.scope==="live"&&isInheritedLiveSelected(row.id);
-  const currentAction=inheritedLive?"Đã có":status==="selected"?"Bỏ":"Chọn";
-  const blockAction=status==="blocked"?"Bỏ chặn":"Chặn";
+  const inheritedLiveSelected=state.scope==="live"&&isInheritedLiveSelected(row.id);
+  const inheritedLiveBlocked=state.scope==="live"&&isInheritedLiveBlocked(row.id);
+  const currentAction=inheritedLiveSelected?"Đã chọn từ nguồn khác":status==="selected"?"Bỏ":"Chọn";
+  const blockAction=inheritedLiveBlocked?"Đã chặn từ nguồn khác":status==="blocked"?"Bỏ chặn":"Chặn";
 
   const otherScopes=state.scopes
     .filter(s=>s.key!==state.scope)
@@ -481,8 +505,8 @@ function searchResultMarkup(row){
     media+
     copy+
     '<div class="card-actions">'+
-      '<button class="action-icon select" data-search-select="'+esc(row.id)+'" title="'+esc(currentAction)+'" aria-label="'+esc(currentAction)+'"'+(inheritedLive?' disabled':'')+'>✓</button>'+
-      '<button class="action-icon block" data-search-block="'+esc(row.id)+'" title="'+esc(blockAction)+'" aria-label="'+esc(blockAction)+'">×</button>'+
+      '<button class="action-icon select" data-search-select="'+esc(row.id)+'" title="'+esc(currentAction)+'" aria-label="'+esc(currentAction)+'"'+(inheritedLiveSelected?' disabled':'')+'>✓</button>'+
+      '<button class="action-icon block" data-search-block="'+esc(row.id)+'" title="'+esc(blockAction)+'" aria-label="'+esc(blockAction)+'"'+(inheritedLiveBlocked?' disabled':'')+'>×</button>'+
       '<button class="action-icon more" data-toggle-other="'+esc(row._resultKey||row.id)+'" title="Nguồn khác" aria-label="Nguồn khác">…</button>'+
     '</div>'+
     '<div class="other-sources">'+otherScopes+'</div>'+

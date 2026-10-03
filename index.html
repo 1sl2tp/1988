@@ -8911,13 +8911,9 @@ html.tiktok-ui.tiktok-watch .rows{
     const canViewChannel=Boolean(sourceId||tiktokHandle);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
-    const status=scope?directSourceStatus(sourceId,scope):"normal";
-    const selectLabel=scope
-      ?(status==="selected"?"Bỏ chọn khỏi "+scopeLabel:"Chọn vào "+scopeLabel)
-      :"Chọn vào nguồn…";
-    const blockLabel=scope
-      ?(status==="blocked"?"Bỏ chặn khỏi "+scopeLabel:"Chặn khỏi "+scopeLabel)
-      :"Chặn trong nguồn…";
+    const labels=sourceMenuLabels(sourceId,scope,scopeLabel);
+    const selectLabel=labels.selectLabel;
+    const blockLabel=labels.blockLabel;
 
     videoQuickActions.innerHTML=
       infoActionButton("view-channel","Xem kênh","channel","quick-view")+
@@ -9152,6 +9148,83 @@ html.tiktok-ui.tiktok-watch .rows{
     return "normal";
   }
 
+  function remoteSourceSet(kind){
+    const legacy=Array.isArray(sourceStateRemote?.[kind])
+      ?sourceStateRemote[kind]
+      :[];
+    const scopedKey=kind==="selected"?"scopedSelected":"scopedBlocked";
+    const scoped=
+      sourceStateRemote?.[scopedKey]&&typeof sourceStateRemote[scopedKey]==="object"
+        ?sourceStateRemote[scopedKey]
+        :{};
+    return new Set([
+      ...legacy,
+      ...Object.values(scoped).flatMap(value=>Array.isArray(value)?value:[])
+    ].map(String));
+  }
+
+  function effectiveSourceStatus(sourceId,scope=activePackageScope){
+    sourceId=validSourceId(sourceId);
+    scope=String(scope||"").trim();
+    if(!sourceId||!scope)return "normal";
+    if(scope!=="live")return directSourceStatus(sourceId,scope);
+
+    // LIVE is the union of every selected source. Any blocked source wins,
+    // matching the Cloudflare stateTargets contract.
+    if(remoteSourceSet("blocked").has(sourceId))return "blocked";
+    if(remoteSourceSet("selected").has(sourceId))return "selected";
+    return "normal";
+  }
+
+  function inheritedLiveSourceStatus(sourceId){
+    const effective=effectiveSourceStatus(sourceId,"live");
+    const direct=directSourceStatus(sourceId,"live");
+    return effective!=="normal"&&effective!==direct?effective:"";
+  }
+
+  function sourceStatusSummary(sourceId){
+    sourceId=validSourceId(sourceId);
+    const choices=currentSourceChoices();
+    const selected=[];
+    const blocked=[];
+    for(const row of choices){
+      const direct=directSourceStatus(sourceId,row.key);
+      if(direct==="selected")selected.push(row);
+      if(direct==="blocked")blocked.push(row);
+    }
+    return {selected,blocked};
+  }
+
+  function sourceMenuLabels(sourceId,scope="",scopeLabel=""){
+    sourceId=validSourceId(sourceId);
+    scope=String(scope||"").trim();
+    if(scope){
+      const status=effectiveSourceStatus(sourceId,scope);
+      const inherited=scope==="live"&&Boolean(inheritedLiveSourceStatus(sourceId));
+      return {
+        status,
+        inherited,
+        selectLabel:status==="selected"
+          ?(inherited
+            ?"Đã chọn trong "+scopeLabel+" (kế thừa)…"
+            :"Bỏ chọn khỏi "+scopeLabel)
+          :"Chọn vào "+scopeLabel,
+        blockLabel:status==="blocked"
+          ?(inherited
+            ?"Đã chặn trong "+scopeLabel+" (kế thừa)…"
+            :"Bỏ chặn khỏi "+scopeLabel)
+          :"Chặn khỏi "+scopeLabel
+      };
+    }
+    const summary=sourceStatusSummary(sourceId);
+    return {
+      status:"normal",
+      inherited:false,
+      selectLabel:summary.selected.length?"Đã chọn trong nguồn…":"Chọn vào nguồn…",
+      blockLabel:summary.blocked.length?"Đã chặn trong nguồn…":"Chặn trong nguồn…"
+    };
+  }
+
   function patchLocalSourceStatus(sourceId,status,scope){
     sourceId=validSourceId(sourceId);
     scope=String(scope||"").trim();
@@ -9269,17 +9342,9 @@ html.tiktok-ui.tiktok-watch .rows{
     const canViewChannel=Boolean(sourceId||tiktokHandle);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
-    const status=scope?directSourceStatus(sourceId,scope):"normal";
-    const selectLabel=scope
-      ?(status==="selected"
-        ?"Bỏ chọn khỏi "+scopeLabel
-        :"Chọn vào "+scopeLabel)
-      :"Chọn vào nguồn…";
-    const blockLabel=scope
-      ?(status==="blocked"
-        ?"Bỏ chặn khỏi "+scopeLabel
-        :"Chặn khỏi "+scopeLabel)
-      :"Chặn trong nguồn…";
+    const labels=sourceMenuLabels(sourceId,scope,scopeLabel);
+    const selectLabel=labels.selectLabel;
+    const blockLabel=labels.blockLabel;
 
     const adminActions=hasSourceAdminAccess()
       ?(
@@ -9301,16 +9366,49 @@ html.tiktok-ui.tiktok-watch .rows{
   function showScopePicker(action){
     const menu=ensureRowActionMenu();
     const choices=currentSourceChoices();
+    const sourceId=validSourceId(openRowMenuMeta?.sourceId);
+
+    const rows=choices.map(row=>{
+      const direct=directSourceStatus(sourceId,row.key);
+      const effective=effectiveSourceStatus(sourceId,row.key);
+      const inherited=
+        row.key==="live"&&
+        effective!=="normal"&&
+        direct!==effective;
+
+      let stateLabel="Chưa chọn";
+      if(effective==="selected")stateLabel=inherited?"Đã chọn · kế thừa":"Đã chọn";
+      if(effective==="blocked")stateLabel=inherited?"Đã chặn · kế thừa":"Đã chặn";
+
+      const same=
+        (action==="selected"&&direct==="selected")||
+        (action==="blocked"&&direct==="blocked");
+      const inheritedLocked=
+        inherited&&
+        ((action==="selected"&&effective==="selected")||
+         (action==="blocked"&&effective==="blocked"));
+
+      const nextHint=same
+        ?(action==="selected"?"Bấm để bỏ chọn":"Bấm để bỏ chặn")
+        :(inheritedLocked
+          ?"Thay đổi tại nguồn gốc"
+          :(action==="selected"?"Bấm để chọn":"Bấm để chặn"));
+
+      return '<button class="row-action-item" type="button" role="menuitem" '+
+        'data-row-scope="'+escapeHtml(row.key)+'" '+
+        'data-row-status="'+escapeHtml(action)+'" '+
+        (inheritedLocked?'disabled ':'')+
+        'title="'+escapeHtml(nextHint)+'">'+
+        menuIcon(effective==="blocked"?"block":"select")+
+        '<span>'+escapeHtml(row.label)+' · '+escapeHtml(stateLabel)+'</span>'+
+      '</button>';
+    }).join("");
+
     menu.innerHTML=
       '<div class="row-action-title">'+
-        escapeHtml(action==="selected"?"Chọn vào nguồn":"Không đề xuất trong nguồn")+
+        escapeHtml(action==="selected"?"Trạng thái nguồn":"Trạng thái chặn")+
       '</div>'+
-      choices.map(row=>
-        '<button class="row-action-item" type="button" role="menuitem" data-row-scope="'+escapeHtml(row.key)+'" data-row-status="'+escapeHtml(action)+'">'+
-          menuIcon(action==="selected"?"select":"block")+
-          '<span>'+escapeHtml(row.label)+'</span>'+
-        '</button>'
-      ).join("")+
+      rows+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     revealRowActionMenu(openRowMenuAnchor);
@@ -9460,10 +9558,17 @@ html.tiktok-ui.tiktok-watch .rows{
       try{localStorage.setItem(SOURCE_UI_EVENT_KEY,JSON.stringify(event))}catch{}
 
       closeRowActionMenu();
-      setTimeout(()=>void syncPreparedPackages(
-        scope==="live"?["live"]:[scope,"live"],
-        {refreshManifest:true}
-      ),1200);
+      if(liveDemandActive("youtube")){
+        setTimeout(()=>void syncPreparedScopeAfterWake(
+          "live",
+          [700,1800,4000,8000]
+        ),500);
+      }else if(feedMode==="package"&&activePackageScope===scope){
+        setTimeout(()=>void syncPreparedPackages(
+          [scope],
+          {refreshManifest:true}
+        ),900);
+      }
       return true;
     }catch(error){
       patchLocalSourceStatus(sourceId,previous,scope);
@@ -12368,6 +12473,11 @@ html.tiktok-ui.tiktok-watch .rows{
     const status=String(event.status||"");
     if(!id||!scope||!["selected","blocked","normal"].includes(status))return;
     patchLocalSourceStatus(id,status,scope);
+    if(validSourceId(currentMeta?.sourceId)===id)renderCurrentInfo();
+    if(validSourceId(openRowMenuMeta?.sourceId)===id){
+      const menu=ensureRowActionMenu();
+      if(!menu.hidden)showMainRowActionMenu(openRowMenuMeta,openRowMenuAnchor);
+    }
   }
 
   try{
@@ -12638,11 +12748,14 @@ html.tiktok-ui.tiktok-watch .rows{
       openRowMenuMeta=meta||{};
       openRowMenuAnchor=anchor||videoMenu||null;
       const wanted=kind==="select-source"?"selected":"blocked";
-      if(feedMode==="package"&&activePackageScope){
+      if(feedMode==="package"&&activePackageScope&&activePackageScope!=="live"){
         const currentStatus=directSourceStatus(meta.sourceId,activePackageScope);
         const nextStatus=currentStatus===wanted?"normal":wanted;
         void writeCardSourceStatus(meta,nextStatus,activePackageScope).then(()=>renderCurrentInfo());
       }else{
+        // LIVE is an aggregate of every selected source. Show exact per-scope
+        // state so the user removes/blocks the real owner row instead of
+        // toggling a misleading synthetic LIVE state.
         showScopePicker(wanted);
       }
       return true;

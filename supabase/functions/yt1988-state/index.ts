@@ -8,6 +8,7 @@ const cors = {
 };
 
 const PROFILE = "owner";
+const YOUTUBE_LIVE_EDGE="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const PIN_SHA256 = "fbdf2bdc4b2a45f3508c8ced68098f58375edbf2fe81ec8fe4b113185670939a";
 
 function json(data: unknown, status = 200) {
@@ -122,6 +123,23 @@ function triggerPackageRefresh(supabaseUrl: string, serviceKey: string, scopes: 
     (globalThis as any).EdgeRuntime?.waitUntil?.(task);
   } catch {}
 }
+function triggerLiveSourceSync(channelId: string) {
+  const id = cleanId(channelId);
+  if (!id) return;
+  const task = fetch(
+    YOUTUBE_LIVE_EDGE + "/youtube/live-source-sync?channelId=" + encodeURIComponent(id),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" }
+    }
+  ).catch((error) => {
+    console.warn("live source sync failed", String(error));
+  });
+  try {
+    (globalThis as any).EdgeRuntime?.waitUntil?.(task);
+  } catch {}
+}
+
 function stateRows(state: any) {
   const rows = new Map<string, any>();
   const meta = new Map<string, any>();
@@ -922,6 +940,9 @@ Deno.serve(async (req) => {
         serviceKey,
         scope === "live" ? ["live"] : [scope, "live"]
       );
+      // Source edits are explicit user actions. Sync only this changed channel
+      // into the demand-only LIVE snapshot; do not start a full 249-channel scan.
+      triggerLiveSourceSync(channelId);
       return json({ ok: true, source: saved, version });
     }
 
