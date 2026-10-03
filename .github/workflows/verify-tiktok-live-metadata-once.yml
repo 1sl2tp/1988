@@ -1,5 +1,5 @@
-name: Verify TikTok LIVE metadata once v3
-# manual probe trigger: 2026-10-04 current live count
+name: Verify TikTok LIVE metadata once v4
+# one-live-five-videos probe
 
 on:
   push:
@@ -13,56 +13,71 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 4
     steps:
-      - name: Inspect current TikTok LIVE metadata
+      - name: Find one current LIVE and five videos
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, urllib.request, re
-          url='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/live-now?t=verify'
-          req=urllib.request.Request(url,headers={'User-Agent':'1988-live-metadata-check/1.0','Accept':'application/json'})
-          with urllib.request.urlopen(req,timeout=90) as r:
-              data=json.load(r)
-          items=data.get('items') or []
-          summary=[]
-          for x in items:
-              handle=str(x.get('handle') or '')
-              title=str(x.get('title') or '')
-              source=str(x.get('sourceName') or '')
-              preview=str(x.get('preview') or x.get('cover') or '')
-              avatar=str(x.get('avatar') or '')
-              viewers=int(float(x.get('viewerCount') or 0))
-              title_is_channel=False
-              def norm(v):
-                  v=str(v or '').lower().strip().lstrip('@')
-                  v=re.sub(r'\blive\b|trực tiếp','',v)
-                  v=re.sub(r'[^\w.]+','',v,flags=re.UNICODE)
-                  return v
-              if norm(title) and norm(title) in {norm(handle),norm(source)}:
-                  title_is_channel=True
-              summary.append({
-                  'handle':handle,
-                  'hasCover':bool(preview),
-                  'hasAvatar':bool(avatar),
-                  'viewers':viewers,
-                  'title':title[:90],
-                  'sourceName':source[:60],
-                  'titleIsChannel':title_is_channel
-              })
-          out={
-              'ok':True,
-              'total':data.get('total'),
-              'detectedLive':data.get('detectedLive'),
-              'reportedLive':data.get('live'),
-              'live':len(items),
-              'withCover':sum(1 for x in summary if x['hasCover']),
-              'withAvatar':sum(1 for x in summary if x['hasAvatar']),
-              'withViewerCount':sum(1 for x in summary if x['viewers']>0),
-              'badTitleEqualsChannel':sum(1 for x in summary if x['titleIsChannel']),
-              'sample':summary[:12]
-          }
-          print(json.dumps(out,ensure_ascii=False))
-          assert out['badTitleEqualsChannel']==0, out
+          import json, urllib.request, urllib.parse, time
+          EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev'
+          RENDER='https://one988-tiktok-session.onrender.com'
+          def get(url,timeout=30):
+              req=urllib.request.Request(url,headers={'User-Agent':'1988-one-live-five-videos/1.0','Accept':'application/json'})
+              with urllib.request.urlopen(req,timeout=timeout) as r:
+                  return json.load(r)
+
+          state=get(EDGE+'/state?t='+str(int(time.time())),30)
+          channels=state.get('channels') or {}
+          live=[
+              {'handle':h,'roomId':str((row or {}).get('roomId') or '')}
+              for h,row in channels.items()
+              if int((row or {}).get('status') or 0)==2
+          ]
+          live.sort(key=lambda x:x['handle'])
+          print('CURRENT_LIVE_HANDLES',json.dumps(live,ensure_ascii=False))
+          if not live:
+              raise SystemExit('NO_CURRENT_LIVE_IN_CLOUD_STATE')
+
+          chosen=None
+          for row in live:
+              h=row['handle']
+              try:
+                  videos=get(RENDER+'/tiktok/channel-videos?refresh=0&user='+urllib.parse.quote(h)+'&t='+str(int(time.time())),30)
+              except Exception:
+                  continue
+              rows=videos.get('videos') or []
+              if len(rows)>=5:
+                  chosen=(row,videos)
+                  break
+          if not chosen:
+              raise SystemExit('NO_LIVE_HANDLE_WITH_5_VIDEOS')
+
+          row,videos=chosen
+          h=row['handle']
+          live_now=get(EDGE+'/tiktok/live-now?t='+str(int(time.time())),60)
+          live_item=next((x for x in (live_now.get('items') or []) if str(x.get('handle') or '').lower()==h.lower()),None)
+          print('CHOSEN_HANDLE',h)
+          print('LIVE_ITEM',json.dumps({
+              'handle':h,
+              'roomId':row.get('roomId'),
+              'inLiveNow':bool(live_item),
+              'playable':bool((live_item or {}).get('playable')),
+              'type':(live_item or {}).get('type'),
+              'hasStreamUrl':bool((live_item or {}).get('streamUrl')),
+              'hasHlsUrl':bool((live_item or {}).get('hlsUrl')),
+              'sourceName':(live_item or {}).get('sourceName'),
+              'title':(live_item or {}).get('title')
+          },ensure_ascii=False))
+          print('VIDEOS',json.dumps([
+              {
+                  'id':str(v.get('id') or ''),
+                  'title':str(v.get('title') or '')[:100],
+                  'pageUrl':str(v.get('pageUrl') or ''),
+                  'duration':v.get('duration'),
+                  'createTime':v.get('createTime')
+              }
+              for v in (videos.get('videos') or [])[:5]
+          ],ensure_ascii=False))
           PY
