@@ -11537,7 +11537,10 @@ html.tiktok-ui.tiktok-watch .rows{
         // Fall through to the normal YouTube search below. For malformed or
         // temporarily unresolved URLs this still gives the user a useful result.
       }finally{
-        if(request===feedRequest)setSearchPending(false,pendingToken);
+        // setSearchPending already protects newer searches with pendingToken.
+        // Clear this URL-resolution spinner even if opening a channel changed
+        // feedRequest internally.
+        setSearchPending(false,pendingToken);
       }
     }
 
