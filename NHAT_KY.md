@@ -794,3 +794,21 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Không thêm provider/polling/cron/fan-out; one provider call per source per click vẫn giữ nguyên.
 - Không có direct latency probe vì tool environment không resolve workers.dev.
 - Rollback: `375204cdaa21b1925d6cd8f875caba2cb0005034`.
+
+
+## 2026-10-04 — YouTube/TikTok hard media-branch isolation + LIVE zero semantics
+
+- Base: `5aaf23edff697b4e878e7211ddc6ceaad94eb22c`.
+- Commit: `6189f230b5eacfdcb93ffffc64df9fbbe13adec0`.
+- Owner: frontend/player orchestration.
+- Fix:
+  - YouTube/TikTok player branches stop each other on platform switch;
+  - `openMedia` rejects cross-provider stale state;
+  - generic feed is YouTube-only; TikTok uses dedicated workspace;
+  - TikTok thumbnail fallback never uses YouTube CDN;
+  - LIVE viewer unknown/<=0 becomes null/hidden;
+  - empty `Đang LIVE · 0` group is not rendered.
+- PWA v91.
+- Deploy 1988 Player run `37146443871` SUCCESS; contracts/build/deploy/custom-domain PASS.
+- Backend/API/polling unchanged.
+- Rollback: `5aaf23edff697b4e878e7211ddc6ceaad94eb22c`.
