@@ -56,32 +56,32 @@
   --yt-floating-shadow:0 12px 34px rgba(0,0,0,.55);
   --header-rgb:15,15,15;
   --header-accent-rgb:82,108,168;
-  --header-alpha-base:.94;
-  --header-alpha-scrolled:.78;
-  --header-alpha-search:.90;
-  --header-wash-opacity:.48;
-  --header-search-wash-opacity:.92;
-  --header-wash-strong:.10;
-  --header-wash-mid:.045;
-  --header-wash-soft:.035;
-  --header-wash-edge:.025;
-  --accent-chip-strong:.16;
-  --accent-chip-soft:.05;
-  --accent-outline:.10;
-  --accent-shadow:.08;
-  --ambient-page-left:.16;
-  --ambient-page-mid:.075;
-  --ambient-page-right:.018;
-  --ambient-control:.075;
-  --ambient-control-hover:.13;
-  --ambient-surface:.065;
-  --ambient-surface-strong:.10;
-  --ambient-one-page-strong:.065;
-  --ambient-one-page-soft:.026;
-  --ambient-one-control:.055;
-  --ambient-one-control-hover:.095;
-  --ambient-one-surface:.045;
-  --ambient-one-surface-strong:.070;
+  --header-alpha-base:.96;
+  --header-alpha-scrolled:.92;
+  --header-alpha-search:.96;
+  --header-wash-opacity:.38;
+  --header-search-wash-opacity:.58;
+  --header-wash-strong:.075;
+  --header-wash-mid:.030;
+  --header-wash-soft:.020;
+  --header-wash-edge:.014;
+  --accent-chip-strong:.08;
+  --accent-chip-soft:.025;
+  --accent-outline:.045;
+  --accent-shadow:.025;
+  --ambient-page-left:.11;
+  --ambient-page-mid:.045;
+  --ambient-page-right:.012;
+  --ambient-control:.045;
+  --ambient-control-hover:.08;
+  --ambient-surface:.040;
+  --ambient-surface-strong:.065;
+  --ambient-one-page-strong:.045;
+  --ambient-one-page-soft:.016;
+  --ambient-one-control:.035;
+  --ambient-one-control-hover:.060;
+  --ambient-one-surface:.025;
+  --ambient-one-surface-strong:.045;
   --card-hover-alpha:.17;
   --card-press-alpha:.23;
   --card-selected-alpha:.11;
@@ -319,8 +319,8 @@ html.one-col .player.inline-overlay:not(.pip){
   padding-top:var(--safe-top);
   --header-alpha:var(--header-alpha-base);
   background:rgba(var(--header-rgb),var(--header-alpha));
-  -webkit-backdrop-filter:saturate(145%) blur(var(--header-blur));
-  backdrop-filter:saturate(145%) blur(var(--header-blur));
+  -webkit-backdrop-filter:saturate(115%) blur(var(--header-blur));
+  backdrop-filter:saturate(115%) blur(var(--header-blur));
   border-bottom:0;
   transform:translateY(0);
   transition:
@@ -609,17 +609,11 @@ html.one-col .player.inline-overlay:not(.pip){
 }
 .source-chip:active{background:var(--yt-chip-press)}
 .source-chip.active{
-  background:
-    linear-gradient(
-      135deg,
-      rgba(var(--header-accent-rgb),var(--accent-chip-strong)),
-      rgba(var(--header-accent-rgb),var(--accent-chip-soft))
-    ),
-    var(--yt-chip-active-bg);
+  /* YouTube keeps the selected chip neutral; ambient color belongs to the
+     surrounding chrome, not on top of the white/black selected chip. */
+  background:var(--yt-chip-active-bg);
   color:var(--yt-chip-active-text);
-  box-shadow:
-    0 0 0 1px rgba(var(--header-accent-rgb),var(--accent-outline)),
-    0 3px 12px rgba(var(--header-accent-rgb),var(--accent-shadow));
+  box-shadow:none;
 }
 .source-arrow{
   position:absolute;
@@ -833,10 +827,8 @@ html.one-col .player.inline-overlay:not(.pip){
     background-color .16s ease;
 }
 .top.search-roomy:not(.search-open) .searchbox:focus-within{
-  border-color:rgba(var(--header-accent-rgb),.78);
-  box-shadow:
-    0 0 0 1px rgba(var(--header-accent-rgb),.10),
-    0 3px 16px rgba(var(--header-accent-rgb),.07);
+  border-color:#1c62b9;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.30);
 }
 .top.search-roomy:not(.search-open) .search-input{
   min-width:0;
@@ -860,15 +852,9 @@ html.one-col .player.inline-overlay:not(.pip){
   width:44px;
   height:38px;
   border:0;
-  border-left:1px solid rgba(var(--header-accent-rgb),.18);
+  border-left:1px solid var(--yt-search-border);
   border-radius:0 19px 19px 0;
-  background:
-    linear-gradient(
-      135deg,
-      rgba(var(--header-accent-rgb),var(--accent-chip-strong)),
-      rgba(var(--header-accent-rgb),var(--accent-chip-soft))
-    ),
-    var(--yt-search-button);
+  background:var(--yt-search-button);
   transition:
     background-color .16s ease,
     transform .12s ease;
@@ -923,10 +909,8 @@ html.one-col .player.inline-overlay:not(.pip){
     background-color .16s ease;
 }
 .top.search-open .searchbox:focus-within{
-  border-color:rgba(var(--header-accent-rgb),.78);
-  box-shadow:
-    0 0 0 1px rgba(var(--header-accent-rgb),.10),
-    0 3px 16px rgba(var(--header-accent-rgb),.07);
+  border-color:#1c62b9;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.30);
 }
 .top.search-open .search-input{
   min-width:0;
@@ -973,15 +957,9 @@ html.one-col .player.inline-overlay:not(.pip){
   width:44px;
   height:38px;
   border:0;
-  border-left:1px solid rgba(var(--header-accent-rgb),.18);
+  border-left:1px solid var(--yt-search-border);
   border-radius:0 19px 19px 0;
-  background:
-    linear-gradient(
-      135deg,
-      rgba(var(--header-accent-rgb),var(--ambient-one-control-hover)),
-      rgba(var(--header-accent-rgb),var(--ambient-one-control))
-    ),
-    var(--yt-search-button);
+  background:var(--yt-search-button);
   transition:
     background-color .16s ease,
     transform .12s ease;
@@ -4417,11 +4395,24 @@ html.tiktok-ui.tiktok-watch .rows{
           if(!winner||winner.w<=0){resolve(null);return;}
 
           const source=[winner.r/winner.w,winner.g/winner.w,winner.b/winner.w].map(Math.round);
-          const hsl=rgbToHsl(source[0],source[1],source[2]);
-          hsl[1]=Math.max(.42,Math.min(.88,hsl[1]*1.08));
-          hsl[2]=Math.max(.48,Math.min(.68,hsl[2]));
-          const accent=hslToRgb(hsl[0],hsl[1],hsl[2]);
-          resolve({accent});
+
+          // Keep the thumbnail's real hue but stop manufacturing an over-saturated
+          // accent. Cards may still use this fuller dominant color at low alpha.
+          const accentHsl=rgbToHsl(source[0],source[1],source[2]);
+          accentHsl[1]=Math.min(.72,accentHsl[1]*.88);
+          accentHsl[2]=Math.max(.36,Math.min(.62,accentHsl[2]));
+          const accent=hslToRgb(accentHsl[0],accentHsl[1],accentHsl[2]);
+
+          // YouTube-style chrome is deliberately much more neutral than the
+          // thumbnail. This prevents red/blue videos from turning the whole
+          // header, chip rail and search area into a solid themed bar.
+          const chromeHsl=[
+            accentHsl[0],
+            Math.min(.24,accentHsl[1]*.35),
+            Math.max(.40,Math.min(.52,accentHsl[2]*.88))
+          ];
+          const chromeAccent=hslToRgb(chromeHsl[0],chromeHsl[1],chromeHsl[2]);
+          resolve({accent,chromeAccent});
         }catch{
           resolve(null);
         }
@@ -4449,18 +4440,15 @@ html.tiktok-ui.tiktok-watch .rows{
       if(seq!==headerTintSeq||!palette)return;
 
       const light=root.dataset.theme==="light";
-      // The sampled video color is theme-neutral. Dark and light each blend
-      // that same accent into their own base, preventing a dark/dirty cast in
-      // light mode while preserving the cinematic tint.
+
+      // Keep the structural header base neutral. Ambient color is a separate
+      // overlay layer, so it can fade naturally instead of permanently tinting
+      // every header pixel and every chip.
       const base=light?[255,255,255]:[15,15,15];
-      const mix=light?.075:.128;
-      const [r,g,b]=palette.accent.map((value,index)=>Math.round(
-        base[index]*(1-mix)+value*mix
-      ));
-      root.style.setProperty("--header-rgb",r+","+g+","+b);
+      root.style.setProperty("--header-rgb",base.join(","));
       root.style.setProperty(
         "--header-accent-rgb",
-        palette.accent.join(",")
+        (palette.chromeAccent||palette.accent).join(",")
       );
 
       // Do NOT paint browser/PWA status chrome with the media color.
