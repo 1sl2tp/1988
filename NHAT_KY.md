@@ -748,3 +748,18 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Verify: run `37144911223` SUCCESS; contracts/build/deploy/custom-domain PASS.
 - Không đổi Supabase/Cloudflare/Render API, không thêm polling/cron.
 - Rollback: `2ff42dce666e0110cc2169da7bd8e5f34d99e1c7`.
+
+
+### Follow-up — TikTok mobile smart landing demand cycle v89
+
+- Commit `c3401f112146ea2e9c78664bef30942f29a3ce6e`.
+- Lý do: LIVE là demand-only; chỉ đọc `/live-now` khi vào mobile có thể dùng snapshot cũ nếu trước đó chưa ai mở LIVE.
+- Mobile ≤656, TikTok visible, không explicit handle:
+  - chạy đúng một demand cycle LIVE;
+  - refresh snapshot sau scan;
+  - chọn LIVE playable đầu tiên;
+  - nếu không có LIVE thì newest VOD theo kênh.
+- Hidden / đóng web / desktop không kích smart-landing scan.
+- Không thêm cron/timer/polling nền.
+- PWA v89.
+- Deploy run `37145155222` SUCCESS; contracts/build/deploy/custom-domain PASS.
