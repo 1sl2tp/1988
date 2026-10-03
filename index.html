@@ -3752,10 +3752,12 @@ html.tiktok-ui.tiktok-watch .rows{
   let youtubeLiveAbortController=null;
   let youtubeLiveLastCycleAt=0;
   const LIVE_DISCOVERY_MIN_GAP_MS=60_000;
-  const LIVE_BACKGROUND_REFRESH_MS=3*60_000;
+  const LIVE_BACKGROUND_REFRESH_MS=30_000;
+  const LIVE_PACKAGE_WAKE_MS=60_000;
   let liveDiscoveryLastAt=0;
   let liveLastSelectedId="";
   let liveBackgroundTimer=0;
+  let livePackageLastWakeAt=0;
   const LIVE_CLIENT_SNAPSHOT_KEY="yt1988-live-client-snapshot-v1";
   let feedMetas=[];
   let relatedMetas=[];
@@ -6048,6 +6050,12 @@ html.tiktok-ui.tiktok-watch .rows{
           :0
       )
     );
+    const liveViewerCount=Math.max(
+      0,
+      Number(row?.viewerCount)||
+      Number(row?.concurrentViewers)||
+      0
+    );
     const normalized={
       ...meta,
       provider:"youtube",
@@ -6078,7 +6086,12 @@ html.tiktok-ui.tiktok-watch .rows{
         row?._aspectVerified===true||
         (videoWidth>0&&videoHeight>0)||
         isShort,
-      _aspectSource:String(row?.aspectSource||row?._aspectSource||"")
+      _aspectSource:String(row?.aspectSource||row?._aspectSource||""),
+      viewerCount:liveViewerCount,
+      viewsLabel:
+        row?.isLive===true&&liveViewerCount>0
+          ?compactLiveViewerCount(liveViewerCount)
+          :String(meta?.viewsLabel||"")
     };
 
     const canonicalSource=channelLibraryEntry("youtube",normalized?.sourceId);
@@ -6542,16 +6555,9 @@ html.tiktok-ui.tiktok-watch .rows{
     const baseMetas=packageCache.get(scope)||[];
 
     if(scope==="live"){
-      const provider=activeLiveProvider();
-      const metas=liveMetasForProvider(provider,baseMetas);
-
-      // YouTube LIVE and TikTok LIVE are separate feeds now. Never merge one
-      // provider into the other and never wait for the other provider.
-      //
-      // Normally startup warming has already filled this array. If the user is
-      // unusually fast and taps Live before the first snapshot finishes, keep
-      // the existing cards on screen until that in-flight warm completes rather
-      // than flashing a completely blank page.
+      // 1988 rule: UI reads only the prepared LIVE package. Cloudflare may
+      // discover LIVE channels, but its snapshot is never a browser feed.
+      const metas=Array.isArray(baseMetas)?baseMetas:[];
       if(metas.length){
         feedMetas=metas;
         renderSampleContent();
@@ -6560,42 +6566,21 @@ html.tiktok-ui.tiktok-watch .rows{
         renderSampleContent();
       }
 
+      // If the first-open LIVE package is still being fetched/rebuilt, do not
+      // flash a blank list. Publish the package atomically when it arrives.
       if(!metas.length&&startupLivePreloadPromise){
         void startupLivePreloadPromise.finally(()=>{
-          if(!liveDemandActive(provider))return;
-          paintUnifiedLiveFromEdge(provider);
+          if(!liveDemandActive("youtube"))return;
+          paintSyncedPackage("live",packageCache.get("live")||[]);
         });
       }
 
-      if(provider==="tiktok"){
-        primeTikTokPlaybackNeighborhood();
-      }else{
-        stopTikTokPreparedStreams();
-      }
-
-      // Entering a provider's LIVE reads only that provider's Cloudflare
-      // snapshot. Discovery rules remain provider-local as well.
-      if(hydrateLive&&provider){
-        void hydrateUnifiedLiveSnapshots({paint:true,provider}).finally(()=>{
-          if(!liveDemandActive(provider))return;
-
-          // Cloudflare YouTube LIVE is demand-only: opening the LIVE tab must
-          // always paint the cached snapshot first, then start one fresh scan.
-          // Without this, an old empty snapshot can leave YouTube LIVE blank
-          // forever because the legacy Supabase LIVE scheduler is intentionally off.
-          if(provider==="youtube"){
-            const due=
-              !youtubeEdgeLiveReady||
-              youtubeEdgeLiveMetas.length===0||
-              Date.now()-liveDiscoveryLastAt>=LIVE_DISCOVERY_MIN_GAP_MS;
-            if(due){
-              void refreshUnifiedLiveInBackground({
-                force:true,
-                reason:"tab-open",
-                provider:"youtube"
-              });
-            }
-          }
+      stopTikTokPreparedStreams();
+      if(hydrateLive){
+        void refreshUnifiedLiveInBackground({
+          force:true,
+          reason:"tab-open",
+          provider:"youtube"
         });
       }
       return feedMetas;
@@ -6603,6 +6588,10 @@ html.tiktok-ui.tiktok-watch .rows{
 
     feedMetas=startupVisibleMetas(scope,baseMetas);
     renderSampleContent();
+
+    // Every normal tab is stale-while-revalidate: show its committed package
+    // first, then ask the server to rebuild only when that scope is due.
+    setTimeout(()=>{ void checkPackagesOnDemand([scope]); },0);
     return feedMetas;
   }
 
@@ -6696,7 +6685,7 @@ html.tiktok-ui.tiktok-watch .rows{
     const wanted=[...new Set(
       ((Array.isArray(scopes)&&scopes.length)?scopes:[activePackageScope])
         .map(value=>String(value||"").trim())
-        .filter(value=>Boolean(value)&&value!=="live")
+        .filter(Boolean)
     )];
     if(!wanted.length)return false;
     if(packageDemandPending)return packageDemandPending;
@@ -6729,21 +6718,13 @@ html.tiktok-ui.tiktok-watch .rows{
   },{passive:true});
 
   addEventListener("focus",()=>{
-    if(
-      feedMode==="package"&&
-      !document.hidden&&
-      activePackageScope!=="live"
-    ){
+    if(feedMode==="package"&&!document.hidden){
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
 
   addEventListener("online",()=>{
-    if(
-      feedMode==="package"&&
-      !document.hidden&&
-      activePackageScope!=="live"
-    ){
+    if(feedMode==="package"&&!document.hidden){
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
@@ -6762,9 +6743,9 @@ html.tiktok-ui.tiktok-watch .rows{
       return Array.isArray(tiktokLiveMetas)?tiktokLiveMetas:[];
     }
     if(provider==="youtube"){
-      return currentYoutubeLiveMetas(
-        Array.isArray(youtubeFallback)?youtubeFallback:[]
-      );
+      // YouTube LIVE is package-only. The Cloudflare arrays below are retained
+      // only as compatibility code and must never become visible feed data.
+      return Array.isArray(youtubeFallback)?youtubeFallback:[];
     }
     return [];
   }
@@ -7413,62 +7394,45 @@ html.tiktok-ui.tiktok-watch .rows{
     };
   }
 
+  async function syncPreparedScopeAfterWake(scope="",delays=[1200,3200,7000,14000]){
+    scope=String(scope||"").trim();
+    if(!scope)return false;
+    const before=String(packageHashCache.get(scope)||"");
+
+    await requestPreparedRefresh([scope]).catch(()=>false);
+
+    for(const delay of delays){
+      await new Promise(resolve=>setTimeout(resolve,delay));
+      if(document.hidden)continue;
+      await loadPackageManifest();
+      await syncPreparedPackages([scope]);
+      const after=String(packageHashCache.get(scope)||"");
+      if(after&&after!==before)return true;
+    }
+    return false;
+  }
+
   async function preloadStartupLiveLists(){
     if(startupLivePreloadPromise)return startupLivePreloadPromise;
 
-    // Reuse a recent client snapshot immediately. The landing feed paints first,
-    // then LIVE warms completely in the background so opening LIVE is instant.
-    restoreClientLiveSnapshot();
-
     startupLivePreloadPromise=(async()=>{
-      const youtubeSnapshotTask=fetchYoutubeLiveSnapshot()
-        .then(snapshot=>{
-          youtubeEdgeLiveMetas=snapshot.metas;
-          youtubeEdgeLiveReady=true;
-          return true;
-        })
-        .catch(()=>false);
+      // The browser first restores/downloads the last committed LIVE package.
+      // That is the instant fallback. Only after it exists locally do we wake
+      // a new server-side LIVE package build.
+      await restoreStoredPackage("live").catch(()=>[]);
+      if(!packageCache.has("live")){
+        await getPackage("live",{force:true}).catch(()=>[]);
+      }
 
-      // The TikTok account rail needs profile/avatar metadata as well as the
-      // realtime LIVE list. These requests never replace the visible landing feed.
-      const tiktokLibraryTask=loadTikTokLatestVideoFeed({silent:true})
-        .then(()=>true)
-        .catch(()=>false);
-      const tiktokLiveTask=refreshTikTokLiveFeed({paint:false,force:true})
-        .then(()=>true)
-        .catch(()=>false);
+      if(liveDemandActive("youtube")){
+        paintSyncedPackage("live",packageCache.get("live")||[]);
+      }
 
-      await Promise.allSettled([
-        youtubeSnapshotTask,
-        tiktokLibraryTask,
-        tiktokLiveTask
-      ]);
+      livePackageLastWakeAt=Date.now();
+      await syncPreparedScopeAfterWake("live");
 
-      // A cached YouTube snapshot is not enough: do one complete edge scan after
-      // the normal "latest" cards are already visible. Keep the old LIVE array
-      // in memory until the full scan finishes, then atomically swap the result.
-      await runYoutubeLiveCycle({
-        force:true,
-        paint:false,
-        background:true
-      }).catch(()=>false);
-
-      queueDiscoveredYoutubeHydration(
-        youtubeEdgeLiveMetas,
-        "live-background"
-      );
-      await Promise.allSettled([
-        hydrateMissingYoutubeLiveAvatars({paint:false}),
-        hydrateMissingYoutubeLiveViewers({paint:false})
-      ]);
-      saveClientLiveSnapshot();
-
-      // If the user entered LIVE while the warm scan was running, publish the
-      // completed in-memory result immediately without another network wait.
-      const provider=activeLiveProvider();
-      if(liveDemandActive(provider)){
-        paintUnifiedLiveFromEdge(provider);
-        if(provider==="tiktok")primeTikTokPlaybackNeighborhood();
+      if(liveDemandActive("youtube")){
+        paintSyncedPackage("live",packageCache.get("live")||[]);
       }
       return true;
     })().finally(()=>{
@@ -7486,29 +7450,20 @@ html.tiktok-ui.tiktok-watch .rows{
         return;
       }
 
-      await Promise.allSettled([
-        runYoutubeLiveCycle({
-          force:true,
-          paint:false,
-          background:true
-        }),
-        refreshTikTokLiveFeed({paint:false,force:true})
-      ]);
+      // Cheap client work only: compare the package manifest and download a
+      // changed LIVE package. The server/Cloudflare own discovery and rebuild.
+      await loadPackageManifest();
+      await syncPreparedPackages(["live"]);
 
-      queueDiscoveredYoutubeHydration(
-        youtubeEdgeLiveMetas,
-        "live-background-refresh"
-      );
-      await Promise.allSettled([
-        hydrateMissingYoutubeLiveAvatars({paint:false}),
-        hydrateMissingYoutubeLiveViewers({paint:false})
-      ]);
-      saveClientLiveSnapshot();
+      // While the app is open, one due-gated wake per minute protects freshness
+      // even if the Cloudflare signal is temporarily unavailable.
+      if(Date.now()-livePackageLastWakeAt>=LIVE_PACKAGE_WAKE_MS){
+        livePackageLastWakeAt=Date.now();
+        void requestPreparedRefresh(["live"]);
+      }
 
-      const provider=activeLiveProvider();
-      if(liveDemandActive(provider)){
-        paintUnifiedLiveFromEdge(provider);
-        if(provider==="tiktok")primeTikTokPlaybackNeighborhood();
+      if(liveDemandActive("youtube")){
+        paintSyncedPackage("live",packageCache.get("live")||[]);
       }
       scheduleLiveBackgroundRefresh();
     },Math.max(1_000,Number(delay)||LIVE_BACKGROUND_REFRESH_MS));
@@ -7528,14 +7483,10 @@ html.tiktok-ui.tiktok-watch .rows{
     unifiedLiveSnapshotPromise=(async()=>{
       if(provider==="youtube"){
         try{
-          const snapshot=await fetchYoutubeLiveSnapshot();
+          await loadPackageManifest();
+          await syncPreparedPackages(["live"]);
           if(!liveDemandActive("youtube"))return false;
-          youtubeEdgeLiveMetas=snapshot.metas;
-          youtubeEdgeLiveReady=true;
-          if(paint)paintUnifiedLiveFromEdge("youtube");
-          void hydrateMissingYoutubeLiveAvatars({paint});
-          void hydrateMissingYoutubeLiveViewers({paint});
-          saveClientLiveSnapshot();
+          if(paint)paintSyncedPackage("live",packageCache.get("live")||[]);
           return true;
         }catch{
           return false;
@@ -7571,12 +7522,13 @@ html.tiktok-ui.tiktok-watch .rows{
 
     unifiedLiveRefreshPromise=(async()=>{
       if(provider==="youtube"){
-        const ok=await runYoutubeLiveCycle({force,paint:false});
-        if(!ok||!liveDemandActive("youtube"))return false;
-        paintUnifiedLiveFromEdge("youtube");
-        void hydrateMissingYoutubeLiveAvatars({paint:true});
-        void hydrateMissingYoutubeLiveViewers({paint:true});
-        saveClientLiveSnapshot();
+        livePackageLastWakeAt=Date.now();
+        await syncPreparedScopeAfterWake(
+          "live",
+          reason==="tab-open"?[800,2200,5000,10000]:[1200,3500,8000]
+        );
+        if(!liveDemandActive("youtube"))return false;
+        paintSyncedPackage("live",packageCache.get("live")||[]);
         return true;
       }
 
@@ -10501,7 +10453,10 @@ html.tiktok-ui.tiktok-watch .rows{
     const firstPackagePromise=(async()=>{
       const scope=STARTUP_SCOPE;
       activePackageScope=scope;
-      await restoreStoredPackage(scope);
+      await Promise.all([
+        restoreStoredPackage(scope),
+        restoreStoredPackage("live")
+      ]);
       const painted=await showPackageScope(scope,{hydrateLive:false});
 
       // As soon as the first latest-video paint is committed, warm LIVE now.
@@ -10579,10 +10534,11 @@ html.tiktok-ui.tiktok-watch .rows{
     // Synchronizer compares manifest hashes and downloads only changed scopes.
     prefetchPackages(scopes);
 
-    // Non-LIVE packages may check on open. LIVE discovery already ran exactly
-    // once above when this reload actually opened the Live tab.
+    // The visible package may refresh in the background after its first paint.
+    // Other tabs refresh only when opened; their committed packages are already
+    // prefetched above and therefore remain instant.
     setTimeout(()=>{
-      if(feedMode==="package"&&activePackageScope!=="live"){
+      if(feedMode==="package"){
         void checkPackagesOnDemand([activePackageScope]);
       }
     },0);
