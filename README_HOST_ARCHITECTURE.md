@@ -187,6 +187,20 @@ Direct user action may call API. It must not fan out hidden background resolver 
 - No video/audio binary through Supabase Edge Functions/Postgres/logs.
 - Render must not become a background media proxy unless an explicit incident temporarily requires it.
 
+### 5.1. YouTube / TikTok media branch isolation
+
+YouTube and TikTok may share visual shell/components, but they are **two independent media branches**.
+
+- `provider=youtube` → YouTube embed/player + YouTube package/data only.
+- `provider=tiktok` → TikTok native LIVE/VOD player + TikTok library/edge resolver only.
+- Switching platform must stop the old platform's active player before the new branch owns the surface.
+- Stale DOM/state from the other provider must not be allowed to open its player.
+- TikTok thumbnail/cover/avatar fallback must never use YouTube `i.ytimg.com`; YouTube must never use TikTok VOD/LIVE fallback.
+- Unknown LIVE viewer count is `null/empty`, not numeric `0`. UI hides an unknown viewer count instead of presenting fake `0 đang xem`.
+- An empty LIVE group is hidden; do not render `Đang LIVE · 0`.
+
+Shared UI is presentation only; media source, player state, LIVE state and fallback ownership never cross provider boundaries.
+
 ## 6. Cache/version rules
 
 - Hash before payload.
