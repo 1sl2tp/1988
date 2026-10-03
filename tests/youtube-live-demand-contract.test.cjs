@@ -10,7 +10,8 @@ test('opening YouTube LIVE reads the prepared package and wakes a rebuild',()=>{
   assert.ok(start>=0&&end>start,'showPackageScope missing');
   const block=html.slice(start,end);
   assert.match(block,/scope==="live"/);
-  assert.match(block,/packageCache\.get\("live"\)/);
+  assert.match(block,/ensurePreparedPackageReady\(scope\)/);
+  assert.match(block,/feedMetas=Array\.isArray\(baseMetas\)/);
   assert.match(block,/refreshUnifiedLiveInBackground\(\{/);
   assert.match(block,/reason:"tab-open"/);
   assert.doesNotMatch(block,/fetchYoutubeLiveSnapshot\(/);
@@ -21,8 +22,7 @@ test('landing feed restores LIVE package then rebuilds it in background',()=>{
   const end=html.indexOf('\n  async function hydrateUnifiedLiveSnapshots',start);
   assert.ok(start>=0&&end>start,'preloadStartupLiveLists missing');
   const block=html.slice(start,end);
-  assert.match(block,/restoreStoredPackage\("live"\)/);
-  assert.match(block,/getPackage\("live",\{force:true\}\)/);
+  assert.match(block,/ensurePreparedPackageReady\("live"\)/);
   assert.match(block,/syncPreparedScopeAfterWake\("live"\)/);
   assert.match(block,/scheduleLiveBackgroundRefresh\(\)/);
   assert.doesNotMatch(block,/runYoutubeLiveCycle\(/);
