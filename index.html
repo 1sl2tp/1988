@@ -3442,7 +3442,9 @@ html.viewer-active.one-col body{
     display:block!important;
     width:100%!important;
     max-width:none!important;
-    padding:0!important;
+    /* Mobile header/subnav are fixed. Reserve their measured height so the
+       focused viewer starts below chrome instead of losing its top edge. */
+    padding:var(--top-boundary) 0 0!important;
     margin:0!important;
   }
   html.viewer-active.one-col .media-col{
@@ -3473,6 +3475,13 @@ html.viewer-active.one-col body{
   }
   html.viewer-active.one-col .media-col > .info{
     display:block!important;
+  }
+  /* Portrait watch keeps the top card cue but joins flush into metadata below.
+     Bottom corners must not retain the old floating-card radius. */
+  html.viewer-active.one-col.portrait .media-col > .stage,
+  html.viewer-active.one-col.portrait .media-col > .stage > .player,
+  html.viewer-active.one-col.portrait .media-col > .stage > .player iframe{
+    border-radius:var(--floating-radius) var(--floating-radius) 0 0!important;
   }
   html.viewer-active.one-col .player{
     position:absolute!important;
