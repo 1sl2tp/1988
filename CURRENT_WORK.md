@@ -83,7 +83,40 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
-## 4. Incident gần nhất — LIVE discovery chuyển sang demand-only
+## 4. Incident gần nhất — UI YouTube LIVE phải đọc nguyên package
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng:
+- Package LIVE production đã có đúng Lệ Quyên và ChimSeDiNang AOE nhưng UI có thể không hiển thị hết.
+- Probe package LIVE: hash `ld9wih`, 27 item; Lệ Quyên ở vị trí 14, ChimSeDiNang AOE ở vị trí 27.
+- UI đang cắt feed YouTube tối đa 18 card nên item 19+ bị mất dù package đúng.
+- UI còn nhánh legacy có thể hydrate/repaint YouTube LIVE từ edge/channel library, trái rule package-only.
+
+Owner: **frontend `index.html`**.
+
+Rule:
+- Cloudflare chỉ discovery + wake.
+- Supabase package quyết định membership, videoId/link, title, sourceId, sourceName, sourceAvatar cho YouTube feed.
+- UI chỉ đọc/swap package theo hash; không sửa identity package từ edge/channel library/video metadata.
+- Package có N LIVE thì UI render đủ N LIVE.
+
+Patch:
+- commit `9ba971aa6a08d2ae2342a817fd0c4361181c9693`;
+- LIVE render toàn bộ package thay vì cắt 18;
+- package card dùng đúng name/avatar trong package;
+- edge không paint/hydrate YouTube card;
+- client LIVE snapshot chỉ còn cho TikTok;
+- PWA cache `1988-simple-media-v71`.
+
+Verify:
+- frontend production contracts PASS;
+- deploy workflow `37127795634`: SUCCESS;
+- Pages deploy + custom-domain verify: SUCCESS.
+
+Rollback: `d3c08aeab7fb757d55dec19330b4ca55e4f87672`.
+
+## 5. Incident trước — LIVE discovery chuyển sang demand-only
 
 Thời gian: **2026-10-03**.
 
@@ -150,7 +183,7 @@ Rollback:
 - Frontend pre-demand baseline: `d6e465d991ae442c7a1c61103c92cf8ee4b6558d`.
 - **Không** coi bật lại LIVE cron là rollback hợp lệ, vì demand-only là rule vận hành đã chốt.
 
-## 5. Incident trước — LIVE gắn sai kênh
+## 6. Incident trước — LIVE gắn sai kênh
 
 Triệu chứng:
 - video LIVE `t7goDOQdn9U` (ChimSeDiNang AOE) từng bị package gắn thành `Hillsong Worship`.
@@ -186,7 +219,7 @@ Production verify:
   - title: `Thiên Khôi CUP | 4v4 Random | SPartacus Gaming vs Thiên Khôi | Ngày 03/10/2026`
   - viewerCount/views: `9659`
 
-## 6. Nếu lỗi LIVE sai kênh xuất hiện lại
+## 7. Nếu lỗi LIVE sai kênh xuất hiện lại
 
 Probe nhỏ nhất, không scan toàn hệ thống:
 
@@ -201,7 +234,7 @@ Probe nhỏ nhất, không scan toàn hệ thống:
    - không được để duplicate claim quyết định identity.
 6. Không thêm polling/fan-out metadata toàn LIVE chỉ để chữa một card.
 
-## 7. Trạng thái vận hành cần nhớ
+## 8. Trạng thái vận hành cần nhớ
 
 - Production branch: `main`.
 - Frontend: `https://yt.taphoa.xyz/`.
@@ -216,7 +249,7 @@ Probe nhỏ nhất, không scan toàn hệ thống:
   - browser không tạo crawler riêng;
   - upstream lỗi → giữ last-known-good.
 
-## 8. Mẫu cập nhật file này sau repair
+## 9. Mẫu cập nhật file này sau repair
 
 ```text
 Thời gian:
