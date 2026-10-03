@@ -85,6 +85,60 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.10. Focused viewer — hợp nhất mobile / desktop / TikTok
+
+Thời gian: **2026-10-04**.
+
+Lý do:
+- sau thời gian sử dụng, hai cách xem “1 cột / 2 cột” và auto PiP làm người dùng phải chú ý vào trạng thái giao diện thay vì nội dung;
+- TikTok/YouTube có cùng mục tiêu chính: **bấm để xem**; PiP/thu nhỏ chỉ là phụ trợ, không được là flow mặc định.
+
+Owner:
+- **Browser/UI only**.
+- Không đổi Supabase data/package, Cloudflare discovery, Render resolver hay scheduler.
+
+Contract mới:
+
+```text
+BROWSE
+mobile hẹp → feed 1 cột
+màn rộng → responsive grid
+
+WATCH — YouTube + TikTok
+→ một permanent viewer
+mobile → viewer trên + queue 1 cột phía dưới
+desktop → viewer + queue 1 cột bên phải
+video đang xem không lặp lại trong queue
+scroll / feed rerender → player vẫn ở viewer
+không tự inline vào thumbnail
+không tự bật PiP khi cuộn
+```
+
+Patch:
+- `0d8dc4cddce80beaffa35af6833ae5cf0d5e1872`: thêm `FOCUSED VIEWER v1`; viewer-active; mobile viewer + queue; desktop queue 1 cột; click/deep-link quay về permanent stage; `syncPip()` chỉ cleanup.
+- `03343fcc7437931dd9ab97a807dfb71b44f3e9b4`: contract test cho focused viewer.
+- `8d46e7c3c6d3fe52712944668aa9d4e692948c1f`: bỏ đường legacy có thể reattach player về thumbnail/PiP sau feed rerender.
+- `3c9960a45fc521bfe2e3d27fa6021d34db186dcc`: khóa regression rerender.
+- `369227f1b51f197b37c254fb594af2ee1699265e`: TikTok watch dùng cùng focus contract — account rail chỉ còn ở browse/profile; watch = viewer + queue.
+- `f7261d8de0cd0bd1cfbb1cf1d3075153c6b17760`: ẩn current card khỏi desktop queue.
+- `0f3e763033a9459c11283bbc2af353936629199e`: contract TikTok watch.
+- `bc0e4be747915b0539eafe6079fa0ddecdd0b3a4`: PWA **v81**.
+
+Production verify:
+- final frontend contract + build + Pages/custom-domain deploy run `37142665800`: **SUCCESS**.
+- PWA production revision: **v81**.
+- active primary flow không còn caller chuyển player sang inline thumbnail/PiP; các helper PiP/inline cũ còn trong source như compatibility/dormant code nhưng regression test khóa không cho primary flow gọi lại.
+- không có thay đổi polling/network/data nên thay đổi UI này **không tăng Supabase/Cloudflare/Render traffic**.
+
+Rollback:
+- base trước focused-viewer: `909d7eaf68421bdc72f1f9badc9cbd93aa63acab`.
+
+Rule khóa:
+- **Browse = responsive. Watch = one viewer + one queue.**
+- Cấm tái tạo “mobile media mode / desktop media mode” như hai hành vi playback khác nhau.
+- Cấm auto-PiP/inline-thumbnail do scroll hoặc feed rerender.
+- TikTok account rail không chen vào lúc watch.
+
 ### 3.9. Chặn legacy browser tải full source-state
 
 Thời gian: **2026-10-04**.

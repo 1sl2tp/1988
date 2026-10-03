@@ -626,3 +626,33 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Frontend contract + Pages/custom-domain deploy run `37141879904`: SUCCESS.
 - PWA cache production: v78.
 - Rule mới: backward compatibility không được phép đồng nghĩa với monolithic full payload; client cũ chỉ nhận compact lite.
+
+
+## 2026-10-04 — Focused viewer — hợp nhất mobile / desktop / TikTok
+
+- Base: `909d7eaf68421bdc72f1f9badc9cbd93aa63acab`.
+- Owner: Browser/UI only; không đổi server/data/polling.
+- Mục tiêu: bỏ việc người dùng phải nghĩ về “1 cột / 2 cột / inline / PiP”; Watch chỉ còn một viewer tập trung.
+- YouTube:
+  - Browse vẫn responsive;
+  - Watch mobile = viewer + queue dưới;
+  - Watch desktop = viewer + queue phải;
+  - current video không lặp trong queue;
+  - scroll/rerender không chuyển player sang thumbnail/PiP.
+- TikTok:
+  - profile/browse vẫn có account navigation;
+  - Watch bỏ account rail;
+  - desktop/mobile cùng viewer + queue contract;
+  - không PiP.
+- Commits chính:
+  - `0d8dc4cddce80beaffa35af6833ae5cf0d5e1872`;
+  - `8d46e7c3c6d3fe52712944668aa9d4e692948c1f`;
+  - `369227f1b51f197b37c254fb594af2ee1699265e`;
+  - `f7261d8de0cd0bd1cfbb1cf1d3075153c6b17760`;
+  - regression contracts `03343fcc`, `3c9960a4`, `0f3e7630`;
+  - final PWA `bc0e4be747915b0539eafe6079fa0ddecdd0b3a4` = v81.
+- Verify:
+  - Deploy 1988 Player run `37142665800`: SUCCESS;
+  - frontend contracts, artifact build, Pages deploy, custom-domain verify đều PASS.
+- Compatibility note: helper PiP/inline cũ vẫn còn dormant để giảm regression surface; primary path không còn caller và contract test khóa không cho re-activate.
+- Resource impact: không thêm API/polling/job; UI-only.
