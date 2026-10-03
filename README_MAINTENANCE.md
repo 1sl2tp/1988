@@ -77,9 +77,10 @@ Bắt buộc áp dụng `README_NO_WAIT_WORKFLOW.md`:
 - **Source code:** GitHub repo `1sl2tp/1988`.
 - **Production branch:** `main`.
 - **Frontend production:** GitHub Pages tại `https://yt.taphoa.xyz/`.
-- **Data/state/package:** Supabase.
-- **TikTok metadata/session:** Render `1988-tiktok-session`.
-- **Realtime/stream:** Cloudflare Workers theo từng chức năng.
+- **Canonical data/state/current package:** Supabase.
+- **Realtime detection/edge cache:** Cloudflare Workers.
+- **Heavy TikTok resolver/session:** Render `1988-tiktok-session`.
+- **Host/data/action contract:** `README_HOST_ARCHITECTURE.md`.
 - **Tài liệu vận hành:** Google Sheet **1988 - Vận hành kết nối bảo trì**  
   https://docs.google.com/spreadsheets/d/1lGx0zMSzqbUF2liGxWor4GxAdEZx2gHn73Ee6sySnuU/edit
 - **Nhật ký:** `NHAT_KY.md`.
@@ -89,7 +90,8 @@ Bắt buộc áp dụng `README_NO_WAIT_WORKFLOW.md`:
 
 1. **Bắt buộc đọc `CURRENT_WORK.md` trước** để biết incident/trạng thái/commit/runtime gần nhất. Không được sửa chỉ dựa vào trí nhớ hội thoại.
 2. Đọc file này + `README_NO_WAIT_WORKFLOW.md` và tab **README Quy tac** trong Sheet.
-3. Nếu thay đổi liên quan **polling / scheduler / package / API / cache / log / media / Supabase traffic**, bắt buộc đọc `README_RESOURCE_GUARDRAILS.md` và kiểm tra checklist Egress/Log/Data trước khi merge.
+3. Nếu thay đổi **host / owner data / action flow**, bắt buộc đọc `README_HOST_ARCHITECTURE.md`.
+4. Nếu thay đổi liên quan **polling / scheduler / package / API / cache / log / media / Supabase traffic**, bắt buộc đọc `README_RESOURCE_GUARDRAILS.md` và kiểm tra checklist Egress/Log/Data trước khi merge.
 4. Đọc tab liên quan:
    - UI/web: `02 Web va the`, `07 Sua Deploy`, `09 Su co`.
    - DB/Supabase: `03 Database`, `08 Bao tri`.
