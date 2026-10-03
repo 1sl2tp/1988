@@ -185,6 +185,21 @@ if(simpleProduction){
   assert.match(html,/commitCurrentAspect\(id,detected,\{relayout:true,provider:"tiktok"\}\)/);
   assert.doesNotMatch(html,/current\.ratio=detectedKind==="portrait"\?9\/16:16\/9/);
   assert.match(html,/TikTok Watch navigation \+ exact source geometry/);
+  // YouTube/TikTok are hard media branches: stale state cannot cross-open,
+  // generic feed is YouTube-only, and TikTok never falls back to i.ytimg.com.
+  assert.match(html,/provider==="tiktok"&&activePlatformNav!=="tiktok"\)return false/);
+  assert.match(html,/provider==="youtube"&&activePlatformNav==="tiktok"\)return false/);
+  assert.match(html,/filter\(meta=>normalizedMediaProvider\(meta\?\.provider\)==="youtube"\)/);
+  assert.match(html,/Provider boundaries are strict: TikTok never falls through to a YouTube/);
+  assert.match(html,/provider==="tiktok"\?transparentThumb:providerFallbackThumb/);
+  assert.match(html,/stopTikTokLivePlayback\(\);[\s\S]{0,120}stopTikTokVideoPlayback\(\);[\s\S]{0,160}clearTikTokWorkspace\(\)/);
+  assert.match(html,/activePlatformNav==="tiktok"\)[\s\S]{0,160}ytPlayer\?\.pauseVideo\?\.\(\)/);
+
+  // Unknown TikTok LIVE viewers are null/hidden, never presented as a real 0.
+  assert.match(html,/const knownViewerCount=[\s\S]{0,180}rawViewerCount>0[\s\S]{0,120}:null/);
+  assert.match(html,/viewerCount:knownViewerCount,[\s\S]{0,100}viewsLabel:knownViewerCount\?compactLiveViewerCount/);
+  assert.match(html,/\(live\.length[\s\S]{0,260}Đang LIVE · '\+live\.length/);
+
   assert.match(html,/\.native-media-core > #tiktokMediaVideo,[\s\S]{0,420}object-fit:contain!important;[\s\S]{0,100}object-position:center center!important/);
   assert.match(html,/TikTok VOD geometry guard:[\s\S]{0,420}place-items:center!important[\s\S]{0,420}object-position:50% 50%!important/);
   assert.match(html,/\.row\.tiktok-profile-video \.row-thumb\{[\s\S]{0,100}aspect-ratio:9\/16!important/);

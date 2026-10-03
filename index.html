@@ -8311,6 +8311,11 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   function normalizeTikTokLiveItem(item={}){
     const handle=String(item?.handle||"").trim().replace(/^@/,"");
     if(!handle||item?.live===false)return null;
+    const rawViewerCount=Number(item?.viewerCount);
+    const knownViewerCount=
+      Number.isFinite(rawViewerCount)&&rawViewerCount>0
+        ?Math.round(rawViewerCount)
+        :null;
     const width=Math.max(0,Number(item?.width)||0);
     const height=Math.max(0,Number(item?.height)||0);
     const ratio=width>0&&height>0?width/height:9/16;
@@ -8346,8 +8351,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       hasLiveCover,
       isLive:true,
       verified:false,
-      viewerCount:Math.max(0,Number(item?.viewerCount)||0),
-      viewsLabel:compactLiveViewerCount(item?.viewerCount),
+      viewerCount:knownViewerCount,
+      viewsLabel:knownViewerCount?compactLiveViewerCount(knownViewerCount):"",
       publishedLabel:"Đang trực tiếp",
       durationLabel:"",
       mediaKind:"tiktok-live",
@@ -9637,6 +9642,12 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     const id=String(meta?.id||"").trim();
     if(!id)return false;
 
+    const provider=normalizedMediaProvider(meta?.provider);
+    // YouTube and TikTok are separate media branches. A stale card/state from
+    // the other branch must never be allowed to select that branch's player.
+    if(provider==="tiktok"&&activePlatformNav!=="tiktok")return false;
+    if(provider==="youtube"&&activePlatformNav==="tiktok")return false;
+
     const type=mediaTypeFor(meta);
     if(type==="live")return playTikTokLive(meta);
     if(type==="media")return playTikTokVideo(meta);
@@ -10365,23 +10376,26 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     const id=meta.id || current.id;
     const title=meta.title || current.label;
     const source=meta.sourceName || "1988";
+    const provider=normalizedMediaProvider(meta?.provider);
+    const transparentThumb="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
     const liveThumb=meta.isLive?livePreviewForMeta(meta):"";
+    const providerFallbackThumb=
+      provider==="youtube"
+        ?("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg")
+        :(String(meta?.sourceAvatar||"").trim()||transparentThumb);
     const baseThumb=meta.isLive
       ?(
           liveThumb||
-          (String(meta?.provider||"youtube").toLowerCase()==="tiktok"
-            ?"data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
-            :("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg"))
+          (provider==="tiktok"?transparentThumb:providerFallbackThumb)
         )
       :(
           String(meta.thumbnail||"").trim()||
-          ("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg")
+          providerFallbackThumb
         );
-    // Render the known-safe package image first. Higher quality variants are
-    // swapped in only after their decoded dimensions prove they are real art.
+    // Provider boundaries are strict: TikTok never falls through to a YouTube
+    // thumbnail/origin, and YouTube never uses TikTok media fallbacks.
     const thumb=baseThumb;
 
-    const provider=String(meta?.provider||"youtube").toLowerCase();
     const tiktokLive=meta?.isLive&&provider==="tiktok";
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
     const tiktokViewerCount=Math.max(0,Number(meta?.viewerCount)||0);
@@ -10870,10 +10884,12 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
           '<span class="tiktok-sidebar-nav-icon">◉</span><span>LIVE</span>'+
         '</button>'+
       '</div>'+
-      '<div class="tiktok-account-group" data-tiktok-live-group>'+
-        '<div class="tiktok-account-group-title">Đang LIVE · '+live.length+'</div>'+
-        live.map(meta=>tiktokAccountButtonMarkup(meta.handle,meta)).join("")+
-      '</div>'+
+      (live.length
+        ?'<div class="tiktok-account-group" data-tiktok-live-group>'+
+          '<div class="tiktok-account-group-title">Đang LIVE · '+live.length+'</div>'+
+          live.map(meta=>tiktokAccountButtonMarkup(meta.handle,meta)).join("")+
+        '</div>'
+        :"")+
       '<div class="tiktok-account-group">'+
         '<div class="tiktok-account-group-title">Kênh đã follow · '+followed.length+'</div>'+
         followed.map(channel=>tiktokAccountButtonMarkup(channel.handle,null)).join("")+
@@ -10984,7 +11000,9 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
               '<span class="tiktok-profile-follow-pill">Đang follow</span>'+
             '</div>'+
           '</div>'+
-          (live?'<button class="tiktok-profile-live" type="button" data-tiktok-open-live="'+escapeHtml(handle)+'">LIVE · '+escapeHtml(compactTikTokVideoCount(live.viewerCount)||"")+'</button>':"")+
+          (live?'<button class="tiktok-profile-live" type="button" data-tiktok-open-live="'+escapeHtml(handle)+'">LIVE'+
+            (compactTikTokVideoCount(live.viewerCount)?' · '+escapeHtml(compactTikTokVideoCount(live.viewerCount)):'')+
+          '</button>':"")+
         '</div>'+
         '<nav class="tiktok-profile-tabs" aria-label="Nội dung kênh">'+
           '<span class="tiktok-profile-tab">Trang chủ</span>'+
@@ -11300,6 +11318,9 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     activePlatformNav=closing?"":platform;
 
     if(activePlatformNav==="youtube"){
+      stopTikTokLivePlayback();
+      stopTikTokVideoPlayback();
+      stopTikTokPreparedStreams();
       clearTikTokWorkspace();
       activePackageScope="live";
       renderExistingSourceNames(youtubePlatformRows);
@@ -11307,11 +11328,16 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
         .forEach(chip=>chip.classList.toggle("active",chip.dataset.sourceTab==="live"));
       void showPackageScope("live",{hydrateLive:true});
     }else if(activePlatformNav==="tiktok"){
+      stopYoutubeLiveDemand();
+      try{ytPlayer?.pauseVideo?.()}catch{}
       void showTikTokWorkspace();
     }else{
       clearTikTokWorkspace();
       stopYoutubeLiveDemand();
+      stopTikTokLivePlayback();
+      stopTikTokVideoPlayback();
       stopTikTokPreparedStreams();
+      try{ytPlayer?.pauseVideo?.()}catch{}
     }
     syncPlatformButtons();
   }
@@ -12103,7 +12129,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     // The feed is authoritative. Never synthesize a fake card from current
     // player state when a package/search result is empty; that produced the
     // grey YouTube "..." thumbnail with source "1988".
-    const cards=Array.isArray(feedMetas)?feedMetas:[];
+    const cards=(Array.isArray(feedMetas)?feedMetas:[])
+      .filter(meta=>normalizedMediaProvider(meta?.provider)==="youtube");
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
