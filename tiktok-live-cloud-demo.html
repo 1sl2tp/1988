@@ -147,7 +147,7 @@ async function checkLive(raw){
 
   try{
     const state=await getJson(
-      EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),
+      EDGE+"/lookup?user="+encodeURIComponent(h)+"&t="+Date.now(),
       15000
     );
     renderState(state);

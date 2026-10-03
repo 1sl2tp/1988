@@ -45,4 +45,8 @@ assert.match(worker,/https:\/\/www\.tikwm\.com\/api\/user\/posts/);
 assert.match(worker,/url\.pathname === "\/tiktok\/channel-videos"/);
 assert.match(worker,/source:"tikwm-user-posts"/);
 
+assert.match(worker,/async function lookupLive\(rawHandle\)/);
+assert.match(worker,/url\.pathname === "\/lookup"/);
+assert.match(worker,/const state=await checkTikTok\(handle\)/);
+
 console.log('tiktok VOD direct-url + failover contract ok');

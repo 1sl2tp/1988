@@ -5,7 +5,7 @@ const demo=fs.readFileSync('tiktok-live-cloud-demo.html','utf8');
 
 assert.match(demo,/TikTok LIVE Direct Demo/);
 assert.match(demo,/placeholder="Dán link TikTok LIVE\.\.\."/);
-assert.match(demo,/EDGE\+"\/refresh\?user="/);
+assert.match(demo,/EDGE\+"\/lookup\?user="/);
 assert.match(demo,/async function checkLive\(raw\)/);
 assert.match(demo,/await playLive\(state\)/);
 assert.match(demo,/streamUrlEl\.value=stream/);
@@ -22,4 +22,4 @@ assert.doesNotMatch(demo,/localStorage/);
 assert.doesNotMatch(demo,/data-mode=/);
 assert.doesNotMatch(demo,/data-source=/);
 
-console.log('tiktok live demo is live-only: pasted live link -> refresh -> stream URL -> play');
+console.log('tiktok live demo is live-only: pasted live link -> lookup -> stream URL -> play');

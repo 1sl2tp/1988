@@ -2346,6 +2346,18 @@ async function relayTikTokVideo(request) {
   }, 502);
 }
 
+async function lookupLive(rawHandle) {
+  const handle=normalizeHandle(rawHandle);
+  if(!handle)return json({ok:false,error:"invalid_tiktok_handle"},400);
+  const state=await checkTikTok(handle);
+  return json({
+    ok:true,
+    handle,
+    ...state,
+    checkedAt:Date.now()
+  });
+}
+
 async function refreshOne(env, rawHandle) {
   const handle = normalizeHandle(rawHandle);
   if (!handle) return json({ ok: false, error: "invalid_tiktok_handle" }, 400);
@@ -3106,6 +3118,7 @@ export default {
         url.searchParams.get("count") || "5"
       );
     }
+    if (url.pathname === "/lookup") return lookupLive(url.searchParams.get("user") || "");
     if (url.pathname === "/refresh") return refreshOne(env, url.searchParams.get("user") || "");
     if (url.pathname === "/sweep") return json({ ok: true, ...(await sweep(env)) });
     return json({ ok: false, error: "not_found" }, 404);
