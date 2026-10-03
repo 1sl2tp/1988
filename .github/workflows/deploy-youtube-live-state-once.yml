@@ -1,5 +1,5 @@
 name: One-shot Deploy YouTube LIVE Strict Edge
-# run-rev: original-title-v1
+# run-rev: watch-player-fallback-v1
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SOURCE_COMMIT: 5c2920d533c819f3d8edde794a6ef26713186963
+      SOURCE_COMMIT: a00e27e75aef51079a7927f9ade0ab9e922a6e07
     steps:
       - uses: actions/checkout@v4
 
