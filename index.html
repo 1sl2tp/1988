@@ -5984,19 +5984,23 @@ html.tiktok-ui.tiktok-watch .rows{
     return normalized;
   }
 
-  function mergeSelectedMeta(base={},supplemental={}){
+  function mergeSelectedMeta(base={},supplemental={},options={}){
     const keep=(key)=>{
       const value=base?.[key];
       return value!==undefined&&value!==null&&value!=="";
     };
 
-    // Supplemental data fills gaps; only meaningful selected-card fields
-    // are protected below. Empty strings from the old card must not erase
-    // sourceId/avatar/channel metadata returned by the video lookup.
     const merged={...base,...supplemental};
+    const authoritativeIdentity=options?.authoritativeIdentity===true;
+    const baseSourceId=String(base?.sourceId||"").trim();
+    const exactSourceId=String(supplemental?.sourceId||"").trim();
+    const sourceConflict=
+      authoritativeIdentity&&
+      !!baseSourceId&&
+      !!exactSourceId&&
+      baseSourceId!==exactSourceId;
 
-    // The selected package/search card is the visible contract.
-    // Direct video lookup may fill gaps, but must not rename/relabel it.
+    // Prepared package metadata stays the visible contract in the normal case.
     for(const key of [
       "title","sourceName","sourceAvatar","thumbnail",
       "viewsLabel","publishedLabel","durationLabel",
@@ -6005,6 +6009,41 @@ html.tiktok-ui.tiktok-watch .rows{
       "_aspectVerified","_aspectSource"
     ]){
       if(keep(key))merged[key]=base[key];
+    }
+
+    if(authoritativeIdentity){
+      // Exact metadata for the selected videoId is authoritative for channel
+      // identity. This repairs a stale browser/package row that points the same
+      // video to the wrong channel.
+      for(const key of ["sourceId","sourceName","sourceAvatar","verified"]){
+        const value=supplemental?.[key];
+        if(value!==undefined&&value!==null&&value!=="")merged[key]=value;
+      }
+
+      const exactTitle=String(supplemental?.title||"").trim();
+      const baseTitle=String(base?.title||"").trim();
+      const baseSourceName=String(base?.sourceName||"").trim();
+      const baseTitleIsSource=
+        !!baseTitle&&
+        !!baseSourceName&&
+        normalizedSearchQuery(baseTitle)===normalizedSearchQuery(baseSourceName);
+
+      if(exactTitle&&(sourceConflict||baseTitleIsSource||!baseTitle)){
+        merged.title=exactTitle;
+      }
+
+      if(sourceConflict){
+        if(String(supplemental?.thumbnail||"").trim()){
+          merged.thumbnail=supplemental.thumbnail;
+        }
+        if(supplemental?.isLive!==undefined)merged.isLive=supplemental.isLive;
+        if(String(supplemental?.viewsLabel||"").trim()){
+          merged.viewsLabel=supplemental.viewsLabel;
+        }
+        if(Number(supplemental?.viewerCount)>0){
+          merged.viewerCount=supplemental.viewerCount;
+        }
+      }
     }
 
     return merged;
@@ -6055,6 +6094,64 @@ html.tiktok-ui.tiktok-watch .rows{
         next.className="row-avatar";
         next.alt="";
         next.src=avatar;
+        oldAvatar.replaceWith(next);
+      });
+    }
+    return true;
+  }
+
+  function applyExactSourceIdentityToVideo(id,identity={}){
+    id=String(id||"").trim();
+    const sourceId=String(identity?.sourceId||"").trim();
+    const sourceName=String(identity?.sourceName||"").trim();
+    const sourceAvatar=String(identity?.sourceAvatar||"").trim();
+    if(!id||(!sourceId&&!sourceName&&!sourceAvatar))return false;
+
+    const patchMeta=(meta)=>{
+      if(!meta||String(meta?.id||"").trim()!==id)return;
+      if(sourceId)meta.sourceId=sourceId;
+      if(sourceName)meta.sourceName=sourceName;
+      if(sourceAvatar)meta.sourceAvatar=sourceAvatar;
+    };
+
+    patchMeta(currentMeta);
+    for(const meta of feedMetas)patchMeta(meta);
+    for(const meta of relatedMetas)patchMeta(meta);
+    for(const metas of packageCache.values()){
+      for(const meta of metas)patchMeta(meta);
+    }
+    for(const metas of searchCache.values()){
+      for(const meta of metas)patchMeta(meta);
+    }
+
+    if(/^UC[A-Za-z0-9_-]+$/.test(sourceId)){
+      const known=sourceIdentityCache.get(sourceId)||{};
+      sourceIdentityCache.set(sourceId,{
+        ...known,
+        sourceName:sourceName||String(known?.sourceName||""),
+        sourceAvatar:sourceAvatar||String(known?.sourceAvatar||"")
+      });
+      queueYoutubeChannelDirectory({
+        provider:"youtube",
+        sourceId,
+        sourceName,
+        sourceAvatar
+      },"exact-video-correction");
+    }
+
+    if(sourceAvatar){
+      document.querySelectorAll(".row[data-video-id]").forEach(row=>{
+        if(String(row.dataset.videoId||"")!==id)return;
+        const oldAvatar=row.querySelector(".row-avatar");
+        if(!oldAvatar)return;
+        if(oldAvatar instanceof HTMLImageElement){
+          oldAvatar.src=sourceAvatar;
+          return;
+        }
+        const next=document.createElement("img");
+        next.className="row-avatar";
+        next.alt="";
+        next.src=sourceAvatar;
         oldAvatar.replaceWith(next);
       });
     }
@@ -11495,7 +11592,13 @@ html.tiktok-ui.tiktok-watch .rows{
         String(currentMeta?.id||"")===requestedId
           ? currentMeta
           : (previousMeta||{});
-      currentMeta=mergeSelectedMeta(latestBase,nextMeta);
+      currentMeta=mergeSelectedMeta(
+        latestBase,
+        nextMeta,
+        {authoritativeIdentity:true}
+      );
+
+      applyExactSourceIdentityToVideo(requestedId,currentMeta);
 
       const related=collectVideoRows(payload)
         .filter(meta=>meta.id && meta.id!==requestedId)
@@ -11513,6 +11616,7 @@ html.tiktok-ui.tiktok-watch .rows{
 
       renderCurrentInfo();
       applyHeaderTint(currentMeta);
+      syncVideoDocumentIdentity({push:false});
       if(!currentMeta?.sourceAvatar){
         void hydrateCurrentSourceIdentity(requestedId);
       }
