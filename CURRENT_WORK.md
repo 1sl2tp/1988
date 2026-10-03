@@ -84,6 +84,71 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.4. Incident mới nhất — Trạng thái Chọn/Chặn và LIVE kế thừa không đồng bộ
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng:
+- Main UI ở search/channel view vẫn hiện `Chọn vào nguồn…` dù Dân Ca Lofi đã canonical `selected` trong scope `live`.
+- Main UI chỉ đọc trạng thái trực tiếp của scope đang mở, chưa hiển thị trạng thái hiệu lực/kế thừa.
+- Trang `/sources/` có logic LIVE kế thừa nhưng chỉ trừ blocked riêng scope LIVE, lệch với Cloudflare production vốn trừ blocked của mọi scope.
+- Source edit trước đây không có targeted LIVE sync; phải đợi lần full LIVE scan tiếp theo mới chắc chắn cập nhật membership.
+
+Contract mới:
+```text
+LIVE effective selected
+= union(selected của mọi scope)
+- union(blocked của mọi scope)
+```
+
+- `normal` = Chưa chọn / Chưa chặn.
+- `selected` = Đã chọn.
+- `blocked` = Đã chặn.
+- LIVE inherited state phải hiển thị rõ `kế thừa`, không giả thành direct state.
+- Muốn bỏ một inherited state phải sửa scope gốc; không ghi một direct `normal` giả ở LIVE.
+
+Patch:
+- 1988 commit `729641199ea1cc5c9e893037cca0ac0d4f5752b1`:
+  - main UI có `effectiveSourceStatus()`;
+  - menu search/channel hiển thị `Đã chọn trong nguồn…` / `Đã chặn trong nguồn…`;
+  - picker hiển thị từng scope: Chưa chọn / Đã chọn / Đã chặn / kế thừa;
+  - LIVE aggregate luôn mở picker thay vì toggle một state giả;
+  - `/sources/` dùng union selected/blocked giống Cloudflare;
+  - `yt1988-state` gọi targeted LIVE source sync sau `set_source`;
+  - regression contract `tests/source-state-contract.test.cjs`;
+  - PWA cache v72.
+- Infrastructure commit `902e4e89022fcccee0ca39e4fc8148ef288b2361`:
+  - endpoint `/youtube/live-source-sync?channelId=...`;
+  - chỉ kiểm tra đúng channel vừa thay đổi;
+  - nếu bị block hoặc không còn selected ở bất kỳ scope nào → loại khỏi LIVE snapshot;
+  - nếu còn selected → probe LIVE đúng channel;
+  - changed snapshot → wake package LIVE;
+  - unknown upstream → giữ last-known-good row.
+- deploy mirror/workflow commit `f4168c22138ce44d6f1c9b141fb7d0e0ca5bd265`.
+- UI label cleanup:
+  - `1e84a3ebc12aac5abe1b31a8eafa535fa41feaee`;
+  - `5859505457da2e6e58f0cd2b01ac321af7599b85`;
+  - PWA `v73` commit `ec5ac68e190c18b09888fbef146defe4a17b5aca`.
+
+Runtime:
+- `yt1988-state v9` ACTIVE.
+- Cloudflare deploy run `37134001622`: deploy + zero-schedule PASS; workflow tổng thể fail ở full demand-scan verify sau deploy, nhưng Worker mới đã được deploy.
+- Targeted endpoint production test:
+  - Dân Ca Lofi `UC7NBAf7ARIWZKB0Tr6PbD7Q`;
+  - HTTP 200;
+  - outcome `offline`;
+  - changed=false;
+  - chỉ sync đúng channel, không full scan.
+- End-to-end idempotent `set_source(selected)` request 565: HTTP 200; canonical row vẫn `scope=live,status=selected`.
+
+Rule:
+- Mọi `set_source` là canonical row write trước; UI chỉ broadcast/update sau success.
+- Source edit là user-triggered demand action: được targeted-sync đúng 1 channel vào LIVE, không chạy full scan.
+- Nếu channel còn selected ở bất kỳ scope nào và không blocked → LIVE coi là selected.
+- Nếu blocked ở bất kỳ scope nào → LIVE blocked.
+- Nếu xóa selected ở scope cuối cùng → targeted sync loại channel khỏi LIVE snapshot/package nếu đang có.
+- Nếu LIVE đang visible, UI chờ hash mới; nếu không visible, không tải package LIVE trước — lần mở LIVE sau sẽ lấy hash/package mới.
+
 ### 3.3. Incident mới nhất — LIVE đã hết vẫn còn vì edge trả 0
 
 Thời gian: **2026-10-03**.
