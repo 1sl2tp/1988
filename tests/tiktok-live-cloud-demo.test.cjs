@@ -28,7 +28,10 @@ assert.match(demo,/source:"tikwm_hd",autoFallback:true/);
 assert.match(demo,/source==="tikwm_hd"/);
 assert.match(demo,/source:"bhwa_get",force:true/);
 assert.match(demo,/TikWM có link nhưng phát lỗi · chuyển BHWA/);
+assert.match(demo,/TikWM mở media lỗi · chuyển BHWA/);
 
+assert.match(demo,/const liveType=String\(data\?\.live\?\.streamType\|\|""\)\.toLowerCase\(\)/);
+assert.match(demo,/streamUrl:liveType==="hls"\?"":liveUrl/);
 assert.match(demo,/renderLive\(liveItem\?\{status:2\}:\{status:4\}\)/);
 assert.match(demo,/playLive\(liveItem\)/);
 

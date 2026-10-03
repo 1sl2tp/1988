@@ -392,6 +392,13 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
         sourceInfo.textContent=source.toUpperCase()+" · link thật đã có · trình duyệt chặn autoplay";
         return;
       }
+      if(autoFallback&&source==="tikwm_hd"){
+        removeVodLinkCache(item,source);
+        sourceInfo.className="sourceinfo";
+        sourceInfo.textContent="TikWM mở media lỗi · chuyển BHWA…";
+        playVodMedia(item,{iframeFallback,source:"bhwa_get",force:true,autoFallback:false});
+        return;
+      }
       sourceInfo.className="sourceinfo bad";
       sourceInfo.textContent=source.toUpperCase()+" · PLAY LỖI · "+String(error?.message||name||"unknown");
     });
@@ -491,13 +498,15 @@ async function inspect(raw,{force=false}={}){
 
     account=data?.account||null;
     videos=normalizeProfileVideos(data?.videos,h);
-    liveItem=data?.live?{
+    const liveType=String(data?.live?.streamType||"").toLowerCase();
+    const liveUrl=String(data?.live?.streamUrl||"");
+    liveItem=data?.live&&liveUrl?{
       ...data.live,
       status:2,
       sourceName:String(data?.account?.displayName||("@"+h)),
       avatar:String(data?.account?.avatar||""),
-      hlsUrl:String(data?.live?.streamType||"").toLowerCase()==="hls"?String(data?.live?.streamUrl||""):"",
-      streamUrl:String(data?.live?.streamUrl||"")
+      hlsUrl:liveType==="hls"?liveUrl:"",
+      streamUrl:liveType==="hls"?"":liveUrl
     }:null;
 
     renderLive(liveItem?{status:2}:{status:4});
