@@ -17,6 +17,9 @@ assert.match(demo,/\.slice\(0,5\)/);
 
 assert.match(demo,/EDGE\+"\/refresh\?user="/);
 assert.match(demo,/async function loadLiveNow\(h,\{force=false\}=\{\}\)/);
+assert.match(demo,/function removeLiveCache\(h\)/);
+assert.match(demo,/if\(force\)removeLiveCache\(h\)/);
+assert.match(demo,/if\(force&&playable\)playLive\(liveItem\)/);
 assert.match(demo,/const videoTask=loadLatestFive\(h\)/);
 assert.match(demo,/const liveTask=loadLiveNow\(h,\{force\}\)/);
 assert.match(demo,/Promise\.allSettled\(\[videoTask,liveTask\]\)/);
@@ -33,4 +36,4 @@ assert.match(demo,/source:"bhwa_get",force:true/);
 assert.match(demo,/TikWM có link nhưng phát lỗi · chuyển BHWA/);
 assert.match(demo,/TikWM mở media lỗi · chuyển BHWA/);
 
-console.log('tiktok demo no-Render: live edge + TikWM latest-five + TikWM/BHWA VOD');
+console.log('tiktok demo no-Render: fresh-check clears stale LIVE cache and auto-opens fresh stream');

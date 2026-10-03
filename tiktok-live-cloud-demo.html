@@ -141,21 +141,45 @@ async function loadLatestFive(h){
   return videos.length;
 }
 async function loadLiveNow(h,{force=false}={}){
+  if(force)removeLiveCache(h);
   const cached=!force?readLiveCache(h):null;
   if(cached){
     liveItem=cached;
     renderLive({status:2});
   }else{
+    liveItem=null;
     liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
   }
-  const state=await json(
-    EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),
-    15000
-  );
-  liveItem=Number(state?.status)===2?state:null;
-  if(liveItem)writeLiveCache(h,liveItem);
-  renderLive(state);
-  return Number(state?.status)===2;
+
+  try{
+    const state=await json(
+      EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),
+      15000
+    );
+    liveItem=Number(state?.status)===2?state:null;
+    const playable=Boolean(liveItem&&(liveItem.streamUrl||liveItem.hlsUrl));
+
+    if(playable){
+      writeLiveCache(h,liveItem);
+    }else{
+      removeLiveCache(h);
+    }
+
+    renderLive(state);
+
+    // Manual "Kiểm tra" means: fresh LIVE result wins immediately.
+    // If a fresh playable stream exists, open it now instead of waiting for a second click.
+    if(force&&playable)playLive(liveItem);
+
+    return playable;
+  }catch(error){
+    if(force){
+      liveItem=null;
+      removeLiveCache(h);
+      liveBox.innerHTML='<div class="empty">Không lấy được trạng thái LIVE mới.</div>';
+    }
+    throw error;
+  }
 }
 function stop(){
   vodSeq++;
@@ -180,6 +204,9 @@ function readLiveCache(h){
 function writeLiveCache(h,data){
   if(Number(data?.status)!==2||!(data?.streamUrl||data?.hlsUrl))return;
   try{sessionStorage.setItem(liveCacheKey(h),JSON.stringify({at:Date.now(),data}))}catch{}
+}
+function removeLiveCache(h){
+  try{sessionStorage.removeItem(liveCacheKey(h))}catch{}
 }
 function vodPageUrl(item){
   return item.pageUrl||("https://www.tiktok.com/@"+item.handle+"/video/"+item.id);
