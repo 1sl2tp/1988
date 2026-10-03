@@ -84,6 +84,55 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.3. Incident mới nhất — LIVE đã hết vẫn còn vì edge trả 0
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng:
+- UI còn nhiều LIVE đã kết thúc.
+- Package LIVE trước sửa: hash `23v6p2`, **31 item**.
+- Cloudflare scan đã kiểm tra khoảng 248 kênh nhưng snapshot trả `live=0`.
+- Supabase đúng rule last-known-good nên không lấy `[]` đè package 31; vì vậy LIVE cũ bị giữ lại.
+
+Owner:
+- **Cloudflare YouTube LIVE verifier** + một nhánh double-verify thừa trong `yt1988-refresh`.
+- UI không sửa.
+
+Nguyên nhân:
+- Cloudflare strict verifier phụ thuộc InnerTube API làm cổng duy nhất; đường này có thể bị YouTube chặn/không trả đủ nên toàn scan thành 0.
+- Supabase lại verify snapshot fresh lần nữa bằng InnerTube từ IP Supabase; runtime Supabase đã được chứng minh bị Google trả automated-query block.
+
+Patch:
+- infrastructure commit `a00e27e75aef51079a7927f9ade0ab9e922a6e07`:
+  - watch page của đúng videoId là đường xác minh chính;
+  - parse `ytInitialPlayerResponse/videoDetails`;
+  - chỉ nhận khi `isLive=true` và owner `channelId` khớp;
+  - InnerTube chỉ fallback.
+- 1988 commit `046d5bf68b58df79406e2bb571027a5290ed1b15`:
+  - snapshot Cloudflare fresh đã verified thì Supabase không verify InnerTube lại;
+  - Supabase chỉ lọc/enrich/đóng package.
+- runtime `yt1988-refresh v28`.
+- Cloudflare deploy run `37132871574`: SUCCESS; zero schedules PASS.
+
+Production verify:
+- Cloudflare snapshot version 130:
+  - checked: 249;
+  - selected: 241;
+  - discovered: 11;
+  - **live: 18**;
+  - mỗi item có `verifiedLive=true`, `verifiedOwner=true`, verification=`watch_player_is_live+owner_match`.
+- Supabase LIVE package:
+  - trước: hash `23v6p2`, 31 item;
+  - sau: hash `1d9yemd`, **18 item**;
+  - refresh `last_ok=true`, không pending scope.
+- UI không đổi; hash mới sẽ tải package 18 hoàn chỉnh rồi swap.
+
+Rule:
+- Cloudflare quyết định realtime LIVE + owner.
+- Supabase không được gọi InnerTube lại cho snapshot Cloudflare fresh.
+- Edge thật sự lỗi/unknown → giữ last-known-good.
+- Edge fresh verified có N LIVE → package phải có tập N sau canonical filter/enrich, không giữ ended rows cũ.
+
 ### 3.2. Incident mới nhất — LIVE title bị rơi thành tên kênh
 
 Thời gian: **2026-10-03**.
