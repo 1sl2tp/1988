@@ -2709,6 +2709,7 @@ Deno.serve(async(req:Request)=>{
           handle:channelHandle,
           description:channelDescription,
           verified:data?.verified===true,
+          verified_known:typeof data?.verified==="boolean",
           subscriber_count:subscriberCount,
           view_count:channelViewCount,
           video_count:channelVideoCount,
