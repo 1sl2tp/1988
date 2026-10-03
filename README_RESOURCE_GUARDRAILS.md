@@ -289,10 +289,11 @@ Cùng một `error_code + endpoint + channel/source` nên rate-limit log theo c�
 3. Không để cùng lúc GitHub cron + Supabase cron + browser polling cùng làm một việc.
 4. Browser chỉ wake scope đang visible; server/edge cycle + lease chống trùng.
 5. Job B thấy job A cùng scope đang chạy → không tạo job mới.
-6. Retry phải bounded; không `while(true)`.
-7. Fail upstream → giữ last-known-good; không ghi rỗng.
-8. Không refresh mọi kênh nếu chỉ một scope đang cần.
-9. Kênh mới do search/LIVE phát hiện có thể được hydrate một lần rồi ghi canonical library; không hydrate lại mọi lần render.
+6. Retry phải bounded; không `while(true)`. Cùng một cơ chế fail 2 lần trong một incident thì áp dụng `README_NO_WAIT_WORKFLOW.md`: dừng retry mù và đổi đường/owner.
+7. Job/lease đang chạy → không poll dồn và không tạo job thứ hai; chuyển sang việc độc lập khác rồi mới check trạng thái.
+8. Fail upstream → giữ last-known-good; không ghi rỗng.
+9. Không refresh mọi kênh nếu chỉ một scope đang cần.
+10. Kênh mới do search/LIVE phát hiện có thể được hydrate một lần rồi ghi canonical library; không hydrate lại mọi lần render.
 
 ## 7. Quy tắc payload
 
