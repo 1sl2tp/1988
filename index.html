@@ -263,6 +263,14 @@ html.one-col body{min-height:220vh}
     pointer-events:none!important;
   }
 
+  /* Mobile/1-column keeps only the player anchor in media-col.
+     The metadata for the playing video is already represented by the inline
+     card itself. If .info remains visible inside this zero-size/overflow-visible
+     anchor, its avatar can leak above the first feed card as a stray logo. */
+  .media-col > .info{
+    display:none!important;
+  }
+
   /* Keep the permanent player home inside the real page/compositor.
      Parking the parent at -10000px made Safari/PWA keep audio alive while
      the hardware video layer stayed clipped/black. The zero-size anchor is
