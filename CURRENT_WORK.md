@@ -84,6 +84,39 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.2. Incident mới nhất — LIVE title bị rơi thành tên kênh
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng:
+- Video LIVE `LI-7QtW-_bs` / Báo Tiền Phong News.
+- Package trước sửa: `title = "Báo Tiền Phong News"`.
+- Exact `yt1988?action=video_meta&id=LI-7QtW-_bs` trả title gốc:
+  `🔴Trực Tiếp: Tin tức an ninh trật tự nóng, thời sự Việt Nam mới nhất 24h Tối ngày 3/10`.
+
+Owner:
+- **Supabase package builder `yt1988-refresh`**.
+- UI không sửa.
+
+Patch:
+- commit `60e004cfdc07f34dcb60c0b7851de394432116e0`;
+- nếu LIVE title rỗng hoặc compact-equal `sourceName` → lấy exact `video_meta` theo `videoId`;
+- title khác → giữ nguyên;
+- không AI/heuristic/dọn title LIVE.
+- regression test commit `bca6596a4925076b3126f8c5af0ec6365ccb0010`.
+- runtime: `yt1988-refresh v27`.
+
+Production verify:
+- package LIVE hash `23v6p2`, 31 item;
+- row `LI-7QtW-_bs` hiện title đúng title gốc ở trên;
+- sourceName vẫn `Báo Tiền Phong News`;
+- UI chỉ nhận package/hash mới.
+
+Rule:
+- LIVE `title` không được dùng `sourceName` làm fallback cuối.
+- Chỉ khi title rỗng hoặc bằng sourceName mới exact-resolve theo videoId.
+- Title exact lấy về phải giữ nguyên, không lọc nội dung.
+
 ### 3.1. Incident mới nhất — LIVE thiếu avatar dù channel directory đã có
 
 Thời gian: **2026-10-03**.
