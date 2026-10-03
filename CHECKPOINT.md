@@ -46,7 +46,8 @@ Rollback đúng Worker/service bị ảnh hưởng; không deploy lại toàn b�
 
 ## Nguyên tắc
 
+- **Trước mọi sửa chữa: đọc `CURRENT_WORK.md` trước, sau đó `README_MAINTENANCE.md`.**
 - Production hỏng: rollback trước, điều tra sau.
 - Một incident chỉ có một owner/deploy chính.
 - Không ghép nhiều commit cũ nếu không cần.
-- Xem `README_MAINTENANCE.md` mục FAST REPAIR trước mọi sửa chữa.
+- Sau mỗi repair phải cập nhật lại `CURRENT_WORK.md` để chat sau biết chính xác đang làm gì.
