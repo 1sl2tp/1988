@@ -183,3 +183,31 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - `Nhat ky sua chua`: thêm dòng đồng bộ tài liệu.
 - Không thay đổi runtime/data trong lần đồng bộ tài liệu này.
 
+## 2026-10-03 — Fast Repair protocol + unified channel identity toàn web
+
+- Branch: `main`.
+- Base production trước thay đổi: `14bf92577768f311cf2b55331668de8511ac73ca`.
+- Commit code/rules chính: `8a408bf34d39f487dfbd7cfb1d8fc5c7415841fd`.
+- Pages run: `37114766999` — SUCCESS.
+- Không có runtime error sau deploy.
+- Chuẩn channel identity:
+  - YouTube canonical: `yt1988_channel_directory`;
+  - TikTok canonical: `yt1988_tiktok_channels`;
+  - API chung: `yt1988-state.state.channelLibrary`;
+  - MAIN và `sources/` đều ưu tiên cùng channelLibrary; `customSources` chỉ fallback.
+- Contract chung gồm name/avatar/handle/profile/verification/stats/status và phân biệt `verification.known=false` với `verified=false`.
+- Probe production YouTube xác nhận POPS Kids trả subscriber/views/videoCount/avatar/handle/verified đúng.
+- TikTok verified profile cũng trả cùng contract.
+- Fast Repair rule được khóa vào `README_MAINTENANCE.md`, `README.md`, `CHECKPOINT.md`:
+  - một lỗi → một owner → một patch → một deploy;
+  - production hỏng do regression → rollback last-known-good trước;
+  - không refactor/dọn dẹp trong incident;
+  - dùng probe nhỏ trước, không scan toàn hệ thống;
+  - schema additive/backward-compatible trước;
+  - gom thay đổi thành một commit code chính;
+  - docs-only sau verify không kích production deploy;
+  - Pages dùng `cancel-in-progress: true`.
+- Workflow Cloudflare static frontend đã chuyển sang manual-only, không còn tự deploy cùng Pages.
+- Known residual: Render Static Site thử nghiệm `1988-site` vẫn đang auto-deploy theo main nhưng **không phải production**. Connector Render hiện không có thao tác đổi autoDeploy/xóa service; cần tắt/xóa ở dashboard để bỏ build thừa.
+- Rollback frontend: `14bf92577768f311cf2b55331668de8511ac73ca`.
+
