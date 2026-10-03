@@ -543,6 +543,35 @@ html.one-col .player.inline-overlay:not(.pip){
 }
 .icon-button:hover{background:linear-gradient(rgba(var(--header-accent-rgb),var(--ambient-control-hover)),rgba(var(--header-accent-rgb),var(--ambient-control-hover))),var(--yt-hover)}
 .icon-button:active{background:var(--yt-press)}
+
+/* One YouTube-style hint layer for the whole app. Native title bubbles are
+   inconsistent across Chrome/Safari/PWA, so interactive controls and clipped
+   video/channel text use this shared tooltip instead. */
+.app-hint{
+  position:fixed;
+  z-index:12000;
+  max-width:min(360px,calc(100vw - 24px));
+  padding:7px 10px;
+  border-radius:4px;
+  background:rgba(35,35,35,.96);
+  color:#fff;
+  font:400 12px/16px Roboto,Noto,Arial,sans-serif;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(2px);
+  transition:opacity .10s ease,transform .10s ease;
+  box-shadow:0 2px 8px rgba(0,0,0,.28);
+}
+.app-hint.visible{
+  opacity:1;
+  transform:translateY(0);
+}
+:root[data-theme="light"] .app-hint{
+  background:rgba(40,40,40,.94);
+  color:#fff;
+}
 .sourcebar{
   order:1;
   position:relative;
@@ -4556,6 +4585,14 @@ html.tiktok-ui.tiktok-watch .rows{
     return task;
   }
 
+  function youtubeLiveTitleNeedsHydration(meta={}){
+    if(meta?.isLive!==true)return false;
+    const title=String(meta?.title||"").replace(/\s+/g," ").trim();
+    if(!title)return true;
+    const normalized=normalizeLiveClientText(title);
+    return /^(?:live|live stream|livestream|truc tiep|dang truc tiep|item|video)$/.test(normalized);
+  }
+
   function youtubeDiscoveryNeedsHydration(meta={}){
     if(String(meta?.provider||"youtube").toLowerCase()!=="youtube")return false;
     const id=String(meta?.id||"").trim();
@@ -4563,7 +4600,8 @@ html.tiktok-ui.tiktok-watch .rows{
     return (
       !/^UC[A-Za-z0-9_-]+$/.test(String(meta?.sourceId||"").trim())||
       !String(meta?.sourceName||"").trim()||
-      !String(meta?.sourceAvatar||"").trim()
+      !String(meta?.sourceAvatar||"").trim()||
+      youtubeLiveTitleNeedsHydration(meta)
     );
   }
 
@@ -4581,9 +4619,26 @@ html.tiktok-ui.tiktok-watch .rows{
 
     const task=(async()=>{
       try{
-        if(!window.YT1988_API?.video)return false;
-        const payload=await window.YT1988_API.video(id);
-        const full=cardMetaFromRow(dataRow(payload));
+        if(!window.YT1988_API?.video&&!window.YT1988_API?.videoMeta)return false;
+
+        let payload=null;
+        // video_meta uses YouTube oEmbed + an exact-id search and is the best
+        // lightweight source for a LIVE title/concurrent count. Fall back to
+        // the normal video endpoint for channel identity when needed.
+        if(window.YT1988_API?.videoMeta){
+          try{payload=await window.YT1988_API.videoMeta(id)}catch{}
+        }
+        if(!payload&&window.YT1988_API?.video){
+          payload=await window.YT1988_API.video(id);
+        }
+
+        let raw=dataRow(payload);
+        let full=cardMetaFromRow(raw);
+        if(!full?.id&&window.YT1988_API?.video){
+          const fallbackPayload=await window.YT1988_API.video(id);
+          raw=dataRow(fallbackPayload);
+          full=cardMetaFromRow(raw);
+        }
         if(!full?.id)return false;
 
         const sourceId=String(full?.sourceId||meta?.sourceId||"").trim();
@@ -4593,6 +4648,38 @@ html.tiktok-ui.tiktok-watch .rows{
         if(sourceId&&!meta.sourceId)meta.sourceId=sourceId;
         if(sourceName&&!meta.sourceName)meta.sourceName=sourceName;
         if(sourceAvatar&&!meta.sourceAvatar)meta.sourceAvatar=sourceAvatar;
+
+        const resolvedLiveTitle=cleanYoutubeLiveDisplayTitle(
+          full?.title||raw?.title||"",
+          sourceName
+        );
+        if(youtubeLiveTitleNeedsHydration(meta)&&resolvedLiveTitle){
+          meta.title=resolvedLiveTitle;
+        }
+
+        const liveViewers=meta?.isLive===true
+          ?liveViewerCountFromRow(raw,full)
+          :0;
+        if(liveViewers>0){
+          meta.viewerCount=liveViewers;
+          meta.viewsLabel=compactLiveViewerCount(liveViewers);
+        }
+
+        // Keep the authoritative edge row in sync as well. Otherwise a later
+        // repaint would recreate the old generic "Đang trực tiếp" card.
+        if(meta?.isLive===true){
+          const edge=youtubeEdgeLiveMetas.find(row=>String(row?.id||"")===id);
+          if(edge){
+            if(resolvedLiveTitle)edge.title=resolvedLiveTitle;
+            if(sourceId)edge.sourceId=sourceId;
+            if(sourceName)edge.sourceName=sourceName;
+            if(sourceAvatar)edge.sourceAvatar=sourceAvatar;
+            if(liveViewers>0){
+              edge.viewerCount=liveViewers;
+              edge.viewsLabel=compactLiveViewerCount(liveViewers);
+            }
+          }
+        }
 
         // Video thumbnail/live preview is session/UI state, not channel-library
         // state. It may fill the visible card, but queueYoutubeChannelDirectory
@@ -4619,6 +4706,12 @@ html.tiktok-ui.tiktok-watch .rows{
         // avatar/stats/verification in the background and persists them.
         if(sourceId&&youtubeProfileNeedsHydration(sourceId)){
           void hydrateYoutubeDiscoveredChannelProfile(discoveredMeta,source);
+        }
+
+        if(meta?.isLive===true&&liveDemandActive("youtube")){
+          const rows=document.getElementById("rows");
+          if(rows)rows.dataset.renderSignature="";
+          paintUnifiedLiveFromEdge("youtube");
         }
         return true;
       }catch(_){
@@ -5650,6 +5743,103 @@ html.tiktok-ui.tiktok-watch .rows{
       .replace(/>/g,"&gt;")
       .replace(/"/g,"&quot;");
   }
+
+  let appHintTimer=0;
+  let appHintEl=null;
+  let appHintTarget=null;
+
+  function ensureAppHint(){
+    if(appHintEl)return appHintEl;
+    appHintEl=document.createElement("div");
+    appHintEl.className="app-hint";
+    appHintEl.setAttribute("role","tooltip");
+    appHintEl.hidden=true;
+    document.body.appendChild(appHintEl);
+    return appHintEl;
+  }
+
+  function appHintCandidate(target){
+    if(!(target instanceof Element))return null;
+    return target.closest(
+      '[data-hint],button,[role="button"],a,.row-title,.row-source'
+    );
+  }
+
+  function appHintText(target){
+    if(!target)return "";
+    const explicit=String(target.getAttribute?.("data-hint")||"").trim();
+    if(explicit)return explicit;
+    const aria=String(target.getAttribute?.("aria-label")||"").trim();
+    if(aria)return aria;
+    const nativeTitle=String(target.getAttribute?.("title")||"").trim();
+    if(nativeTitle)return nativeTitle;
+    if(target.matches?.(".row-title,.row-source")){
+      return String(target.textContent||"").replace(/\s+/g," ").trim();
+    }
+    return "";
+  }
+
+  function hideAppHint(){
+    clearTimeout(appHintTimer);
+    appHintTarget=null;
+    if(!appHintEl)return;
+    appHintEl.classList.remove("visible");
+    appHintEl.hidden=true;
+  }
+
+  function positionAppHint(target){
+    const hint=ensureAppHint();
+    const rect=target.getBoundingClientRect();
+    const gap=8;
+    hint.style.left="0px";
+    hint.style.top="0px";
+    hint.hidden=false;
+    const box=hint.getBoundingClientRect();
+    let left=rect.left+(rect.width-box.width)/2;
+    left=Math.max(8,Math.min(window.innerWidth-box.width-8,left));
+    let top=rect.bottom+gap;
+    if(top+box.height>window.innerHeight-8){
+      top=Math.max(8,rect.top-box.height-gap);
+    }
+    hint.style.left=Math.round(left)+"px";
+    hint.style.top=Math.round(top)+"px";
+  }
+
+  function showAppHint(target,{delay=380}={}){
+    const text=appHintText(target);
+    if(!text)return hideAppHint();
+    clearTimeout(appHintTimer);
+    appHintTarget=target;
+    appHintTimer=setTimeout(()=>{
+      if(appHintTarget!==target||!document.contains(target))return;
+      const hint=ensureAppHint();
+      hint.textContent=text;
+      positionAppHint(target);
+      requestAnimationFrame(()=>hint.classList.add("visible"));
+    },Math.max(0,Number(delay)||0));
+  }
+
+  document.addEventListener("pointerover",event=>{
+    if(event.pointerType==="touch")return;
+    const target=appHintCandidate(event.target);
+    if(!target)return;
+    if(target.contains(event.relatedTarget))return;
+    showAppHint(target,{delay:420});
+  },true);
+  document.addEventListener("pointerout",event=>{
+    const target=appHintCandidate(event.target);
+    if(!target||target!==appHintTarget)return;
+    if(target.contains(event.relatedTarget))return;
+    hideAppHint();
+  },true);
+  document.addEventListener("focusin",event=>{
+    const target=appHintCandidate(event.target);
+    if(target)showAppHint(target,{delay:120});
+  },true);
+  document.addEventListener("focusout",hideAppHint,true);
+  document.addEventListener("pointerdown",hideAppHint,true);
+  addEventListener("scroll",hideAppHint,{passive:true,capture:true});
+  addEventListener("resize",hideAppHint,{passive:true});
 
   function videoTitleSlug(value=""){
     return String(value||"")
@@ -6878,21 +7068,23 @@ html.tiktok-ui.tiktok-watch .rows{
   async function hydrateMissingYoutubeLiveViewers({paint=true}={}){
     if(
       !youtubeEdgeLiveReady||
-      (!window.YT1988_API?.video&&!window.YT1988_API?.search)
+      (!window.YT1988_API?.videoMeta&&!window.YT1988_API?.video&&!window.YT1988_API?.search)
     )return false;
     const now=Date.now();
     const missing=youtubeEdgeLiveMetas
       .filter(meta=>{
         const id=String(meta?.id||"").trim();
         const last=Number(youtubeLiveViewerLookupAt.get(id)||0);
+        const needsViewer=Math.max(0,Number(meta?.viewerCount)||0)===0;
+        const needsTitle=youtubeLiveTitleNeedsHydration(meta);
         return (
           /^[A-Za-z0-9_-]{11}$/.test(id)&&
-          Math.max(0,Number(meta?.viewerCount)||0)===0&&
+          (needsViewer||needsTitle)&&
           !youtubeLiveViewerLookupPending.has(id)&&
           now-last>45_000
         );
       })
-      .slice(0,6);
+      .slice(0,8);
 
     if(!missing.length)return false;
 
@@ -6902,20 +7094,43 @@ html.tiktok-ui.tiktok-watch .rows{
       youtubeLiveViewerLookupAt.set(id,Date.now());
       try{
         let viewers=0;
+        let resolvedTitle="";
 
-        // Exact video lookup first: no fuzzy-title dependency and no chance of
-        // reading the viewer number from a different LIVE result.
-        if(window.YT1988_API?.video){
+        // First use the exact-id oEmbed/search endpoint. It is much more
+        // reliable for a newly discovered LIVE than searching by a generic
+        // "Đang trực tiếp" title.
+        if(window.YT1988_API?.videoMeta){
           try{
-            const payload=await window.YT1988_API.video(id);
+            const payload=await window.YT1988_API.videoMeta(id);
             const raw=dataRow(payload);
             const full=cardMetaFromRow(raw);
+            resolvedTitle=cleanYoutubeLiveDisplayTitle(
+              full?.title||raw?.title||"",
+              String(meta?.sourceName||full?.sourceName||"").trim()
+            );
             viewers=liveViewerCountFromRow(raw,full);
           }catch{}
         }
 
-        // Some upstream /streams responses omit concurrent viewers. Search is
-        // a secondary source because a LIVE search card often carries "watching".
+        // Full video is the identity fallback and sometimes also carries a
+        // current viewer field.
+        if((!viewers||!resolvedTitle)&&window.YT1988_API?.video){
+          try{
+            const payload=await window.YT1988_API.video(id);
+            const raw=dataRow(payload);
+            const full=cardMetaFromRow(raw);
+            if(!resolvedTitle){
+              resolvedTitle=cleanYoutubeLiveDisplayTitle(
+                full?.title||raw?.title||"",
+                String(meta?.sourceName||full?.sourceName||"").trim()
+              );
+            }
+            if(!viewers)viewers=liveViewerCountFromRow(raw,full);
+          }catch{}
+        }
+
+        // Search is the final viewer fallback because a LIVE search card often
+        // carries a "watching now" count.
         if(!viewers&&window.YT1988_API?.search){
           const query=[
             String(meta?.sourceName||"").trim(),
@@ -6932,14 +7147,22 @@ html.tiktok-ui.tiktok-watch .rows{
           }
         }
 
-        if(!viewers)return;
+        if(resolvedTitle){
+          meta.title=resolvedTitle;
+        }
+        if(viewers>0){
+          meta.viewerCount=viewers;
+          meta.viewsLabel=compactLiveViewerCount(viewers);
+        }
+        if(!resolvedTitle&&viewers<=0)return;
 
-        meta.viewerCount=viewers;
-        meta.viewsLabel=compactLiveViewerCount(viewers);
         const visible=feedMetas.find(row=>String(row?.id||"").trim()===id);
         if(visible){
-          visible.viewerCount=viewers;
-          visible.viewsLabel=meta.viewsLabel;
+          if(resolvedTitle)visible.title=resolvedTitle;
+          if(viewers>0){
+            visible.viewerCount=viewers;
+            visible.viewsLabel=meta.viewsLabel;
+          }
         }
       }catch{}
       finally{
@@ -9386,9 +9609,9 @@ html.tiktok-ui.tiktok-watch .rows{
         '<div class="row-details">'+
           avatarMarkup(meta,index<6)+
           '<div class="row-copy">'+
-            '<div class="row-title">'+escapeHtml(title)+'</div>'+
+            '<div class="row-title" data-hint="'+escapeHtml(title)+'">'+escapeHtml(title)+'</div>'+
             '<div class="row-meta row-meta-line">'+
-              '<span class="row-source">'+escapeHtml(source)+verified+'</span>'+
+              '<span class="row-source" data-hint="'+escapeHtml(source)+'">'+escapeHtml(source)+verified+'</span>'+
               ((source&&facts)?'<span class="row-meta-sep" aria-hidden="true"></span>':"")+
               (facts?'<span class="row-facts">'+factsMarkup+'</span>':"")+
             '</div>'+
