@@ -77,15 +77,16 @@ Chỉ được nói **“xong”** sau `PROD VERIFIED` và `DOC UPDATED`.
 ## 2. Trước mọi lần sửa
 
 1. Đọc file này và tab **README Quy tac** trong Sheet.
-2. Đọc tab liên quan:
+2. Nếu thay đổi liên quan **polling / scheduler / package / API / cache / log / media / Supabase traffic**, bắt buộc đọc `README_RESOURCE_GUARDRAILS.md` và kiểm tra checklist Egress/Log/Data trước khi merge.
+3. Đọc tab liên quan:
    - UI/web: `02 Web va the`, `07 Sua Deploy`, `09 Su co`.
    - DB/Supabase: `03 Database`, `08 Bao tri`.
    - Render: `04 Render`.
    - TikTok: `05 TikTok`.
    - YouTube: `06 YouTube`.
-3. Ghi nhận branch, HEAD/base commit, last-known-good, file/bảng/endpoint cần sửa.
-4. Kiểm tra source of truth trước. **Không sửa UI để chữa dữ liệu nguồn sai.**
-5. Nêu patch nhỏ nhất và rollback trước khi chỉnh production.
+4. Ghi nhận branch, HEAD/base commit, last-known-good, file/bảng/endpoint cần sửa.
+5. Kiểm tra source of truth trước. **Không sửa UI để chữa dữ liệu nguồn sai.**
+6. Nêu patch nhỏ nhất và rollback trước khi chỉnh production.
 
 ## 3. Nguyên tắc dữ liệu và channel library
 
