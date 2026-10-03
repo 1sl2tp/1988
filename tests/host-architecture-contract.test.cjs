@@ -10,6 +10,7 @@ const sourcesIndex=fs.readFileSync(path.join(root,'sources','index.html'),'utf8'
 const sources=fs.readFileSync(path.join(root,'sources','sources.js'),'utf8');
 const yt1988=fs.readFileSync(path.join(root,'supabase','functions','yt1988','index.ts'),'utf8');
 const worker=fs.readFileSync(path.join(root,'cloudflare','youtube-live-state','worker.js'),'utf8');
+const state=fs.readFileSync(path.join(root,'supabase','functions','yt1988-state','index.ts'),'utf8');
 const legacy=fs.readFileSync(path.join(root,'src','channel-library.js'),'utf8');
 
 // GitHub is code, not canonical production data.
