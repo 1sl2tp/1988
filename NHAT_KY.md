@@ -656,3 +656,20 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - frontend contracts, artifact build, Pages deploy, custom-domain verify đều PASS.
 - Compatibility note: helper PiP/inline cũ vẫn còn dormant để giảm regression surface; primary path không còn caller và contract test khóa không cho re-activate.
 - Resource impact: không thêm API/polling/job; UI-only.
+
+
+## 2026-10-04 — Mobile viewer geometry — header overlap + portrait bottom radius
+
+- Base: `e1bc04acc973069b7477134af1036c44f18cb975`.
+- Ảnh production:
+  - landscape bị thiếu phần trên;
+  - portrait đúng tỷ lệ nhưng đáy còn bo.
+- Root cause landscape: Focused Viewer v1 set mobile `main padding:0` trong khi header/subnav fixed; stage 16:9 bị header phủ phần đầu.
+- Không phải Rail crop; `--rail-black` giữ nguyên.
+- Patch:
+  - `2f6b6b7336ce08f63a5c0cd02a30d221b7c47958`: reserve `--top-boundary`; portrait bottom radius = 0.
+  - `f59a5983114d405aa30095f37d17ab49cc9a79af`: regression contract.
+  - `d8d05638e1577c9fa5e42f13ccfca066a8826312`: PWA v82.
+- Verify: Deploy 1988 Player run `37143236812` SUCCESS; frontend contracts/build/Pages/custom-domain đều PASS.
+- Impact: UI/CSS only; không đổi data/network/polling.
+- Rollback: `e1bc04acc973069b7477134af1036c44f18cb975`.

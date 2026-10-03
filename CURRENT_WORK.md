@@ -85,6 +85,44 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.11. Mobile viewer geometry — header overlap + portrait bottom radius
+
+Thời gian: **2026-10-04**.
+
+Ảnh production cho thấy:
+- landscape Watch chỉ lộ phần dưới của video, giống bị hụt phần trên;
+- portrait Watch đúng tỷ lệ nhưng 2 góc dưới vẫn bo như card cũ.
+
+Root cause:
+- Focused Viewer v1 đã đặt `html.viewer-active.one-col main { padding:0 }`;
+- mobile header/subnav vẫn là `position:fixed`;
+- stage 16:9 vẫn đúng kích thước, nhưng phần đầu stage nằm **sau fixed header/chips**, nên ảnh ngang nhìn như bị cắt;
+- portrait vẫn kế thừa rule cũ `border-radius:var(--floating-radius)` ở stage/player/iframe.
+
+Patch:
+- `2f6b6b7336ce08f63a5c0cd02a30d221b7c47958`:
+  - mobile focused `main` reserve `padding-top: var(--top-boundary)`, là chiều cao header thật do `syncBoundaries()` đo;
+  - portrait focused stage/player/iframe dùng radius `top-left/top-right = floating-radius`, `bottom-left/bottom-right = 0`.
+- `f59a5983114d405aa30095f37d17ab49cc9a79af`: regression contract cho top-boundary + portrait bottom corners.
+- `d8d05638e1577c9fa5e42f13ccfca066a8826312`: PWA **v82**.
+
+Production verify:
+- Deploy 1988 Player run `37143236812`: **SUCCESS**;
+- `Test frontend production contracts`, artifact build, Pages deploy và custom-domain verify đều PASS.
+- Rail Media Core / `--rail-black` **không sửa**: ảnh ngang lỗi do chrome overlap, không phải rail crop.
+
+Data/resource impact:
+- UI/CSS only; không thêm network/polling/job/data.
+- Không đổi Supabase/Cloudflare/Render.
+
+Rollback:
+- base trước geometry fix: `e1bc04acc973069b7477134af1036c44f18cb975`.
+
+Rule:
+- mobile focused viewer luôn bắt đầu **sau measured `--top-boundary`**, không đặt dưới fixed chrome;
+- portrait main viewer: 2 góc dưới phẳng để media nối liền metadata;
+- không dùng crop/PiP fix để chữa lỗi layout header overlap.
+
 ### 3.10. Focused viewer — hợp nhất mobile / desktop / TikTok
 
 Thời gian: **2026-10-04**.
