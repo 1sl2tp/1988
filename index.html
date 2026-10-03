@@ -3723,8 +3723,10 @@ html.tiktok-ui.tiktok-watch .rows{
   let youtubeLiveAbortController=null;
   let youtubeLiveLastCycleAt=0;
   const LIVE_DISCOVERY_MIN_GAP_MS=60_000;
+  const LIVE_BACKGROUND_REFRESH_MS=3*60_000;
   let liveDiscoveryLastAt=0;
   let liveLastSelectedId="";
+  let liveBackgroundTimer=0;
   const LIVE_CLIENT_SNAPSHOT_KEY="yt1988-live-client-snapshot-v1";
   let feedMetas=[];
   let relatedMetas=[];
@@ -6494,12 +6496,12 @@ html.tiktok-ui.tiktok-watch .rows{
   async function preloadStartupLiveLists(){
     if(startupLivePreloadPromise)return startupLivePreloadPromise;
 
-    // Reuse a recent client snapshot immediately, then refresh both providers
-    // in parallel. This is preload only: no YouTube scan and no feed repaint.
+    // Reuse a recent client snapshot immediately. The landing feed paints first,
+    // then LIVE warms completely in the background so opening LIVE is instant.
     restoreClientLiveSnapshot();
 
     startupLivePreloadPromise=(async()=>{
-      const youtubeTask=fetchYoutubeLiveSnapshot()
+      const youtubeSnapshotTask=fetchYoutubeLiveSnapshot()
         .then(snapshot=>{
           youtubeEdgeLiveMetas=snapshot.metas;
           youtubeEdgeLiveReady=true;
@@ -6508,7 +6510,7 @@ html.tiktok-ui.tiktok-watch .rows{
         .catch(()=>false);
 
       // The TikTok account rail needs profile/avatar metadata as well as the
-      // realtime LIVE list. Both requests run after the landing feed is visible.
+      // realtime LIVE list. These requests never replace the visible landing feed.
       const tiktokLibraryTask=loadTikTokLatestVideoFeed({silent:true})
         .then(()=>true)
         .catch(()=>false);
@@ -6517,16 +6519,65 @@ html.tiktok-ui.tiktok-watch .rows{
         .catch(()=>false);
 
       await Promise.allSettled([
-        youtubeTask,
+        youtubeSnapshotTask,
         tiktokLibraryTask,
         tiktokLiveTask
       ]);
+
+      // A cached YouTube snapshot is not enough: do one complete edge scan after
+      // the normal "latest" cards are already visible. Keep the old LIVE array
+      // in memory until the full scan finishes, then atomically swap the result.
+      await runYoutubeLiveCycle({
+        force:true,
+        paint:false,
+        background:true
+      }).catch(()=>false);
+
+      await hydrateMissingYoutubeLiveAvatars({paint:false}).catch(()=>false);
       saveClientLiveSnapshot();
+
+      // If the user entered LIVE while the warm scan was running, publish the
+      // completed in-memory result immediately without another network wait.
+      const provider=activeLiveProvider();
+      if(liveDemandActive(provider)){
+        paintUnifiedLiveFromEdge(provider);
+        if(provider==="tiktok")primeTikTokPlaybackNeighborhood();
+      }
       return true;
     })().finally(()=>{
       startupLivePreloadPromise=null;
+      scheduleLiveBackgroundRefresh();
     });
     return startupLivePreloadPromise;
+  }
+
+  function scheduleLiveBackgroundRefresh(delay=LIVE_BACKGROUND_REFRESH_MS){
+    clearTimeout(liveBackgroundTimer);
+    liveBackgroundTimer=setTimeout(async()=>{
+      if(document.hidden){
+        scheduleLiveBackgroundRefresh(30_000);
+        return;
+      }
+
+      await Promise.allSettled([
+        runYoutubeLiveCycle({
+          force:true,
+          paint:false,
+          background:true
+        }),
+        refreshTikTokLiveFeed({paint:false,force:true})
+      ]);
+
+      await hydrateMissingYoutubeLiveAvatars({paint:false}).catch(()=>false);
+      saveClientLiveSnapshot();
+
+      const provider=activeLiveProvider();
+      if(liveDemandActive(provider)){
+        paintUnifiedLiveFromEdge(provider);
+        if(provider==="tiktok")primeTikTokPlaybackNeighborhood();
+      }
+      scheduleLiveBackgroundRefresh();
+    },Math.max(1_000,Number(delay)||LIVE_BACKGROUND_REFRESH_MS));
   }
 
   function scheduleStartupLivePreload(){
@@ -6622,8 +6673,9 @@ html.tiktok-ui.tiktok-watch .rows{
     return true;
   }
 
-  async function runYoutubeLiveCycle({force=false,paint=true}={}){
-    if(!liveDemandActive("youtube"))return false;
+  async function runYoutubeLiveCycle({force=false,paint=true,background=false}={}){
+    const scanAllowed=()=>background?!document.hidden:liveDemandActive("youtube");
+    if(!scanAllowed())return false;
     const now=Date.now();
     if(!force&&now-youtubeLiveLastCycleAt<LIVE_ACTIVE_CHECK_MS)return false;
     if(youtubeLiveScanPromise)return youtubeLiveScanPromise;
@@ -6645,7 +6697,7 @@ html.tiktok-ui.tiktok-watch .rows{
           state?.ok===true&&
           state?.done!==true&&
           seq===youtubeLiveScanSeq&&
-          liveDemandActive("youtube")
+          scanAllowed()
         ){
           response=await fetch(
             YOUTUBE_LIVE_API+"/youtube/live-scan?t="+Date.now(),
@@ -6657,21 +6709,22 @@ html.tiktok-ui.tiktok-watch .rows{
 
         if(
           seq!==youtubeLiveScanSeq||
-          !liveDemandActive("youtube")||
+          !scanAllowed()||
           state?.done!==true
         )return false;
 
         const snapshot=await fetchYoutubeLiveSnapshot({signal:controller.signal});
-        if(seq!==youtubeLiveScanSeq||!liveDemandActive())return false;
+        if(seq!==youtubeLiveScanSeq||!scanAllowed())return false;
 
         youtubeEdgeLiveMetas=snapshot.metas;
         youtubeEdgeLiveReady=true;
         youtubeLiveLastCycleAt=Date.now();
 
-        // This function may be one half of an atomic YouTube+TikTok refresh.
-        // Only paint when explicitly requested; avatar lookup must obey the same rule.
-        if(paint)paintUnifiedLiveFromEdge("youtube");
-        void hydrateMissingYoutubeLiveAvatars({paint});
+        // The previous LIVE array stays untouched until this full scan + snapshot
+        // succeeds. Background warming therefore never clears the visible list
+        // halfway through a refresh.
+        if(paint&&liveDemandActive("youtube"))paintUnifiedLiveFromEdge("youtube");
+        void hydrateMissingYoutubeLiveAvatars({paint:paint&&liveDemandActive("youtube")});
         return true;
       }catch(error){
         if(error?.name!=="AbortError"){
