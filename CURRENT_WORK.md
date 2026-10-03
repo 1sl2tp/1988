@@ -84,6 +84,38 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.1. Incident mới nhất — LIVE thiếu avatar dù channel directory đã có
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng:
+- Card LIVE **GH AI Muzick** hiển thị placeholder chữ `G`.
+- Canonical `yt1988_channel_directory` đã có avatar cho channel `UCoOmYgEUQG9Pp_iXgmLzJYg`.
+- Package LIVE trước sửa có `sourceAvatar=""`.
+
+Owner:
+- **Supabase package builder `yt1988-refresh`**.
+- UI không sửa.
+
+Patch:
+- `51187b81124e469e5f69a41a4ac6f0a97da6f766`: thêm fallback identity LIVE từ `yt1988_channel_directory`.
+- `53592b41a4a36727b6afbbb079b821f4f7ee5608`: test avatar fallback không đổi title.
+- `ed392856ebcfe96ecdaca3c5082c0109121cd6ba`: khi discovery chưa chắc, giữ nguyên membership package cũ nhưng vẫn cho phép bổ sung canonical name/avatar.
+- runtime: `yt1988-refresh v26`.
+
+Production verify:
+- package LIVE trước: hash `wx4gj5`, 31 item.
+- package LIVE sau: hash `q7qrx8`, vẫn 31 item.
+- GH AI Muzick:
+  - videoId giữ nguyên `le-EBatRnpU`;
+  - title giữ nguyên;
+  - `sourceAvatar` đã đổi từ rỗng sang đúng URL trong channel directory.
+- Không đổi UI, không đổi membership LIVE.
+
+Rule:
+- LIVE package thiếu name/avatar nhưng channel directory đã có → package builder phải lấy theo exact `channelId`.
+- Không để UI tự chữa identity.
+
 ## 4. Incident gần nhất — UI YouTube LIVE phải đọc nguyên package
 
 Thời gian: **2026-10-03**.
