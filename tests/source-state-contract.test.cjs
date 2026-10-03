@@ -31,6 +31,9 @@ assert.match(sources,/view:"library"/);
 assert.match(worker,/STATE_URL\+"\?view=lite"/);
 assert.doesNotMatch(worker,/fetchJson\(STATE_URL,8000\)/);
 assert.doesNotMatch(state,/select=scope,channel_id,status,name,thumbnail_url/);
+assert.match(state,/const requestedView = cleanText\(requestUrl\.searchParams\.get\("view"\) \|\| "", 24\)\.toLowerCase\(\);/);
+assert.match(state,/requestedView === "manifest" \|\| requestedView === "library"[\s\S]{0,140}\? requestedView[\s\S]{0,80}: "lite"/);
+assert.doesNotMatch(state,/searchParams\.get\("view"\) \|\| "full"/);
 assert.match(state,/avatars:\s*\{\}/);
 assert.match(state,/customSources:\s*\[\]/);
 
