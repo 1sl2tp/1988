@@ -1,4 +1,4 @@
-name: Probe TikWM User Posts Direct
+name: Probe BHWA TikTok Profile
 on:
   push:
     branches: [main]
@@ -12,21 +12,14 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe TikWM user posts exact handle
+      - name: Probe BHWA profile parse
         shell: bash
         run: |
           set -u
-          H='tu.thuong_lay_minh_1'
-          URL="https://www.tikwm.com/api/user/posts?unique_id=${H}&count=5&cursor=0&web=1&hd=1"
-          echo "=== GET ==="
-          curl -sS --max-time 20 -D /tmp/h "$URL"             -H 'Referer: https://www.tikwm.com/'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/body || true
+          PROFILE='https://www.tiktok.com/@tu.thuong_lay_minh_1'
+          echo "=== BHWA PROFILE ==="
+          curl -sS --max-time 20 -D /tmp/h             "https://downloader-api.bhwa233.com/api/parse?url=$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["PROFILE"], safe=""))' PROFILE="$PROFILE")"             -H 'User-Agent: Mozilla/5.0'             -o /tmp/body || true
           cat /tmp/h
           echo
-          head -c 12000 /tmp/body
-          echo
-          echo "=== POST ==="
-          curl -sS --max-time 20 -D /tmp/h2 'https://www.tikwm.com/api/user/posts'             -H 'Referer: https://www.tikwm.com/'             -H 'Origin: https://www.tikwm.com'             -H 'User-Agent: Mozilla/5.0'             -H 'Content-Type: application/x-www-form-urlencoded;charset=UTF-8'             --data-urlencode "unique_id=@${H}"             --data-urlencode 'count=5'             --data-urlencode 'cursor=0'             -o /tmp/body2 || true
-          cat /tmp/h2
-          echo
-          head -c 12000 /tmp/body2
+          head -c 16000 /tmp/body
           echo
