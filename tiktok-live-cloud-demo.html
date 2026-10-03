@@ -49,7 +49,7 @@
           <button type="button" data-source="snaptikvn">SnapTikVN</button>
           <button type="button" data-source="ssstikvn">SSSTik.vn</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">Chọn video rồi bấm nguồn để thử thủ công.</div>
+        <div class="sourceinfo" id="sourceInfo">Browser gọi thẳng từng dịch vụ. Nguồn nào chặn/CORS thì báo lỗi tại đây.</div>
         <div class="player">
           <video id="video" playsinline controls></video>
           <iframe id="iframe" title="TikTok player" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
@@ -150,19 +150,84 @@ function writeVodLinkCache(item,source,url){
 }
 async function resolveVodDirect(item,source){
   const cached=readVodLinkCache(item,source);
-  if(cached)return {url:cached,resolverMs:0,cached:true};
-  const endpoint=
-    EDGE+"/tiktok/video-link?user="+encodeURIComponent(item.handle)+
-    "&id="+encodeURIComponent(item.id)+
-    "&source="+encodeURIComponent(source)+
-    "&t="+Date.now();
-  const data=await json(endpoint,15000);
-  const url=String(data?.url||"").trim();
-  if(!data?.ok||!/^https?:\/\//i.test(url)){
-    throw new Error(String(data?.error||source+" không trả link video"));
+  if(cached)return {url:cached,cached:true};
+  const pageUrl=vodPageUrl(item);
+  let url="";
+
+  if(source==="tikwm"){
+    const data=await json("https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl),12000);
+    const body=data?.data||{};
+    url=String(body.play||body.wmplay||body.hdplay||"").trim();
+    if(url.startsWith("//"))url="https:"+url;
+    else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
+  }else if(source==="snaptikvn"){
+    const tokenData=await json("https://snaptikvn.app/api/token",12000);
+    const token=String(tokenData?.token||"").trim();
+    if(!token)throw new Error("SnapTikVN không trả token");
+    const data=await json(
+      "https://snaptikvn.app/api/action?url="+encodeURIComponent(pageUrl)+
+      "&token="+encodeURIComponent(token),
+      15000
+    );
+    const row=Array.isArray(data?.data)?data.data[0]:null;
+    url=String(
+      row?.downloadUrl||
+      row?.videoUrl||
+      row?.extra?.hdDownloadUrl||
+      row?.hdDownloadUrl||
+      ""
+    ).trim();
+  }else if(source==="ssstikvn"){
+    const home=await textFetch("https://ssstik.vn/",12000);
+    const token=String(
+      home.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)/i)?.[1]||
+      home.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']csrf-token["']/i)?.[1]||
+      home.match(/name=["']_token["'][^>]+value=["']([^"']+)/i)?.[1]||
+      ""
+    ).trim();
+    if(!token)throw new Error("SSSTik.vn không lấy được CSRF token");
+
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),15000);
+    try{
+      const r=await fetch("https://ssstik.vn/api/download",{
+        method:"POST",
+        mode:"cors",
+        cache:"no-store",
+        credentials:"include",
+        headers:{
+          "content-type":"application/json",
+          "x-csrf-token":token,
+          "x-requested-with":"XMLHttpRequest",
+          "accept":"application/json,text/plain,*/*"
+        },
+        body:JSON.stringify({url:pageUrl,source_page:"homepage",locale:"vi"}),
+        signal:controller.signal
+      });
+      const data=await r.json().catch(()=>null);
+      if(!r.ok)throw new Error(String(data?.status||data?.message||("HTTP "+r.status)));
+      const html=String(data?.data?.result_html||data?.result_html||"");
+      const urls=[...html.matchAll(/https?:\/\/[^"'\s<>\\]+/gi)].map(m=>String(m[0]||""));
+      url=urls.find(u=>/\.mp4(?:$|[?#])|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(u))||"";
+    }finally{clearTimeout(timer)}
+  }else{
+    throw new Error("Nguồn không hỗ trợ");
   }
+
+  if(url.startsWith("//"))url="https:"+url;
+  if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
   writeVodLinkCache(item,source,url);
-  return {url,resolverMs:Number(data?.resolverMs||0),cached:false};
+  return {url,cached:false};
+}
+
+async function textFetch(url,timeout=12000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const r=await fetch(url,{mode:"cors",cache:"no-store",credentials:"include",signal:controller.signal});
+    if(!r.ok)throw new Error(r.status+" "+r.statusText);
+    return await r.text();
+  }finally{clearTimeout(timer)}
 }
 async function json(url,timeout=20000){
   const controller=new AbortController();
