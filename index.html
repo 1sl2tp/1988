@@ -6695,8 +6695,42 @@ html.tiktok-ui.tiktok-watch .rows{
   //   is necessary. Unchanged package hashes never trigger a package download.
   const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
   const LIVE_ACTIVE_CHECK_MS=60_000;
+  const PACKAGE_WAKE_CACHE_KEY="1988-package-wake-at-v1";
   let packageDemandPending=null;
   let lastPackageDemandAt=0;
+  let packageWakeAtByScope=(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem(PACKAGE_WAKE_CACHE_KEY)||"{}");
+      return saved&&typeof saved==="object"?saved:{};
+    }catch{
+      return {};
+    }
+  })();
+
+  function packageClientWakeGap(scope=""){
+    scope=String(scope||"").trim();
+    if(scope==="live")return 60_000;
+    if(scope==="latest")return 5*60_000;
+    if(scope==="week")return 30*60_000;
+    return 15*60_000;
+  }
+
+  function packageWakeDue(scope="",now=Date.now()){
+    scope=String(scope||"").trim();
+    if(!scope)return false;
+    const last=Math.max(0,Number(packageWakeAtByScope?.[scope])||0);
+    return !last||now-last>=packageClientWakeGap(scope);
+  }
+
+  function markPackageWake(scopes=[],at=Date.now()){
+    for(const scope of Array.isArray(scopes)?scopes:[]){
+      const key=String(scope||"").trim();
+      if(key)packageWakeAtByScope[key]=at;
+    }
+    try{
+      localStorage.setItem(PACKAGE_WAKE_CACHE_KEY,JSON.stringify(packageWakeAtByScope));
+    }catch{}
+  }
 
   async function requestPreparedRefresh(scopes=[]){
     const wanted=[...new Set(
@@ -6732,11 +6766,17 @@ html.tiktok-ui.tiktok-watch .rows{
     lastPackageDemandAt=now;
 
     packageDemandPending=(async()=>{
-      // The refresh endpoint first performs its cheap due/lease check. When the
-      // scope is not due it returns immediately and no YouTube/channel fetch is
-      // started. The UI then compares the small manifest and downloads only a
-      // package whose immutable hash actually changed.
-      await requestPreparedRefresh(wanted);
+      const due=wanted.filter(scope=>packageWakeDue(scope,now));
+
+      // Browser focus/visibility may happen many times. Manifest checks stay
+      // cheap, but only wake the package builder at the same cadence as the
+      // server's intended scope freshness. Explicit LIVE/source actions use
+      // their dedicated wake paths and are not blocked by this cache.
+      if(due.length){
+        const woke=await requestPreparedRefresh(due);
+        if(woke)markPackageWake(due,Date.now());
+      }
+
       await loadPackageManifest();
       return syncPreparedPackages(wanted);
     })().finally(()=>{
