@@ -47,10 +47,12 @@
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
           <button type="button" data-source="tikwm_hd" class="active">TikWM HD</button>
           <button type="button" data-source="tikwm_std">TikWM Standard</button>
+          <button type="button" data-source="bhwa_get">Bhwa GetLink</button>
           <button type="button" data-source="bhwa_play">Bhwa Play</button>
           <button type="button" data-source="voidfetch">VoidFetch Player</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">TikWM HD/Standard phát direct; Bhwa Play dùng /api/play; VoidFetch Player mở nguyên player của VoidFetch.</div>
+        <div class="sourceinfo" id="sourceInfo">Bhwa GetLink lấy direct URL từ /api/parse và giữ tới khi link chết; Bhwa Play/VoidFetch Player giữ để đối chiếu.</div>
+        <div class="sourceinfo" id="candidateInfo"></div>
         <div class="player">
           <video id="video" playsinline controls></video>
           <iframe id="iframe" title="TikTok player" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
@@ -72,6 +74,7 @@ const iframe=document.getElementById("iframe");
 const modes=document.getElementById("modes");
 const sources=document.getElementById("sources");
 const sourceInfo=document.getElementById("sourceInfo");
+const candidateInfo=document.getElementById("candidateInfo");
 const nowEl=document.getElementById("now");
 let flvPlayer=null;
 let handle="";
@@ -131,7 +134,6 @@ function writeLiveCache(h,data){
   if(Number(data?.status)!==2||!(data?.streamUrl||data?.hlsUrl))return;
   try{sessionStorage.setItem(liveCacheKey(h),JSON.stringify({at:Date.now(),data}))}catch{}
 }
-const VOD_LINK_CACHE_MS=5*60_000;
 function vodPageUrl(item){
   return item.pageUrl||("https://www.tiktok.com/@"+item.handle+"/video/"+item.id);
 }
@@ -140,17 +142,72 @@ function vodLinkCacheKey(item,source){
 }
 function readVodLinkCache(item,source){
   try{
-    const row=JSON.parse(sessionStorage.getItem(vodLinkCacheKey(item,source))||"null");
-    if(!row||Date.now()-Number(row.at||0)>VOD_LINK_CACHE_MS)return "";
+    const row=JSON.parse(localStorage.getItem(vodLinkCacheKey(item,source))||"null");
+    if(!row)return "";
     return /^https?:\/\//i.test(String(row.url||""))?String(row.url):"";
   }catch{return ""}
 }
 function writeVodLinkCache(item,source,url){
   if(!/^https?:\/\//i.test(String(url||"")))return;
-  try{sessionStorage.setItem(vodLinkCacheKey(item,source),JSON.stringify({at:Date.now(),url:String(url)}))}catch{}
+  try{localStorage.setItem(vodLinkCacheKey(item,source),JSON.stringify({at:Date.now(),url:String(url)}))}catch{}
 }
-async function resolveVodDirect(item,source){
-  const cached=readVodLinkCache(item,source);
+function removeVodLinkCache(item,source){
+  try{localStorage.removeItem(vodLinkCacheKey(item,source))}catch{}
+}
+const bhwaParseCache=new Map();
+function normalizeBhwaUrl(value){
+  let url=String(value||"").trim();
+  if(!url)return "";
+  if(url.startsWith("/"))url="https://downloader-api.bhwa233.com"+url;
+  return /^https?:\/\//i.test(url)?url:"";
+}
+function collectBhwaVideoCandidates(data,pageUrl){
+  const rows=[];
+  const add=(label,value,priority=0)=>{
+    const url=normalizeBhwaUrl(value);
+    if(!url||url===pageUrl)return;
+    const lower=url.toLowerCase();
+    if(/audio|\.mp3(?:$|[?#])|\.m4a(?:$|[?#])/.test(lower))return;
+    if(rows.some(x=>x.url===url))return;
+    rows.push({label,url,priority});
+  };
+  const d=data?.data||{};
+  add("originDownloadVideoUrl",d.originDownloadVideoUrl,300);
+  add("downloadVideoUrl",d.downloadVideoUrl,250);
+  add("streamUrl",d.streamUrl,220);
+  (d.videos||[]).forEach((v,i)=>{
+    add("videos["+(i+1)+"].origin",v?.originDownloadVideoUrl,190);
+    add("videos["+(i+1)+"].download",v?.downloadVideoUrl,180);
+  });
+  (d.pages||[]).forEach((v,i)=>{
+    add("pages["+(i+1)+"].download",v?.downloadVideoUrl,160);
+  });
+  return rows.sort((a,b)=>b.priority-a.priority);
+}
+function renderBhwaCandidates(rows){
+  if(!Array.isArray(rows)||!rows.length){candidateInfo.textContent="";return}
+  candidateInfo.innerHTML="Bhwa trả "+rows.length+" link video: "+
+    rows.map((r,i)=>'<button type="button" class="candidate" data-candidate="'+i+'">'+esc(r.label)+'</button>').join(" ");
+  candidateInfo._rows=rows;
+}
+async function fetchBhwaParse(item,{force=false}={}){
+  const pageUrl=vodPageUrl(item);
+  const key=item.handle+":"+item.id;
+  if(!force&&bhwaParseCache.has(key))return bhwaParseCache.get(key);
+  const data=await json(
+    "https://downloader-api.bhwa233.com/api/parse?url="+encodeURIComponent(pageUrl),
+    15000
+  );
+  if(data?.success===false)throw new Error(String(data?.error||data?.message||"Bhwa parse lỗi"));
+  const rows=collectBhwaVideoCandidates(data,pageUrl);
+  if(!rows.length)throw new Error("Bhwa không trả direct video URL");
+  const result={data,rows};
+  bhwaParseCache.set(key,result);
+  renderBhwaCandidates(rows);
+  return result;
+}
+async function resolveVodDirect(item,source,{force=false}={}){
+  const cached=!force?readVodLinkCache(item,source):"";
   if(cached)return {url:cached,cached:true};
   const pageUrl=vodPageUrl(item);
   let url="";
@@ -165,6 +222,9 @@ async function resolveVodDirect(item,source){
     ).trim();
     if(url.startsWith("//"))url="https:"+url;
     else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
+  }else if(source==="bhwa_get"){
+    const parsed=await fetchBhwaParse(item,{force});
+    url=String(parsed.rows[0]?.url||"");
   }else if(source==="bhwa_play"){
     url=
       "https://downloader-api.bhwa233.com/api/play?url="+
@@ -281,7 +341,7 @@ function playVodIframe(item){
   iframe.src=iframeUrl(item);
   nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · IFRAME";
 }
-async function playVodMedia(item,{iframeFallback=false,source=selectedSource}={}){
+async function playVodMedia(item,{iframeFallback=false,source=selectedSource,force=false,retried=false}={}){
   stop();
   const mySeq=vodSeq;
   const started=performance.now();
@@ -289,7 +349,7 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource}={}
   sourceInfo.textContent=source.toUpperCase()+" · đang get link…";
 
   try{
-    const resolved=await resolveVodDirect(item,source);
+    const resolved=await resolveVodDirect(item,source,{force});
     const direct=String(resolved?.url||"");
     const getSec=((performance.now()-started)/1000).toFixed(2);
     if(mySeq!==vodSeq)return;
@@ -312,8 +372,15 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource}={}
     video.onerror=()=>{
       if(mySeq!==vodSeq)return;
       const total=((performance.now()-started)/1000).toFixed(2);
+      removeVodLinkCache(item,source);
+      if(source==="bhwa_get"&&!retried){
+        sourceInfo.className="sourceinfo";
+        sourceInfo.textContent="BHWA_GET · link cũ chết sau "+total+"s · tự get lại 1 lần…";
+        playVodMedia(item,{iframeFallback,source,force:true,retried:true});
+        return;
+      }
       sourceInfo.className="sourceinfo bad";
-      sourceInfo.textContent=source.toUpperCase()+" · có link nhưng VIDEO LỖI sau "+total+"s";
+      sourceInfo.textContent=source.toUpperCase()+" · có link nhưng VIDEO LỖI sau "+total+"s · cache đã xoá";
       if(iframeFallback)playVodIframe(item);
     };
 
@@ -359,6 +426,26 @@ sources.addEventListener("click",e=>{
   modes.querySelectorAll("[data-mode]").forEach(x=>x.classList.toggle("active",x.dataset.mode==="media"));
   if(currentVodIndex>=0)playVod(currentVodIndex);
   else sourceInfo.textContent="Đã chọn "+selectedSource.toUpperCase()+" · chọn một video để thử.";
+});
+candidateInfo.addEventListener("click",e=>{
+  const btn=e.target.closest("[data-candidate]");
+  if(!btn||currentVodIndex<0)return;
+  const row=candidateInfo._rows?.[Number(btn.dataset.candidate)];
+  const item=videos[currentVodIndex];
+  if(!row?.url||!item)return;
+  selectedSource="bhwa_get";
+  sources.querySelectorAll("[data-source]").forEach(x=>x.classList.toggle("active",x.dataset.source==="bhwa_get"));
+  playerMode="media";
+  modes.querySelectorAll("[data-mode]").forEach(x=>x.classList.toggle("active",x.dataset.mode==="media"));
+  writeVodLinkCache(item,"bhwa_get",row.url);
+  stop();
+  video.style.display="block";
+  video.src=row.url;
+  video.load();
+  video.play().catch(()=>{});
+  sourceInfo.className="sourceinfo";
+  sourceInfo.textContent="BHWA_GET · đang thử "+row.label;
+  nowEl.textContent=(item.title||("Video "+item.id))+" · "+row.label;
 });
 modes.addEventListener("click",e=>{
   const btn=e.target.closest("[data-mode]");

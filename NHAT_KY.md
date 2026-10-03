@@ -857,3 +857,10 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Render chỉ còn profile/video-list/VOD metadata; Supabase không truyền media bytes.
 - Các mô tả TikTok LIVE cũ có nhiều tầng trong CURRENT_WORK 3.21/3.22 được supersede bởi rule 3.23.
 - Đây là **docs/rule lock**, chưa tuyên bố runtime production đã được sửa theo rule này.
+
+
+## 2026-10-04 — TikTok demo Bhwa/VoidFetch getlink
+- Xác định VoidFetch frontend và Bhwa player dùng cùng backend `downloader-api.bhwa233.com`.
+- Thêm Bhwa GetLink trực tiếp từ browser, đọc direct video candidates từ `/api/parse`.
+- Lưu direct URL đến khi media lỗi thay vì TTL 5 phút; link chết mới xóa/get lại một lần.
+- Không thay đổi TikTok LIVE và không proxy VOD qua Cloud.

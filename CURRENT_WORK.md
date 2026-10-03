@@ -1271,3 +1271,13 @@ Next probe:
 ```
 
 **Quy tắc cuối:** trước khi sửa phải đọc rule; sau khi sửa phải để lại handoff đủ rõ để chat sau không phải đoán lại.
+
+
+### 3.26. TikTok demo — Bhwa/VoidFetch direct getlink, reuse-until-dead
+- Bhwa và VoidFetch frontend dùng chung public backend `https://downloader-api.bhwa233.com`.
+- Source upstream mô tả TikTok download theo hướng no-watermark; demo không suy diễn watermark từ tên host mà expose direct candidates để test.
+- Thêm nguồn `Bhwa GetLink`: browser gọi trực tiếp `/api/parse?url=<TikTok URL>`, thu `originDownloadVideoUrl`, `downloadVideoUrl`, video/page candidates.
+- Ưu tiên `originDownloadVideoUrl` khi có; UI hiển thị tất cả candidate để thử thủ công.
+- Direct URL được lưu localStorage không TTL cứng; chỉ xóa khi video thực sự lỗi. Với Bhwa GetLink, lỗi media sẽ get mới đúng 1 lần.
+- Giữ `Bhwa Play` và `VoidFetch Player` chỉ để đối chiếu; không qua Cloud VOD.
+- TikTok LIVE rule 3.23 không đổi.
