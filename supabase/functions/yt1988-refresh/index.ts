@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v44-package";
+const LIVE_PIPELINE_VERSION="live-v45-strict-player";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -1362,7 +1362,8 @@ function decodeJsonString(value:any){
 
 function youtubePlayerMetaFromResponse(data:any){
   const details=data?.videoDetails||{};
-  const liveDetails=data?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails||{};
+  const micro=data?.microformat?.playerMicroformatRenderer||{};
+  const liveDetails=micro?.liveBroadcastDetails||{};
   const isLiveContent=details?.isLiveContent===true||!!liveDetails?.startTimestamp;
   const ended=!!liveDetails?.endTimestamp&&liveDetails?.isLiveNow!==true;
 
@@ -1370,8 +1371,6 @@ function youtubePlayerMetaFromResponse(data:any){
   // signals may keep a row in the LIVE package.
   let live=details?.isLive===true||liveDetails?.isLiveNow===true;
 
-  // Some player clients omit isLive/isLiveNow but expose the current viewing
-  // mode in service tracking. Never use this fallback after an end timestamp.
   if(!live&&!ended){
     const tracking=Array.isArray(data?.responseContext?.serviceTrackingParams)
       ?data.responseContext.serviceTrackingParams
@@ -1387,12 +1386,25 @@ function youtubePlayerMetaFromResponse(data:any){
     }
   }
 
+  const thumbnails=Array.isArray(details?.thumbnail?.thumbnails)
+    ?details.thumbnail.thumbnails
+    :[];
+  const thumbnailUrl=clean(
+    thumbnails.slice().sort((a:any,b:any)=>(Number(b?.width)||0)-(Number(a?.width)||0))[0]?.url||"",
+    1000
+  );
   const duration=parseDurationValue(details?.lengthSeconds);
   return {
+    known:true,
     duration:live?-1:duration,
     isLive:live,
     isLiveContent,
-    ended
+    ended,
+    sourceId:clean(details?.channelId||"",180),
+    sourceName:validChannelDisplayName(details?.author||""),
+    title:clean(details?.title||"",300),
+    thumbnailUrl,
+    views:Math.max(0,Number(details?.viewCount)||0)
   };
 }
 
@@ -1597,8 +1609,14 @@ async function youtubeEmbedPlayback(id:string){
 }
 
 async function youtubePlayerMetadata(id:string){
-  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return {duration:0,isLive:false};
-  let fallback={duration:0,isLive:false};
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return {
+    known:false,duration:0,isLive:false,isLiveContent:false,ended:false,
+    sourceId:"",sourceName:"",title:"",thumbnailUrl:"",views:0
+  };
+  let fallback:any={
+    known:false,duration:0,isLive:false,isLiveContent:false,ended:false,
+    sourceId:"",sourceName:"",title:"",thumbnailUrl:"",views:0
+  };
   for(const profile of YT_PLAYER_CLIENTS){
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),2600);
@@ -1626,9 +1644,10 @@ async function youtubePlayerMetadata(id:string){
       );
       if(!res.ok)continue;
       const data=await res.json().catch(()=>null);
+      if(!data)continue;
       const meta=youtubePlayerMetaFromResponse(data);
-      if(meta.isLive||meta.duration>0)return meta;
       fallback=meta;
+      if(meta.isLive||meta.ended||meta.duration>0)return meta;
     }catch{
       // Try the next lightweight player profile.
     }finally{
@@ -1674,41 +1693,7 @@ async function youtubeChannelLiveVideoId(channel:string,timeout=3200){
   }
 }
 
-async function verifyCurrentLiveRows(rows:any[],limit=36){
-  const list=dedupeRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
-  if(!list.length)return [];
-
-  const checked=await mapLimit(list,8,async(row)=>{
-    const id=videoId(row);
-    const sid=channelId(row);
-    if(!id||!sid)return null;
-
-    // The canonical channel /live redirect must point at this exact video.
-    // Search/provider "isLive" flags are only discovery hints.
-    const currentId=await youtubeChannelLiveVideoId(sid,3200);
-    if(currentId!==id)return null;
-
-    // LIVE uses the same single YouTube embed engine as every other feed.
-    // If YouTube does not confirm embedded playback, do not publish it.
-    const embed=await youtubeEmbedPlayback(id);
-    if(embed?.playable!==true)return null;
-
-    return normalizeRow({
-      ...row,
-      id,
-      videoId:id,
-      isLive:true,
-      duration:-1,
-      uploaded:-1,
-      publishedText:"Đang trực tiếp",
-      _liveVerified:"channel_live_redirect"
-    },{});
-  });
-
-  return checked.filter(Boolean);
-}
-
-async function verifyCurrentLiveFingerprintRows(rows:any[],limit=24){
+async function verifyCurrentLiveRows(rows:any[],limit=64){
   const list=dedupeRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
   if(!list.length)return [];
 
@@ -1716,20 +1701,77 @@ async function verifyCurrentLiveFingerprintRows(rows:any[],limit=24){
     const id=videoId(row);
     const sid=channelId(row);
     if(!id||!sid)return null;
-    const currentId=await youtubeChannelLiveVideoId(sid,2800);
+
+    const [currentId,player,embed]=await Promise.all([
+      youtubeChannelLiveVideoId(sid,3200),
+      youtubePlayerMetadata(id),
+      youtubeEmbedPlayback(id)
+    ]);
+
+    // The source list identifies which channel should be checked. /live must
+    // point to this exact video, InnerTube must say it is live now, and the
+    // player-reported owner must match that same channel. A title mentioning
+    // another team/channel never changes ownership.
     if(currentId!==id)return null;
+    if(player?.known!==true||player?.isLive!==true||player?.ended===true)return null;
+    const playerOwner=clean(player?.sourceId||"",180);
+    if(playerOwner&&playerOwner!==sid)return null;
+    if(embed?.playable!==true)return null;
+
+    const sourceName=
+      validChannelDisplayName(player?.sourceName||"")||
+      validChannelDisplayName(row?._sourceName||row?.sourceName||row?.uploaderName||row?.uploader||"");
+    const sourceAvatar=normalizeAvatarUrl(clean(
+      row?._sourceThumbnailUrl||row?.sourceAvatar||row?.uploaderAvatar||"",
+      1000
+    ));
+    const originalTitle=clean(player?.title||row?._displayTitle||row?.title||"",300);
+    const thumbnail=clean(
+      player?.thumbnailUrl||row?.thumbnailUrl||row?.thumbnail||
+      ("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
+      1000
+    );
+    const views=Math.max(
+      0,
+      Number(row?.viewerCount)||Number(row?.views)||Number(player?.views)||0
+    );
+
     return normalizeRow({
       ...row,
       id,
       videoId:id,
+      url:"/watch?v="+id,
+      title:originalTitle,
+      _displayTitle:originalTitle,
+      channelId:sid,
+      uploaderId:sid,
+      _sourceId:sid,
+      sourceName,
+      uploaderName:sourceName,
+      uploader:sourceName,
+      _sourceName:sourceName,
+      sourceAvatar,
+      uploaderAvatar:sourceAvatar,
+      _sourceThumbnailUrl:sourceAvatar,
+      thumbnail,
+      thumbnailUrl:thumbnail,
+      views,
+      viewerCount:views,
       isLive:true,
       duration:-1,
       uploaded:-1,
       publishedText:"Đang trực tiếp",
-      _liveVerified:"channel_live_fingerprint"
-    },{});
+      _liveVerified:"channel_live_redirect+player_is_live"
+    },{id:sid,name:sourceName,thumbnailUrl:sourceAvatar});
   });
+
   return checked.filter(Boolean);
+}
+
+async function verifyCurrentLiveFingerprintRows(rows:any[],limit=24){
+  // Fingerprint/search rows are discovery hints only. Before they can enter the
+  // package they must pass the same strict channel + InnerTube current-live gate.
+  return await verifyCurrentLiveRows(rows,limit);
 }
 
 function exactSearchVideoMeta(data:any,id:string){
@@ -2394,7 +2436,12 @@ Deno.serve(async(req:Request)=>{
         const edge=await freshCloudLiveSnapshot();
         const checkedAt=Number(edge?.checkedAt)||0;
         const edgeItems=Array.isArray(edge?.items)?edge.items:[];
-        edgeLiveFresh=edgeItems.length>0;
+        const edgeAge=checkedAt>0?Date.now()-checkedAt:Number.MAX_SAFE_INTEGER;
+        edgeLiveFresh=
+          edgeItems.length>0&&
+          checkedAt>0&&
+          edgeAge>=0&&
+          edgeAge<=LIVE_EDGE_FRESH_MS;
 
         if(edgeLiveFresh){
           const boundedEdgeItems=edgeItems.slice(0,48);
@@ -2524,7 +2571,10 @@ Deno.serve(async(req:Request)=>{
             return row;
           })).filter(Boolean);
 
-          verifiedLiveRowsCache=dedupeRows(edgeRows).sort((a:any,b:any)=>
+          verifiedLiveRowsCache=(await verifyCurrentLiveRows(
+            dedupeRows(edgeRows),
+            Math.max(64,edgeRows.length)
+          )).sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
           );
         }
@@ -2690,10 +2740,13 @@ Deno.serve(async(req:Request)=>{
         ...verifiedSelectedFromSearch,
         ...selectedCheckedRows
       ]);
-      verifiedLiveRowsCache=dedupeRows([
-        ...selectedLiveRows,
-        ...verifiedExternalRows
-      ]).sort((a:any,b:any)=>
+      verifiedLiveRowsCache=(await verifyCurrentLiveRows(
+        dedupeRows([
+          ...selectedLiveRows,
+          ...verifiedExternalRows
+        ]),
+        64
+      )).sort((a:any,b:any)=>
         (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
       );
       }
