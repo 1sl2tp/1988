@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0d">
+<title>TikTok LIVE · Cloud Demo</title>
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}
+body{min-height:100vh}.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;padding:12px 16px;background:#111;border-bottom:1px solid #27272a}
+.logo{font-weight:800;font-size:20px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#fe2c55;margin-right:7px}
+.count{color:#aaa;font-size:14px}.top button{margin-left:auto;border:0;border-radius:18px;padding:9px 14px;background:#27272a;color:#fff;cursor:pointer}
+.wrap{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);min-height:calc(100vh - 58px)}
+.list{border-right:1px solid #27272a;padding:10px;overflow:auto}.card{display:flex;gap:10px;width:100%;padding:10px;border:0;border-radius:12px;background:transparent;color:#fff;text-align:left;cursor:pointer}
+.card:hover,.card.active{background:#202024}.thumb{width:72px;height:96px;object-fit:cover;border-radius:9px;background:#222;flex:none}.fallback{display:grid;place-items:center;font-size:28px}
+.meta{min-width:0}.name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:5px}.handle{color:#aaa;font-size:13px;margin-top:4px}.live{display:inline-flex;align-items:center;margin-top:9px;padding:4px 7px;border-radius:5px;background:#fe2c55;font-size:11px;font-weight:800}.viewers{font-size:12px;color:#bbb;margin-left:7px}
+.stage{display:grid;place-items:center;padding:18px;min-width:0}.playerbox{width:min(100%,900px);display:flex;flex-direction:column;gap:10px}.screen{width:100%;aspect-ratio:9/16;max-height:calc(100vh - 130px);background:#000;border-radius:14px;overflow:hidden;display:grid;place-items:center}
+video{width:100%;height:100%;object-fit:contain;background:#000}.title{font-size:16px;font-weight:700}.status{color:#aaa;font-size:13px}.empty{padding:30px 12px;color:#aaa;text-align:center}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}.list{border-right:0;border-bottom:1px solid #27272a;max-height:38vh}.stage{padding:8px}.screen{max-height:58vh}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo"><span class="dot"></span>TikTok LIVE Cloud</div>
+  <div class="count" id="count">Đang đọc LIVE…</div>
+  <button id="refresh">Kiểm tra LIVE</button>
+</header>
+<div class="wrap">
+  <aside class="list" id="list"><div class="empty">Đang tải danh sách LIVE…</div></aside>
+  <main class="stage">
+    <div class="playerbox">
+      <div class="screen"><video id="video" playsinline controls></video></div>
+      <div class="title" id="title">Chọn một kênh đang LIVE</div>
+      <div class="status" id="status">Cloud snapshot → click → phát trực tiếp.</div>
+    </div>
+  </main>
+</div>
+<script>
+const EDGE="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev";
+const listEl=document.getElementById("list");
+const countEl=document.getElementById("count");
+const video=document.getElementById("video");
+const titleEl=document.getElementById("title");
+const statusEl=document.getElementById("status");
+let items=[];
+let current="";
+let player=null;
+let busy=false;
+
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+function stop(){
+  if(player){try{player.destroy()}catch{} player=null}
+  try{video.pause()}catch{}
+  video.removeAttribute("src");
+  video.load();
+}
+function render(){
+  countEl.textContent=items.length+" LIVE";
+  if(!items.length){
+    listEl.innerHTML='<div class="empty">Chưa có LIVE trong snapshot hiện tại.</div>';
+    return;
+  }
+  listEl.innerHTML=items.map((x,i)=>{
+    const h=String(x.handle||"");
+    const img=String(x.thumbnail||x.preview||x.avatar||"");
+    const name=String(x.sourceName||("@"+h));
+    const viewers=Number(x.viewerCount)||0;
+    return '<button class="card'+(current===h?' active':'')+'" data-i="'+i+'">'+
+      (img?'<img class="thumb" src="'+esc(img)+'" alt="">':'<div class="thumb fallback">●</div>')+
+      '<div class="meta"><div class="name">'+esc(name)+'</div><div class="handle">@'+esc(h)+'</div>'+
+      '<span class="live">LIVE</span>'+(viewers?'<span class="viewers">'+viewers.toLocaleString("vi-VN")+' đang xem</span>':'')+
+      '</div></button>';
+  }).join("");
+}
+async function readLive(){
+  const r=await fetch(EDGE+"/tiktok/live-now?t="+Date.now(),{cache:"no-store"});
+  if(!r.ok)throw new Error("live-now "+r.status);
+  const data=await r.json();
+  items=Array.isArray(data.items)?data.items.filter(x=>x&&x.live===true):[];
+  render();
+  return data;
+}
+async function refresh(){
+  if(busy)return;
+  busy=true;
+  document.getElementById("refresh").disabled=true;
+  statusEl.textContent="Cloud đang kiểm tra LIVE…";
+  try{
+    // Existing snapshot paints first; one bounded sweep then updates it.
+    await readLive().catch(()=>{});
+    const r=await fetch(EDGE+"/sweep?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok)throw new Error("sweep "+r.status);
+    await r.json().catch(()=>null);
+    await readLive();
+    statusEl.textContent="Đã cập nhật từ Cloud.";
+  }catch(e){
+    statusEl.textContent="Không kiểm tra được LIVE: "+e.message;
+  }finally{
+    busy=false;
+    document.getElementById("refresh").disabled=false;
+  }
+}
+async function ensurePlayable(item){
+  if(item.streamUrl||item.hlsUrl)return item;
+  const h=String(item.handle||"");
+  if(!h)return item;
+  const r=await fetch(EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),{cache:"no-store"});
+  if(r.ok)await r.json().catch(()=>null);
+  await readLive();
+  return items.find(x=>String(x.handle||"")===h)||item;
+}
+function playHls(url,item){
+  stop();
+  video.src=url;
+  video.play().catch(()=>{});
+  statusEl.textContent="HLS trực tiếp từ Cloud check.";
+}
+function playFlv(url,item){
+  stop();
+  if(!window.mpegts?.isSupported?.()){
+    statusEl.textContent="Trình duyệt này không hỗ trợ FLV/MSE.";
+    return;
+  }
+  player=mpegts.createPlayer({type:"flv",isLive:true,url,cors:true,withCredentials:false},{
+    enableStashBuffer:false,lazyLoad:false,liveSync:true,liveSyncMaxLatency:3,liveSyncTargetLatency:1.2
+  });
+  player.attachMediaElement(video);
+  player.load();
+  player.play().catch(()=>video.play().catch(()=>{}));
+  statusEl.textContent="FLV trực tiếp từ Cloud check.";
+}
+async function openItem(index){
+  let item=items[index];
+  if(!item)return;
+  current=String(item.handle||"");
+  render();
+  titleEl.textContent=(item.sourceName||("@"+current))+" · LIVE";
+  statusEl.textContent="Đang mở…";
+  item=await ensurePlayable(item);
+  const flv=String(item.streamUrl||"");
+  const hls=String(item.hlsUrl||"");
+  const nativeHls=Boolean(video.canPlayType("application/vnd.apple.mpegurl")||video.canPlayType("application/x-mpegURL"));
+  if(nativeHls&&hls){playHls(hls,item);return}
+  if(flv){playFlv(flv,item);return}
+  if(hls){playHls(hls,item);return}
+  stop();
+  statusEl.textContent="Kênh đang LIVE nhưng lần check này chưa trả link phát.";
+}
+listEl.addEventListener("click",e=>{
+  const card=e.target.closest(".card[data-i]");
+  if(card)openItem(Number(card.dataset.i));
+});
+document.getElementById("refresh").addEventListener("click",refresh);
+readLive().catch(()=>{}).finally(()=>refresh());
+</script>
+</body>
+</html>

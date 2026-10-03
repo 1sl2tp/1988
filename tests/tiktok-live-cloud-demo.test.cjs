@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const demo=fs.readFileSync('tiktok-live-cloud-demo.html','utf8');
+assert.match(demo,/1988-tiktok-live-state\.taphoa-4ab8161d\.workers\.dev/);
+assert.match(demo,/\/tiktok\/live-now/);
+assert.match(demo,/\/sweep/);
+assert.match(demo,/\/refresh\?user=/);
+assert.match(demo,/mpegts\.createPlayer\(\{type:"flv",isLive:true/);
+assert.doesNotMatch(demo,/one988-tiktok-session\.onrender\.com/);
+console.log('tiktok live cloud demo contract ok');
