@@ -34,6 +34,29 @@ test('LIVE preserves the exact source title and never dedupes different videoIds
   {id:'bbbbbbbbbbb',title:'TRỰC TIẾP'}
  ]).length,2);
 });
+test('LIVE fills a missing avatar from canonical channel directory without changing title',()=>{
+ const original='🔴 TRỰC TIẾP | Tiêu đề gốc';
+ const row=s.applyLiveDirectoryIdentity(
+  {
+   id:'abcdefghijk',
+   channelId:'UCaaaaaaaaaaaaaaaaaaaaaa',
+   sourceName:'GH AI Muzick',
+   sourceAvatar:'',
+   title:original,
+   _displayTitle:original,
+   isLive:true
+  },
+  {
+   name:'GH AI Muzick',
+   thumbnail_url:'https://yt3.example/gh-avatar.jpg'
+  }
+ );
+ assert.equal(row.sourceAvatar,'https://yt3.example/gh-avatar.jpg');
+ assert.equal(row._sourceThumbnailUrl,'https://yt3.example/gh-avatar.jpg');
+ assert.equal(row.title,original);
+ assert.equal(row._displayTitle,original);
+});
+
 
 test('server rejects English titles without confusing Vietnamese the with English the',()=>{
  assert.equal(s.titleLooksEnglishOnly({title:'Saturday Intelligence Briefing'}),true);
