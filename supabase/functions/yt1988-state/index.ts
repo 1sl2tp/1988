@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
 
     const directoryRes = await fetch(
       rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
-      "&select=channel_id,name,thumbnail_url,subscribers,source,last_seen_at,updated_at" +
+      "&select=channel_id,name,thumbnail_url,subscribers,handle,description,verified,subscriber_count,view_count,video_count,profile_url,profile_checked_at,source,last_seen_at,updated_at" +
       "&order=channel_id.asc",
       { headers: authHeaders }
     );
@@ -207,6 +207,143 @@ Deno.serve(async (req) => {
     }
     const directoryRowsRaw = await directoryRes.json();
     const directoryRows = Array.isArray(directoryRowsRaw) ? directoryRowsRaw : [];
+
+    // One normalized channel library for the whole web. Canonical data stays
+    // in the existing platform tables; this response only normalizes it.
+    const tiktokRes = await fetch(
+      rest + "/yt1988_tiktok_channels?" +
+      "select=handle,selected,user_id,display_name,bio,verified,avatar_source_url,avatar_stored_url," +
+      "follower_count,following_count,heart_count,video_count,profile_source,profile_checked_at,updated_at" +
+      "&order=handle.asc",
+      { headers: authHeaders }
+    ).catch(() => null);
+    const tiktokRowsRaw = tiktokRes?.ok ? await tiktokRes.json().catch(() => []) : [];
+    const tiktokRows = Array.isArray(tiktokRowsRaw) ? tiktokRowsRaw : [];
+
+    const youtubeRelation = new Map<string, {
+      selected: Set<string>;
+      blocked: Set<string>;
+      suggested: Set<string>;
+    }>();
+    for (const row of allRows) {
+      const id = cleanId(row?.channel_id);
+      const scope = cleanText(row?.scope, 32) || "general";
+      const status = cleanText(row?.status, 16);
+      if (!id || !["selected","blocked","normal"].includes(status)) continue;
+      if (!youtubeRelation.has(id)) {
+        youtubeRelation.set(id, {
+          selected: new Set<string>(),
+          blocked: new Set<string>(),
+          suggested: new Set<string>()
+        });
+      }
+      const relation = youtubeRelation.get(id)!;
+      if (status === "selected") relation.selected.add(scope);
+      else if (status === "blocked") relation.blocked.add(scope);
+      else relation.suggested.add(scope);
+    }
+
+    const stat = (value: any) => {
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    };
+    const channelLibrary: any[] = directoryRows.map((row: any) => {
+      const id = cleanId(row?.channel_id);
+      const relation = youtubeRelation.get(id) || {
+        selected: new Set<string>(),
+        blocked: new Set<string>(),
+        suggested: new Set<string>()
+      };
+      const selectedScopes = [...relation.selected].sort();
+      const blockedScopes = [...relation.blocked].sort();
+      const suggestedScopes = [...relation.suggested].sort();
+      const avatar = cleanText(row?.thumbnail_url, 1000);
+      const subscriberCount = stat(row?.subscriber_count);
+      const verified = row?.verified === true;
+      return {
+        key: "youtube:" + id,
+        platform: "youtube",
+        id,
+        userId: id,
+        handle: cleanText(row?.handle, 120),
+        name: cleanText(row?.name, 180),
+        description: cleanText(row?.description, 2000),
+        profileUrl: cleanText(row?.profile_url, 1000) || ("https://www.youtube.com/channel/" + id),
+        avatar: {
+          url: avatar,
+          sourceUrl: avatar,
+          storedUrl: ""
+        },
+        verified,
+        badges: verified ? ["verified"] : [],
+        stats: {
+          followers: subscriberCount,
+          subscribers: subscriberCount,
+          subscriberText: cleanText(row?.subscribers, 120),
+          following: null,
+          likes: null,
+          views: stat(row?.view_count),
+          videos: stat(row?.video_count)
+        },
+        status: {
+          selected: selectedScopes.length > 0,
+          blocked: blockedScopes.length > 0,
+          suggested: suggestedScopes.length > 0,
+          selectedScopes,
+          blockedScopes,
+          suggestedScopes
+        },
+        source: cleanText(row?.source, 80),
+        checkedAt: row?.profile_checked_at || null,
+        updatedAt: row?.updated_at || null
+      };
+    }).filter((row: any) => row.id);
+
+    for (const row of tiktokRows) {
+      const handle = cleanText(row?.handle, 120).replace(/^@/,"");
+      if (!handle) continue;
+      const avatarSource = cleanText(row?.avatar_source_url, 1000);
+      const avatarStored = cleanText(row?.avatar_stored_url, 1000);
+      const verified = row?.verified === true;
+      const selected = row?.selected === true;
+      channelLibrary.push({
+        key: "tiktok:" + handle.toLowerCase(),
+        platform: "tiktok",
+        id: cleanText(row?.user_id, 120) || handle,
+        userId: cleanText(row?.user_id, 120),
+        handle,
+        name: cleanText(row?.display_name, 180) || ("@" + handle),
+        description: cleanText(row?.bio, 2000),
+        profileUrl: "https://www.tiktok.com/@" + handle,
+        avatar: {
+          url: avatarStored || avatarSource,
+          sourceUrl: avatarSource,
+          storedUrl: avatarStored
+        },
+        verified,
+        badges: verified ? ["verified"] : [],
+        stats: {
+          followers: stat(row?.follower_count),
+          subscribers: null,
+          subscriberText: "",
+          following: stat(row?.following_count),
+          likes: stat(row?.heart_count),
+          views: null,
+          videos: stat(row?.video_count)
+        },
+        status: {
+          selected,
+          blocked: false,
+          suggested: false,
+          selectedScopes: selected ? ["tiktok"] : [],
+          blockedScopes: [],
+          suggestedScopes: []
+        },
+        source: cleanText(row?.profile_source, 80),
+        checkedAt: row?.profile_checked_at || null,
+        updatedAt: row?.updated_at || null
+      });
+    }
 
     const legacyRes = await fetch(
       rest + "/yt1988_user_state?profile_key=eq." + encodeURIComponent(PROFILE) +
@@ -243,6 +380,8 @@ Deno.serve(async (req) => {
       }
       baseState.customSources = [...customSources.values()];
       baseState.avatars = avatars;
+      baseState.channelLibraryVersion = 1;
+      baseState.channelLibrary = channelLibrary;
 
       return json({
         ok: true,
@@ -333,6 +472,8 @@ Deno.serve(async (req) => {
     }
 
     state.customSources = [...customById.values()];
+    state.channelLibraryVersion = 1;
+    state.channelLibrary = channelLibrary;
     return json({ ok: true, exists: true, state, hashtags, version, updated_at });
   }
 
@@ -353,7 +494,7 @@ Deno.serve(async (req) => {
       const limit = Math.max(1, Math.min(80, Number(body?.limit || 80)));
       const missingRes = await fetch(
         rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
-        "&thumbnail_url=eq.&select=channel_id,name&order=channel_id.asc&limit=" + limit,
+        "&select=channel_id,name&order=profile_checked_at.asc.nullsfirst,channel_id.asc&limit=" + limit,
         { headers: authHeaders }
       );
       if (!missingRes.ok) {
@@ -423,15 +564,33 @@ Deno.serve(async (req) => {
               "",
               1000
             );
+            const subscriberCount = Math.max(
+              0,
+              Math.round(Number(data?.subscriberCount || data?.subscribers || 0) || 0)
+            );
             const subscribers = cleanText(
-              data?.subscribers ||
-              data?.subscriberCount ||
               data?.subscriberText ||
+              (subscriberCount > 0 ? String(subscriberCount) : "") ||
+              data?.subscribers ||
               "",
               120
             );
+            const description = cleanText(data?.description || data?.bio || "", 2000);
+            const handle = cleanText(
+              data?.handle || data?.vanityUrl || data?.customUrl || "",
+              120
+            ).replace(/^https?:\/\/www\.youtube\.com\//i,"").replace(/^@/,"");
+            const viewCount = Math.max(
+              0,
+              Math.round(Number(data?.viewCount || data?.views || 0) || 0)
+            );
+            const videoCount = Math.max(
+              0,
+              Math.round(Number(data?.videoCount || data?.videosCount || 0) || 0)
+            );
+            const checkedAt = new Date().toISOString();
 
-            if (!thumbnailUrl) {
+            if (!name && !thumbnailUrl && !subscriberCount && !description) {
               unresolved.push(id);
               continue;
             }
@@ -441,6 +600,14 @@ Deno.serve(async (req) => {
               name,
               thumbnail_url: thumbnailUrl,
               subscribers,
+              handle,
+              description,
+              verified: data?.verified === true,
+              subscriber_count: subscriberCount,
+              view_count: viewCount,
+              video_count: videoCount,
+              profile_url: "https://www.youtube.com/channel/" + id,
+              profile_checked_at: checkedAt,
               source: "channel-backfill"
             });
           } catch {
@@ -505,21 +672,48 @@ Deno.serve(async (req) => {
           name: "",
           thumbnail_url: "",
           subscribers: "",
+          handle: "",
+          description: "",
+          verified: null,
+          subscriber_count: 0,
+          view_count: 0,
+          video_count: 0,
+          profile_url: "",
+          profile_checked_at: null,
           source: ""
         };
         const name = cleanText(item?.name, 180);
         const thumbnailUrl = cleanText(item?.thumbnailUrl || item?.thumbnail_url, 1000);
         const subscribers = cleanText(item?.subscribers, 120);
+        const handle = cleanText(item?.handle, 120).replace(/^@/,"");
+        const description = cleanText(item?.description, 2000);
+        const subscriberCount = Math.max(0, Math.round(Number(item?.subscriberCount || item?.subscriber_count || 0) || 0));
+        const viewCount = Math.max(0, Math.round(Number(item?.viewCount || item?.view_count || 0) || 0));
+        const videoCount = Math.max(0, Math.round(Number(item?.videoCount || item?.video_count || 0) || 0));
+        const profileUrl = cleanText(item?.profileUrl || item?.profile_url, 1000);
+        const profileCheckedAt = item?.profileCheckedAt || item?.profile_checked_at || null;
         const source = cleanText(item?.source, 80);
         if (name) current.name = name;
         if (thumbnailUrl) current.thumbnail_url = thumbnailUrl;
         if (subscribers) current.subscribers = subscribers;
+        if (handle) current.handle = handle;
+        if (description) current.description = description;
+        if (typeof item?.verified === "boolean") current.verified = item.verified;
+        if (subscriberCount > 0) current.subscriber_count = subscriberCount;
+        if (viewCount > 0) current.view_count = viewCount;
+        if (videoCount > 0) current.video_count = videoCount;
+        if (profileUrl) current.profile_url = profileUrl;
+        if (profileCheckedAt) current.profile_checked_at = profileCheckedAt;
         if (source) current.source = source;
         byId.set(id, current);
       }
 
       const channels = [...byId.values()]
-        .filter((item: any) => item.name || item.thumbnail_url || item.subscribers);
+        .filter((item: any) =>
+          item.name || item.thumbnail_url || item.subscribers ||
+          item.handle || item.description || item.profile_url ||
+          item.profile_checked_at
+        );
 
       if (!channels.length) return json({ ok: true, saved: 0 });
 
