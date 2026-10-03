@@ -600,3 +600,26 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Package name/avatar snapshots intentionally retained as read products; never canonical.
 - Advisor: new FK index issue fixed; source-state RPCs changed to SECURITY INVOKER + service_role-only EXECUTE.
 - Rollback: code `219c16b5` is schema-compatible target. Destructive column cleanup should be reversed only via explicit restore migration, not by reverting frontend code alone.
+
+
+## 2026-10-04 — Chặn legacy browser tải full source-state
+
+- Audit 97 phút: 124 browser/PWA request gọi `yt1988-state` không query view, trả ~6.82 MB; 100% caller là browser.
+- Root cause: public GET mặc định `full` để tương thích client cũ.
+- Commit `745d74898bdaad2f5623f5f432a0afb7884f4d8c`:
+  - no-view / `view=full` / unknown view → compact `lite`;
+  - chỉ explicit `manifest` và `library` giữ route riêng.
+- `yt1988-state v14` ACTIVE.
+- PWA cache: v77 → v78 để kéo client cũ sang shell mới nhanh hơn.
+- Contract check trong deploy phát hiện lỗi thật khác:
+  - `yt1988-refresh` còn query source-state `name,thumbnail_url,subscribers`;
+  - suggestion writer còn ghi identity vào source-state dù schema đã chuẩn hóa.
+- Commit `bb5118bc7dab22b74e90fd6358fb70273a412529`:
+  - source-state read chỉ ID/state;
+  - suggestion identity upsert canonical directory trước;
+  - source-state suggestion row chỉ ID/state.
+- `yt1988-refresh v31` ACTIVE.
+- Production probes enqueued:
+  - pg_net 585 = no-view;
+  - pg_net 586 = `?view=lite`.
+- Rule mới: backward compatibility không được phép đồng nghĩa với monolithic full payload; client cũ chỉ nhận compact lite.
