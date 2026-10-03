@@ -9415,17 +9415,6 @@ html.tiktok-ui.tiktok-watch .rows{
     const previous=directSourceStatus(sourceId,scope);
     patchLocalSourceStatus(sourceId,status,scope);
 
-    const event={
-      type:"source-state",
-      id:sourceId,
-      status,
-      scope,
-      name:String(meta?.sourceName||"").trim(),
-      at:Date.now()
-    };
-    try{sourceUiChannel?.postMessage(event)}catch{}
-    try{localStorage.setItem(SOURCE_UI_EVENT_KEY,JSON.stringify(event))}catch{}
-
     try{
       const response=await fetch(SOURCE_STATE_URL,{
         method:"POST",
@@ -9459,8 +9448,22 @@ html.tiktok-ui.tiktok-watch .rows{
         throw new Error("source_state_"+response.status);
       }
 
+      const event={
+        type:"source-state",
+        id:sourceId,
+        status,
+        scope,
+        name:String(meta?.sourceName||"").trim(),
+        at:Date.now()
+      };
+      try{sourceUiChannel?.postMessage(event)}catch{}
+      try{localStorage.setItem(SOURCE_UI_EVENT_KEY,JSON.stringify(event))}catch{}
+
       closeRowActionMenu();
-      setTimeout(()=>void syncPreparedPackages([scope],{refreshManifest:true}),1200);
+      setTimeout(()=>void syncPreparedPackages(
+        scope==="live"?["live"]:[scope,"live"],
+        {refreshManifest:true}
+      ),1200);
       return true;
     }catch(error){
       patchLocalSourceStatus(sourceId,previous,scope);
