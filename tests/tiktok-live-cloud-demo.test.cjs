@@ -19,7 +19,7 @@ assert.match(demo,/\/tiktok\/video-direct\?user=/);
 assert.match(demo,/async function resolveBhwaVideo\(row\)/);
 assert.match(demo,/downloader-api\.bhwa233\.com\/api\/parse\?url=/);
 assert.doesNotMatch(demo,/onrender\.com/);
-assert.doesNotMatch(demo,/TikWM HD/);
-assert.doesNotMatch(demo,/BHWA/);
+assert.match(demo,/TikWM HD/);
+assert.match(demo,/BHWA/);
 
 console.log('tiktok demo: latest video opens in own player via TikWM redirect with BHWA fallback');
