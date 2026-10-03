@@ -1,3 +1,11 @@
+## 2026-10-04 — TikTok player chuyển LIVE ↔ video
+
+- LIVE card bấm được để quay lại stream sau khi xem VOD.
+- Dọn handler VOD khi đổi media.
+- Player gọn còn tối đa 560px desktop, video `contain` để thấy đủ khung.
+- Commit `35f85b479a5f8d1a9838ac02421c482f8bdc00cc`.
+- Player run `37161593431`: SUCCESS.
+
 ## 2026-10-04 — Video TikTok mở trong player riêng
 
 - Bấm card video không mở TikTok ngoài nữa.
