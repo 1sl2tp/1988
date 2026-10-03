@@ -27,6 +27,7 @@ jobs:
         run: |
           node cloudflare/tiktok-live-state/video-fingerprint-contract.test.cjs
           node cloudflare/tiktok-live-state/demand-only-contract.test.cjs
+          node cloudflare/tiktok-live-state/vod-failover-contract.test.cjs
       - name: Deploy Worker
         working-directory: cloudflare/tiktok-live-state
         env:

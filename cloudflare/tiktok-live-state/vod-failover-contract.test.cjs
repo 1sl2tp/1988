@@ -1,0 +1,35 @@
+'use strict';
+
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+
+const worker=fs.readFileSync(path.join(__dirname,'worker.js'),'utf8');
+
+assert.match(worker,/const TIKTOK_VOD_SOURCE_VERSION = "avc4"/);
+assert.match(worker,/const VOD_RESOLVE_TIMEOUT_MS = 2200/);
+assert.match(worker,/const VOD_MEDIA_OPEN_TIMEOUT_MS = 1800/);
+assert.match(worker,/const VOD_PROBE_TIMEOUT_MS = 1400/);
+assert.match(worker,/async function vodFetch\(/);
+assert.match(worker,/async function vodWithTimeout\(/);
+
+// Warm winner must include native and a cache hit must not resolve every provider again.
+assert.match(worker,/preferred==="native"\|\|VOD_RESOLVER_POOL\.includes\(preferred\)/);
+assert.match(worker,/sources:\[\{name:existing\}\]/);
+const warmStart=worker.indexOf('async function warmTikTokVod');
+const warmEnd=worker.indexOf('async function fetchTikTokMediaTarget',warmStart);
+assert.ok(warmStart>=0&&warmEnd>warmStart);
+const warm=worker.slice(warmStart,warmEnd);
+assert.match(warm,/vodWithTimeout\([\s\S]*resolveVodSourceByName/);
+
+// Click path must bound resolver and media-open latency, then continue to the next provider.
+const relayStart=worker.indexOf('async function relayTikTokVideo');
+const relayEnd=worker.indexOf('async function refreshOne',relayStart);
+assert.ok(relayStart>=0&&relayEnd>relayStart);
+const relay=worker.slice(relayStart,relayEnd);
+assert.match(relay,/vodWithTimeout\([\s\S]*sourceName\+"_resolve"/);
+assert.match(relay,/continue;/);
+assert.match(worker,/VOD_MEDIA_OPEN_TIMEOUT_MS,"media_open"/);
+assert.match(worker,/VOD_PROBE_TIMEOUT_MS,source\.name\+"_probe"/);
+
+console.log('tiktok VOD failover contract ok');

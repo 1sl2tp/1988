@@ -6,7 +6,40 @@ const LIVE_PRIORITY_MAX = 16;
 const VIDEO_BATCH_SIZE = 6;
 const VIDEO_SOURCE_CACHE_SECONDS = 240;
 const TIKTOK_NATIVE_VOD_CACHE_SECONDS = 120;
-const TIKTOK_VOD_SOURCE_VERSION = "avc3";
+const TIKTOK_VOD_SOURCE_VERSION = "avc4";
+const VOD_RESOLVE_TIMEOUT_MS = 2200;
+const VOD_MEDIA_OPEN_TIMEOUT_MS = 1800;
+const VOD_PROBE_TIMEOUT_MS = 1400;
+
+async function vodFetch(input, init = {}, timeoutMs = VOD_RESOLVE_TIMEOUT_MS, label = "vod_fetch") {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(250, Number(timeoutMs) || VOD_RESOLVE_TIMEOUT_MS));
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(label + "_timeout");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function vodWithTimeout(promise, timeoutMs = VOD_RESOLVE_TIMEOUT_MS, label = "vod_resolve") {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(label + "_timeout")),
+          Math.max(250, Number(timeoutMs) || VOD_RESOLVE_TIMEOUT_MS)
+        );
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function cors() {
   return {
@@ -1167,7 +1200,7 @@ async function resolveTikwmVideoSource(handle, id, { refresh = false } = {}) {
   const api = new URL("https://www.tikwm.com/api/");
   api.searchParams.set("url", pageUrl);
 
-  const r = await fetch(api, {
+  const r = await vodFetch(api, {
     headers: {
       "user-agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
@@ -1432,7 +1465,7 @@ async function resolveTiklyDownVideoSource(handle,id,{refresh=false}={}){
       try{
         const endpoint=new URL(base);
         endpoint.searchParams.set("url",pageUrl);
-        const r=await fetch(endpoint.toString(),{
+        const r=await vodFetch(endpoint.toString(),{
           headers:{
             "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
             "accept":"application/json,text/plain,*/*"
@@ -1477,7 +1510,7 @@ async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
   return vodCachedResolver("musicaldown",handle,id,{refresh,ttl:240},async()=>{
     const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
     const ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
-    const home=await fetch("https://musicaldown.com/en",{
+    const home=await vodFetch("https://musicaldown.com/en",{
       headers:{"user-agent":ua,"accept":"text/html,*/*"},
       redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}
     });
@@ -1490,7 +1523,7 @@ async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
     const body=new URLSearchParams();
     for(const [k,v] of Object.entries(inputs))body.set(k,String(v??""));
 
-    const result=await fetch("https://musicaldown.com/download",{
+    const result=await vodFetch("https://musicaldown.com/download",{
       method:"POST",
       headers:{
         "user-agent":ua,
@@ -1512,7 +1545,7 @@ async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
       const dataMatch=text.match(/\bdata\s*:\s*['"]([^'"]+)['"]/i);
       const urlMatch=text.match(/\burl\s*:\s*['"](https?:\/\/[^'"]+)['"]/i);
       if(dataMatch&&urlMatch){
-        const convert=await fetch(vodDecodeHtml(urlMatch[1]),{
+        const convert=await vodFetch(vodDecodeHtml(urlMatch[1]),{
           method:"POST",
           headers:{
             "user-agent":ua,
@@ -1543,7 +1576,7 @@ async function resolveTikdownOrgVideoSource(handle,id,{refresh=false}={}){
   return vodCachedResolver("tikdown",handle,id,{refresh,ttl:240},async()=>{
     const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
     const ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
-    const home=await fetch("https://tikdown.org/",{
+    const home=await vodFetch("https://tikdown.org/",{
       headers:{"user-agent":ua,"accept":"text/html,*/*"},
       redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}
     });
@@ -1553,7 +1586,7 @@ async function resolveTikdownOrgVideoSource(handle,id,{refresh=false}={}){
     const inputs=vodHtmlInputs(html);
     const token=String(inputs._token||inputs.token||"").trim();
     if(!token)throw new Error("tikdown_token_missing");
-    const r=await fetch("https://tikdown.org/getAjax",{
+    const r=await vodFetch("https://tikdown.org/getAjax",{
       method:"POST",
       headers:{
         "user-agent":ua,
@@ -1585,7 +1618,7 @@ async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
   return vodCachedResolver("ttdownloader",handle,id,{refresh,ttl:240},async()=>{
     const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
     const ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
-    const home=await fetch("https://ttdownloader.com/",{
+    const home=await vodFetch("https://ttdownloader.com/",{
       headers:{"user-agent":ua,"accept":"text/html,*/*"},
       redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}
     });
@@ -1601,7 +1634,7 @@ async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
     }
     if(!token)throw new Error("ttdownloader_token_missing");
 
-    const r=await fetch("https://ttdownloader.com/search/",{
+    const r=await vodFetch("https://ttdownloader.com/search/",{
       method:"POST",
       headers:{
         "user-agent":ua,
@@ -1732,7 +1765,8 @@ async function readVodWarmPreference(handle,id) {
   const hit=await caches.default.match(vodWarmCacheKey(handle,id)).catch(()=>null);
   if(!hit)return "";
   const row=await hit.json().catch(()=>null);
-  return VOD_RESOLVER_POOL.includes(String(row?.preferred||""))?String(row.preferred):"";
+  const preferred=String(row?.preferred||"");
+  return preferred==="native"||VOD_RESOLVER_POOL.includes(preferred)?preferred:"";
 }
 
 async function probeVodSource(source,handle) {
@@ -1752,13 +1786,17 @@ async function probeVodSource(source,handle) {
       {method:"GET",headers:{range:"bytes=0-1"}}
     );
     const r=source.name==="native"
-      ? await fetchTikTokNativeMediaTarget(source,probeRequest)
-      : await fetch(source.url,{
+      ? await vodWithTimeout(
+          fetchTikTokNativeMediaTarget(source,probeRequest),
+          VOD_PROBE_TIMEOUT_MS,
+          "native_probe"
+        )
+      : await vodFetch(source.url,{
           method:"GET",
           headers,
           redirect:"follow",
           cf:{cacheTtl:0,cacheEverything:false}
-        });
+        },VOD_PROBE_TIMEOUT_MS,source.name+"_probe");
     const ok=tiktokMediaResponseLooksUsable(r);
     try{await r.body?.cancel?.()}catch{}
     return {
@@ -1786,24 +1824,26 @@ async function warmTikTokVod(request) {
 
   const existing=await readVodWarmPreference(handle,id);
   if(existing){
-    const names=vodSourceOrder(existing).filter(name=>name!=="direct");
-    const sources=[];
-    for(const name of names){
-      try{
-        const source=await resolveVodSourceByName(name,handle,id);
-        if(/^https?:\/\//i.test(String(source?.url||""))){
-          sources.push({name,url:String(source.url||"")});
-        }
-      }catch{}
-    }
-    return json({ok:true,warm:true,cached:true,preferred:existing,sources});
+    // A valid warm winner is enough. Do not re-resolve the full provider chain
+    // on every warm hit; that used to make background warm-up itself slow.
+    return json({
+      ok:true,
+      warm:true,
+      cached:true,
+      preferred:existing,
+      sources:[{name:existing}]
+    });
   }
 
   const names=["native","tikwm","tdown"];
   const checks=await Promise.all(names.map(async name=>{
     const started=Date.now();
     try{
-      const source=await resolveVodSourceByName(name,handle,id);
+      const source=await vodWithTimeout(
+        resolveVodSourceByName(name,handle,id),
+        VOD_RESOLVE_TIMEOUT_MS,
+        name+"_warm_resolve"
+      );
       const probe=await probeVodSource(source,handle);
       return {
         ...probe,
@@ -1878,12 +1918,12 @@ async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
   const range = request.headers.get("range") || "";
   if (range) headers.set("range", range);
 
-  return fetch(targetUrl, {
+  return vodFetch(targetUrl, {
     method: request.method === "HEAD" ? "HEAD" : "GET",
     headers,
     redirect: "follow",
     cf: { cacheTtl: 0, cacheEverything: false }
-  });
+  },VOD_MEDIA_OPEN_TIMEOUT_MS,"media_open");
 }
 
 function tiktokMediaResponseLooksUsable(response){
@@ -1933,12 +1973,12 @@ async function fetchTikTokNativeMediaTarget(source,request){
   for(const target of candidates){
     try{
       if(/^https:\/\/(?:www\.)?tiktok\.com\/aweme\/v1\/play\//i.test(target)){
-        const first=await fetch(target,{
+        const first=await vodFetch(target,{
           method,
           headers,
           redirect:"manual",
           cf:{cacheTtl:0,cacheEverything:false}
-        });
+        },VOD_MEDIA_OPEN_TIMEOUT_MS,"native_gateway");
         if(tiktokMediaResponseLooksUsable(first))return first;
 
         const location=String(first.headers.get("location")||"").trim();
@@ -1946,12 +1986,12 @@ async function fetchTikTokNativeMediaTarget(source,request){
           try{await first.body?.cancel?.()}catch{}
           const next=new URL(location,target);
           if(next.protocol==="https:"){
-            const redirected=await fetch(next.toString(),{
+            const redirected=await vodFetch(next.toString(),{
               method,
               headers,
               redirect:"follow",
               cf:{cacheTtl:0,cacheEverything:false}
-            });
+            },VOD_MEDIA_OPEN_TIMEOUT_MS,"native_redirect");
             if(tiktokMediaResponseLooksUsable(redirected))return redirected;
             lastError="redirect_invalid_"+redirected.status;
             try{await redirected.body?.cancel?.()}catch{}
@@ -2025,7 +2065,11 @@ async function relayTikTokVideo(request) {
   for (const sourceName of order) {
     let source;
     try {
-      source = await resolveVodSourceByName(sourceName, handle, id, {refresh:false});
+      source = await vodWithTimeout(
+        resolveVodSourceByName(sourceName, handle, id, {refresh:false}),
+        VOD_RESOLVE_TIMEOUT_MS,
+        sourceName+"_resolve"
+      );
     } catch (error) {
       lastError = sourceName + ":" + String(error?.message || error || "resolve_failed");
       failures.push({source:sourceName,phase:"resolve",error:lastError});
