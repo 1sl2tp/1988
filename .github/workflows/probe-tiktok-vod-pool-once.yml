@@ -1,6 +1,4 @@
-name: Probe TikTok TDown Direct
-# manual-probe-trigger: 2026-10-04 tdown-direct-cors
-
+name: Probe TikWM User Posts Direct
 on:
   push:
     branches: [main]
@@ -14,18 +12,21 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe TDown direct API
+      - name: Probe TikWM user posts exact handle
         shell: bash
         run: |
           set -u
-          PAGE='https://www.tiktok.com/@giadinhnhaman/video/7691953502813293832'
-          URL="https://tdownv4.sl-bjs.workers.dev/?down=$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["PAGE"], safe=""))' PAGE="$PAGE")"
-          echo "URL=$URL"
-          rm -f /tmp/tdown.h /tmp/tdown.body
-          curl -sS --max-time 20 -D /tmp/tdown.h "$URL" -o /tmp/tdown.body || true
-          echo "===== HEADERS ====="
-          cat /tmp/tdown.h
-          echo "===== BODY ====="
-          head -c 3000 /tmp/tdown.body; echo
-          echo "===== OPTIONS ====="
-          curl -sS --max-time 20 -i -X OPTIONS "$URL"             -H 'Origin: https://yt.taphoa.xyz'             -H 'Access-Control-Request-Method: GET'             -H 'Access-Control-Request-Headers: content-type' | head -c 4000
+          H='tu.thuong_lay_minh_1'
+          URL="https://www.tikwm.com/api/user/posts?unique_id=${H}&count=5&cursor=0&web=1&hd=1"
+          echo "=== GET ==="
+          curl -sS --max-time 20 -D /tmp/h "$URL"             -H 'Referer: https://www.tikwm.com/'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/body || true
+          cat /tmp/h
+          echo
+          head -c 12000 /tmp/body
+          echo
+          echo "=== POST ==="
+          curl -sS --max-time 20 -D /tmp/h2 'https://www.tikwm.com/api/user/posts'             -H 'Referer: https://www.tikwm.com/'             -H 'Origin: https://www.tikwm.com'             -H 'User-Agent: Mozilla/5.0'             -H 'Content-Type: application/x-www-form-urlencoded;charset=UTF-8'             --data-urlencode "unique_id=@${H}"             --data-urlencode 'count=5'             --data-urlencode 'cursor=0'             -o /tmp/body2 || true
+          cat /tmp/h2
+          echo
+          head -c 12000 /tmp/body2
+          echo
