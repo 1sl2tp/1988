@@ -63,7 +63,14 @@ if(simpleProduction){
   assert.match(html,/package_["']\+scope\+["']_hash_mismatch/);
   assert.match(html,/expectedHash:remoteHash/);
   assert.match(html,/writeStoredPackage\(scope,pkg\)/);
-  assert.match(html,/await restoreStoredPackage\(["']live["']\)/);
+  assert.match(html,/const STARTUP_SCOPE=["']latest["']/);
+  assert.match(html,/await restoreStoredPackage\(scope\)/);
+  assert.match(html,/function oneLatestVideoPerChannel\(/);
+  assert.match(html,/function preloadStartupLiveLists\(/);
+  assert.match(html,/fetchYoutubeLiveSnapshot\(\)/);
+  assert.match(html,/refreshTikTokLiveFeed\(\{paint:false,force:true\}\)/);
+  assert.match(html,/loadTikTokLatestVideoFeed\(\{silent:true\}\)/);
+  assert.match(html,/scheduleStartupLivePreload\(\)/);
   assert.match(html,/Promise\.all\(scopes\.map\(scope=>restoreStoredPackage\(scope\)\)\)/);
   assert.match(html,/function selectedMetaNeedsLookup\(/);
   assert.match(html,/Never synthesize a fake card from current/);
