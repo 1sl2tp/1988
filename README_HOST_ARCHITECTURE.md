@@ -88,7 +88,13 @@ Paint cache first. Check manifest. Wake package builder only at scope cadence:
 Focus/visibility does not reset the cadence.
 
 ### Open LIVE
-Paint last package immediately → one logical Cloudflare scan → Supabase package build → hash change → UI downloads complete package then swaps.
+Paint last package immediately → one logical Cloudflare scan → changed snapshot wakes Supabase package build → hash change → UI downloads complete package then swaps.
+
+Wake ownership:
+- explicit tab-open may do one catch-up package wake;
+- recurring Cloudflare scan owns later LIVE wakes;
+- browser focus/timer only checks hash;
+- source edit uses targeted Cloudflare sync; it does not pre-refresh LIVE from stale state.
 
 Hidden/closed = browser stops LIVE work.
 
