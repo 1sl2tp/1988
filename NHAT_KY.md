@@ -1,3 +1,11 @@
+## 2026-10-04 — latest 5 TikTok chuyển sang TikWM user/posts
+
+- Bỏ đường native secUid/post_item_list khỏi endpoint lấy danh sách 5 video.
+- Dùng TikWM GET user/posts với count/cursor/web/hd + Referer, fallback POST form @handle.
+- LIVE không đổi.
+- Commit `85077120ce56281f2340f1e0f02c823e516b8e49`.
+- Edge `37160366014`: SUCCESS.
+
 ## 2026-10-04 — Video TikTok độc lập trạng thái LIVE
 
 - LIVE dùng `/lookup` riêng.
