@@ -85,6 +85,47 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.9. Chặn legacy browser tải full source-state
+
+Thời gian: **2026-10-04**.
+
+Audit trước sửa:
+- cửa sổ 97 phút gần nhất có **124 browser request** gọi `yt1988-state` không có `?view=...`;
+- nhóm này trả khoảng **6.82 MB** response, trung bình ~55 KB/request;
+- toàn bộ caller là browser/PWA cũ, không phải Cloudflare/Render/server;
+- rule cũ vẫn giữ default `full` “để tương thích client cũ”, nên chính client cũ có thể tiếp tục đốt egress dù MAIN mới đã dùng manifest/lite.
+
+Patch:
+- commit `745d74898bdaad2f5623f5f432a0afb7884f4d8c`: `yt1988-state` public GET canonicalize:
+  - `view=manifest` → manifest;
+  - `view=library` → library;
+  - `view=lite`, không có view, `view=full`, view lạ → **lite**.
+- `yt1988-state v14` ACTIVE.
+- PWA cache bumped `v77`, sau contract repair bumped tiếp `v78`.
+- contract khóa: cấm quay lại `searchParams.get("view") || "full"`.
+
+Trong lúc verify, frontend contract phát hiện một lỗi schema thật ở `yt1988-refresh`:
+- query source-state cũ vẫn xin `name,thumbnail_url,subscribers` dù DB đã drop các cột này;
+- source suggestion writer cũng còn cố ghi name/avatar vào `yt1988_source_state`.
+
+Fix:
+- commit `bb5118bc7dab22b74e90fd6358fb70273a412529`;
+- source-state read chỉ lấy `scope,channel_id,status,version,updated_at`;
+- suggestion identity ghi vào `yt1988_channel_directory` trước;
+- source-state suggestion row chỉ giữ ID + state;
+- `yt1988-refresh v31` ACTIVE.
+
+Probe production:
+- Supabase pg_net request `585`: GET no-view;
+- request `586`: GET `?view=lite`;
+- mục tiêu verify: response no-view phải có cùng shape/size lớp `lite`, không được đi full-library path.
+
+Rule khóa:
+- **public default/full source-state không còn tồn tại**;
+- backward compatibility = trả compact `lite`, không phải trả monolithic full payload;
+- full canonical library chỉ qua explicit `view=library` ở `/sources/`;
+- source-state table = membership/state only; identity luôn ở channel directory.
+
 ### 3.8. Chuẩn hóa channel identity + dọn duplicate Supabase
 
 Thời gian: **2026-10-04**.
