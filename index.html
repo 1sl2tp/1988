@@ -11267,10 +11267,19 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     syncFeedHeader();
     scrollPageToTop();
 
-    void refreshUnifiedLiveInBackground({
-      force:true,
-      reason:"tab-open",
-      provider:"tiktok"
+    // TikTok LIVE is already resolved by Cloudflare with its playable URL.
+    // The Live tab should only read /tiktok/live-now and paint those rows.
+    void refreshTikTokLiveFeed({paint:false,force:true}).then(items=>{
+      if(
+        activePlatformNav!=="tiktok"||
+        activeTikTokSubtab!=="live"||
+        feedMode!=="package"||
+        activePackageScope!=="live"
+      )return;
+      feedMetas=Array.isArray(items)?items:[];
+      renderSampleContent();
+      syncFeedHeader();
+      saveClientLiveSnapshot();
     });
     scheduleLiveBackgroundRefresh();
   }

@@ -175,6 +175,11 @@ if(simpleProduction){
   assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}tiktok-profile-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(html,/data-tiktok-watch-share="1"/);
   assert.match(html,/function tiktokSmartWatchSequence\(\)/);
+  assert.match(html,/function showTikTokLiveFeed\(\)[\s\S]{0,900}refreshTikTokLiveFeed\(\{paint:false,force:true\}\)[\s\S]{0,520}feedMetas=Array\.isArray\(items\)\?items:\[\]/);
+  const tiktokLiveFeedStart=html.indexOf("function showTikTokLiveFeed()");
+  const tiktokLiveFeedEnd=html.indexOf("function showTikTokVideoFeed()",tiktokLiveFeedStart);
+  const tiktokLiveFeedBlock=html.slice(tiktokLiveFeedStart,tiktokLiveFeedEnd);
+  assert.doesNotMatch(tiktokLiveFeedBlock,/refreshUnifiedLiveInBackground/);
   assert.match(html,/function moveTikTokWatch\(step=1\)/);
   assert.match(html,/data-tiktok-watch-nav="-1"/);
   assert.match(html,/data-tiktok-watch-nav="1"/);
