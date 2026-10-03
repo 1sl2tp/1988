@@ -83,7 +83,74 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
-## 4. Incident gần nhất — LIVE gắn sai kênh
+## 4. Incident gần nhất — LIVE discovery chuyển sang demand-only
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng / mục tiêu:
+- YouTube LIVE có thể thiếu kênh vừa bắt đầu LIVE vì UI trước đó chỉ wake package builder nhưng hàm full edge scan chưa được nối vào luồng mở tab.
+- Startup từng preload/wake LIVE dù người dùng chưa mở LIVE.
+- Cloudflare runtime từng có cron YouTube/TikTok nên vẫn chạy khi không có người dùng.
+- Yêu cầu vận hành mới: **không ai mở LIVE → không discovery; LIVE hidden/đổi tab → dừng; chỉ khi LIVE thật sự visible mới scan.**
+
+Owner:
+- Frontend demand orchestration: `index.html`.
+- Cloudflare LIVE schedules: YouTube/TikTok Workers.
+- Supabase vẫn là package owner cho YouTube; UI không dùng Cloudflare snapshot làm feed.
+
+Bằng chứng:
+- `runYoutubeLiveCycle()` đã tồn tại nhưng trước patch không có caller.
+- Startup gọi `preloadStartupLiveLists()` và prefetch nhiều scope.
+- Infrastructure deploy config từng có YouTube cron `*/2 * * * *` và TikTok cron `* * * * *`.
+- Supabase production hiện **không có** `yt1988-refresh-every-minute`; query `cron.job` chỉ còn keepalive Render + retention cleanup, không có package/LIVE discovery cron.
+
+Patch:
+- 1988 frontend commit `0600797cf6fe435478199b9589a5cc1fa77502af`:
+  - startup không preload/wake LIVE;
+  - unopened package scopes không network-prefetch;
+  - mở YouTube LIVE → chạy edge discovery rồi mới wake/sync package;
+  - hidden/đổi scope → stop timer/abort scan;
+  - visible LIVE mới chạy lại khoảng 1 phút/lần.
+- 1988 compatibility/runtime commit `e6c38717c84654162b527a6ab7978454aae5fe18`:
+  - TikTok ưu tiên `/tiktok/live-scan`;
+  - runtime cũ chưa có endpoint mới thì fallback demand-only qua `/sweep`;
+  - PWA shell cache = `1988-simple-media-v70`;
+  - one-shot Cloudflare API xóa schedule của cả hai LIVE Workers.
+- Infrastructure canonical commit `70fd3ee4cb6beeaf8f5dc5ff45c38bca8352b441`:
+  - source YouTube/TikTok đều demand-only;
+  - `crons = []`;
+  - TikTok có logical scan theo batch, current LIVE ưu tiên trước.
+
+Deploy / production verify:
+- Pages run `37126176517`: SUCCESS.
+- Latest Pages run `37126405789`: SUCCESS, custom-domain verify PASS.
+- Cloudflare schedule removal run `37126405820`: SUCCESS; API PUT + GET xác nhận **0 schedule** cho:
+  - `1988-youtube-live-state`;
+  - `1988-tiktok-live-state`.
+- Infrastructure Worker deploy runs `37126064335` (YouTube) và `37126064354` (TikTok) fail ở **Verify Cloudflare token** trước deploy. Vì vậy canonical Worker source mới chưa live qua repo infrastructure.
+
+Production hiện tại:
+- YouTube LIVE visible:
+  `edge live-scan → Supabase yt1988-refresh → package hash đổi → UI tải package → render`.
+- YouTube UI vẫn **package-only**.
+- TikTok LIVE visible:
+  - thử logical `/tiktok/live-scan`;
+  - nếu runtime cũ trả 404, dùng `/sweep` demand-only;
+  - không có web/LIVE visible thì không gọi sweep.
+- Startup/latest không còn đánh thức LIVE.
+- Không có Cloudflare LIVE cron.
+- Supabase không có cron refresh/package discovery mỗi phút.
+
+Known residual / next probe:
+- Credential Cloudflare trong repo `1sl2tp/infrastructure` đang fail verify.
+- Khi credential đó được sửa, deploy commit `70fd3ee...`, verify TikTok `/tiktok/live-scan` chạy full logical cycle đến `done:true`, rồi có thể giữ fallback `/sweep` chỉ để tương thích.
+- Không bật lại cron LIVE để chữa credential.
+
+Rollback:
+- Frontend pre-demand baseline: `d6e465d991ae442c7a1c61103c92cf8ee4b6558d`.
+- **Không** coi bật lại LIVE cron là rollback hợp lệ, vì demand-only là rule vận hành đã chốt.
+
+## 5. Incident trước — LIVE gắn sai kênh
 
 Triệu chứng:
 - video LIVE `t7goDOQdn9U` (ChimSeDiNang AOE) từng bị package gắn thành `Hillsong Worship`.
@@ -119,7 +186,7 @@ Production verify:
   - title: `Thiên Khôi CUP | 4v4 Random | SPartacus Gaming vs Thiên Khôi | Ngày 03/10/2026`
   - viewerCount/views: `9659`
 
-## 5. Nếu lỗi LIVE sai kênh xuất hiện lại
+## 6. Nếu lỗi LIVE sai kênh xuất hiện lại
 
 Probe nhỏ nhất, không scan toàn hệ thống:
 
@@ -134,7 +201,7 @@ Probe nhỏ nhất, không scan toàn hệ thống:
    - không được để duplicate claim quyết định identity.
 6. Không thêm polling/fan-out metadata toàn LIVE chỉ để chữa một card.
 
-## 6. Trạng thái vận hành cần nhớ
+## 7. Trạng thái vận hành cần nhớ
 
 - Production branch: `main`.
 - Frontend: `https://yt.taphoa.xyz/`.
@@ -144,10 +211,12 @@ Probe nhỏ nhất, không scan toàn hệ thống:
   - hash không đổi → không tải package;
   - không media bytes qua Supabase;
   - không log từng item;
+  - browser chỉ wake scope đang visible; không có người dùng/LIVE hidden → không LIVE discovery;
+  - Cloudflare YouTube/TikTok LIVE không có cron schedule;
   - browser không tạo crawler riêng;
   - upstream lỗi → giữ last-known-good.
 
-## 7. Mẫu cập nhật file này sau repair
+## 8. Mẫu cập nhật file này sau repair
 
 ```text
 Thời gian:

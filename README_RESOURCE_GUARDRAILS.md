@@ -71,10 +71,16 @@ Cloudflare **không phải feed trực tiếp của UI**.
 Khi mở web:
 
 1. vẽ package `latest` đã có;
-2. đọc package `live` song song;
-3. sau đó mới đánh thức refresh LIVE nền;
-4. package LIVE cũ vẫn dùng cho tới khi package mới hoàn chỉnh;
-5. **không bao giờ ghi package rỗng đè package LIVE tốt chỉ vì một lần probe lỗi/chưa hoàn tất**.
+2. **không preload / không wake LIVE chỉ vì app vừa mở**;
+3. chỉ khi người dùng thật sự mở bề mặt LIVE và document còn visible mới chạy LIVE discovery;
+4. mở YouTube LIVE → Cloudflare discovery → Supabase đóng package → UI chỉ nhận package/hash;
+5. mở TikTok LIVE → edge scan theo demand → UI đọc snapshot LIVE;
+6. ở lại LIVE visible → được phép scan lại tối đa khoảng 1 lần/phút;
+7. đổi tab / hidden / đóng web → dừng LIVE discovery;
+8. package LIVE cũ vẫn dùng cho tới khi package mới hoàn chỉnh;
+9. **không bao giờ ghi package rỗng đè package LIVE tốt chỉ vì một lần probe lỗi/chưa hoàn tất**.
+
+**LIVE Cloudflare không được có cron schedule.** Runtime production phải giữ schedule count = 0; nhiều browser chỉ được join/reuse work hiện có hoặc bị lease/dedupe chặn, không tạo crawler độc lập.
 
 ### 1.3. Ngoại lệ truy vấn trực tiếp
 
@@ -94,7 +100,7 @@ Mục tiêu là **stale-while-revalidate**: dùng gói hiện có trước, cậ
 
 | Scope | Package server due | Client |
 |---|---:|---|
-| LIVE | 1 phút | manifest/package check nhẹ khi app visible; không scan video |
+| LIVE | theo demand khi LIVE visible, tối đa khoảng 1 lần/phút | mở LIVE mới scan/wake; hidden/đổi tab/không có web = không discovery |
 | Ngày / latest | 5 phút | mở tab đọc cache trước, check hash nền |
 | Tuần / week | 30 phút | mở tab đọc cache trước, check hash nền |
 | hashtag/content | 15 phút | chỉ refresh khi scope đến hạn |
@@ -122,7 +128,8 @@ Mục tiêu là **stale-while-revalidate**: dùng gói hiện có trước, cậ
    - RAM cache → IndexedDB → network là thứ tự ưu tiên.
 
 3. **Không tải tất cả package ở mỗi interval.**
-   - chỉ scope đang dùng + LIVE warmup theo quy tắc;
+   - chỉ scope đang dùng;
+   - không có LIVE warmup ở startup;
    - scope khác đọc cache và refresh khi mở.
 
 4. **Không truyền media binary qua Supabase.**
@@ -276,13 +283,14 @@ Cùng một `error_code + endpoint + channel/source` nên rate-limit log theo c�
 ## 6. Quy tắc scheduler / cron
 
 1. Một chức năng chỉ có **một owner scheduler**.
-2. Không để cùng lúc GitHub cron + Supabase cron + browser polling cùng làm một việc.
-3. Browser chỉ wake; server lease chống trùng.
-4. Job B thấy job A cùng scope đang chạy → không tạo job mới.
-5. Retry phải bounded; không `while(true)`.
-6. Fail upstream → giữ last-known-good; không ghi rỗng.
-7. Không refresh mọi kênh nếu chỉ một scope đang cần.
-8. Kênh mới do search/LIVE phát hiện có thể được hydrate một lần rồi ghi canonical library; không hydrate lại mọi lần render.
+2. LIVE YouTube/TikTok là **demand-only**: Cloudflare schedule phải bằng 0; không có người dùng mở LIVE thì không discovery.
+3. Không để cùng lúc GitHub cron + Supabase cron + browser polling cùng làm một việc.
+4. Browser chỉ wake scope đang visible; server/edge cycle + lease chống trùng.
+5. Job B thấy job A cùng scope đang chạy → không tạo job mới.
+6. Retry phải bounded; không `while(true)`.
+7. Fail upstream → giữ last-known-good; không ghi rỗng.
+8. Không refresh mọi kênh nếu chỉ một scope đang cần.
+9. Kênh mới do search/LIVE phát hiện có thể được hydrate một lần rồi ghi canonical library; không hydrate lại mọi lần render.
 
 ## 7. Quy tắc payload
 
@@ -355,6 +363,8 @@ Không sửa đồng thời UI + DB + Cloudflare + Render chỉ vì thấy dashb
 > **SERVER QUYẾT ĐỊNH DỮ LIỆU — UI CHỈ HIỂN THỊ.**
 
 > **HASH KHÔNG ĐỔI → KHÔNG TẢI PACKAGE.**
+
+> **KHÔNG AI MỞ LIVE → KHÔNG LIVE DISCOVERY.**
 
 > **MỘT JOB ĐANG CHẠY → KHÔNG TẠO JOB THỨ HAI.**
 

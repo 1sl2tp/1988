@@ -284,3 +284,36 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - `README_MAINTENANCE.md` bắt buộc đọc `CURRENT_WORK.md` trước mọi repair, commit `08871ca071a0c6490c9efabb1ca4e7b8ae0cc48c`;
   - README gốc trỏ vào CURRENT_WORK trước mọi sửa, commit `448f77fc916957ea4657e358c12ea824586abe41`.
 - Quy tắc mới: **trước khi sửa phải đọc rule + CURRENT_WORK; sau khi sửa phải cập nhật CURRENT_WORK + NHAT_KY để chat sau tiếp tục đúng trạng thái.**
+
+
+## 2026-10-03 — Chuyển LIVE sang demand-only, tắt discovery khi không có người dùng
+
+- Branch: `main`.
+- Base trước sửa: `d6e465d991ae442c7a1c61103c92cf8ee4b6558d`.
+- Mục tiêu: không ai mở web/LIVE thì không discovery; mở đúng LIVE mới đánh thức scan; hidden/đổi tab thì dừng.
+- Owner:
+  - frontend orchestration `index.html`;
+  - Cloudflare schedules cho YouTube/TikTok LIVE.
+- Bằng chứng trước sửa:
+  - `runYoutubeLiveCycle()` tồn tại nhưng chưa được gọi từ luồng mở LIVE;
+  - startup còn preload/wake LIVE và prefetch package chưa mở;
+  - infrastructure deploy config có YouTube cron `*/2 * * * *`, TikTok cron `* * * * *`.
+- Commits:
+  - `0600797cf6fe435478199b9589a5cc1fa77502af` — LIVE scan/wake chỉ khi visible, bỏ startup LIVE preload, chỉ prefetch active scope.
+  - `e6c38717c84654162b527a6ab7978454aae5fe18` — fallback TikTok demand-only cho runtime cũ + one-shot xóa Cloudflare schedules.
+  - infrastructure `70fd3ee4cb6beeaf8f5dc5ff45c38bca8352b441` — canonical demand-only Workers, `crons=[]`, TikTok logical batch scan.
+- Deploy/verify:
+  - Pages `37126176517`: SUCCESS.
+  - Pages latest `37126405789`: SUCCESS, custom-domain check PASS.
+  - One-shot disable cron `37126405820`: SUCCESS; Cloudflare API xác nhận cả hai LIVE Workers có 0 schedules.
+  - Supabase production query `cron.job`: không còn `yt1988-refresh-every-minute`; không có package/LIVE discovery cron.
+- Runtime:
+  - YouTube: visible LIVE → edge scan → Supabase package → hash → UI; UI không dùng edge snapshot làm feed.
+  - TikTok: visible LIVE → thử `/tiktok/live-scan`; runtime cũ 404 thì demand `/sweep`; không có LIVE visible thì không gọi.
+  - startup/latest không preload/wake LIVE; unopened scopes không network-prefetch.
+- Known residual:
+  - infrastructure deploy runs `37126064335` / `37126064354` fail ở bước Verify Cloudflare token trước deploy;
+  - canonical TikTok logical full-cycle source chưa live qua infrastructure; production dùng demand `/sweep` compatibility cho tới khi credential được sửa.
+- Data impact: không xóa canonical data/package; chỉ thay orchestration/scheduler.
+- Rollback frontend: `d6e465d991ae442c7a1c61103c92cf8ee4b6558d`.
+- Không rollback bằng cách bật lại cron LIVE.
