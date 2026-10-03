@@ -6497,6 +6497,24 @@ html.tiktok-ui.tiktok-watch .rows{
     return task;
   }
 
+  async function ensurePreparedPackageReady(scope=""){
+    scope=String(scope||"").trim();
+    if(!scope)return [];
+
+    if(packageCache.has(scope)){
+      return packageCache.get(scope)||[];
+    }
+
+    const stored=await restoreStoredPackage(scope);
+    if(packageCache.has(scope)){
+      return packageCache.get(scope)||stored||[];
+    }
+
+    // First install/private window may have no IndexedDB copy yet. Fetch only
+    // the already-committed package; this never asks the UI to build/filter it.
+    return getPackage(scope,{force:true});
+  }
+
   async function showPackageScope(scope,{hydrateLive=true}={}){
     scope=String(scope||"").trim()||"live";
     if(scope!=="live"){
@@ -6509,31 +6527,21 @@ html.tiktok-ui.tiktok-watch .rows{
     ++feedRequest;
     syncFeedHeader();
 
-    // Tab/UI reads memory only for the first paint.
-    // A tab is a menu/feed surface. Entering or restoring a tab must never
-    // auto-select or auto-play its first media, including desktop two-column.
-    const baseMetas=packageCache.get(scope)||[];
+    // Every tab is package-only. Usually the package is already in RAM because
+    // startup preloads it. On a first install/private window, wait for the
+    // committed package itself instead of rendering an empty feed.
+    let baseMetas=packageCache.has(scope)
+      ?(packageCache.get(scope)||[])
+      :await ensurePreparedPackageReady(scope);
+
+    // The user may have switched tabs while IndexedDB/network completed.
+    if(feedMode!=="package"||activePackageScope!==scope)return feedMetas;
 
     if(scope==="live"){
       // 1988 rule: UI reads only the prepared LIVE package. Cloudflare may
       // discover LIVE channels, but its snapshot is never a browser feed.
-      const metas=Array.isArray(baseMetas)?baseMetas:[];
-      if(metas.length){
-        feedMetas=metas;
-        renderSampleContent();
-      }else if(!startupLivePreloadPromise){
-        feedMetas=[];
-        renderSampleContent();
-      }
-
-      // If the first-open LIVE package is still being fetched/rebuilt, do not
-      // flash a blank list. Publish the package atomically when it arrives.
-      if(!metas.length&&startupLivePreloadPromise){
-        void startupLivePreloadPromise.finally(()=>{
-          if(!liveDemandActive("youtube"))return;
-          paintSyncedPackage("live",packageCache.get("live")||[]);
-        });
-      }
+      feedMetas=Array.isArray(baseMetas)?baseMetas:[];
+      renderSampleContent();
 
       stopTikTokPreparedStreams();
       if(hydrateLive){
@@ -6560,9 +6568,9 @@ html.tiktok-ui.tiktok-watch .rows{
   function paintSyncedPackage(scope,metas){
     if(feedMode!=="package"||activePackageScope!==scope)return;
     const base=Array.isArray(metas)?metas:[];
-    feedMetas=scope==="live"
-      ?liveMetasForProvider(activeLiveProvider(),base)
-      :startupVisibleMetas(scope,base);
+    // YouTube tab feeds, including LIVE, are already final server packages.
+    // Never pass LIVE through a provider/client discovery layer here.
+    feedMetas=startupVisibleMetas(scope,base);
     renderSampleContent();
   }
 
@@ -6672,7 +6680,7 @@ html.tiktok-ui.tiktok-watch .rows{
       stopYoutubeLiveDemand();
       return;
     }
-    if(feedMode==="package"&&activePackageScope!=="live"){
+    if(feedMode==="package"){
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
@@ -7376,13 +7384,9 @@ html.tiktok-ui.tiktok-watch .rows{
     if(startupLivePreloadPromise)return startupLivePreloadPromise;
 
     startupLivePreloadPromise=(async()=>{
-      // The browser first restores/downloads the last committed LIVE package.
-      // That is the instant fallback. Only after it exists locally do we wake
-      // a new server-side LIVE package build.
-      await restoreStoredPackage("live").catch(()=>[]);
-      if(!packageCache.has("live")){
-        await getPackage("live",{force:true}).catch(()=>[]);
-      }
+      // The current committed LIVE package must become readable first. Rebuild
+      // is a separate background step and must never hold the first LIVE paint.
+      await ensurePreparedPackageReady("live").catch(()=>[]);
 
       if(liveDemandActive("youtube")){
         paintSyncedPackage("live",packageCache.get("live")||[]);
@@ -10407,22 +10411,24 @@ html.tiktok-ui.tiktok-watch .rows{
     // Paint remembered tabs immediately; network state can refresh them later.
     renderExistingSourceNames(storedRows.length?storedRows:fallbackRows);
 
+    // Start loading the already-committed LIVE package immediately, in parallel
+    // with the first/latest paint. This is package I/O only; no LIVE discovery
+    // and no rebuild can delay the initial page.
+    const firstLivePackagePromise=ensurePreparedPackageReady("live");
+
     // First app entry is always video-first: paint the latest package from
-    // IndexedDB immediately and keep one newest video per channel. LIVE lists
-    // are preloaded only after that paint, so realtime network never blocks home.
+    // IndexedDB immediately and keep one newest video per channel.
     const firstPackagePromise=(async()=>{
       const scope=STARTUP_SCOPE;
       activePackageScope=scope;
-      await Promise.all([
-        restoreStoredPackage(scope),
-        restoreStoredPackage("live")
-      ]);
+      await restoreStoredPackage(scope);
       const painted=await showPackageScope(scope,{hydrateLive:false});
 
-      // As soon as the first latest-video paint is committed, warm LIVE now.
-      // Do not wait for another frame/timer: LIVE is the next likely tab and
-      // must already be in RAM by the time the user taps it.
-      void preloadStartupLiveLists();
+      // The current LIVE package is already loading above. After it is ready,
+      // wake a new server-side LIVE package build in the background.
+      void firstLivePackagePromise.finally(()=>{
+        void preloadStartupLiveLists();
+      });
       return painted;
     })();
 
@@ -10442,12 +10448,8 @@ html.tiktok-ui.tiktok-watch .rows{
         // placeholders instead of being skipped by the visual-signature cache.
         const feedRows=document.getElementById("rows");
         if(feedRows)feedRows.dataset.renderSignature="";
-        if(
-          feedMode==="package"&&
-          activePackageScope==="live"&&
-          activeLiveProvider()
-        ){
-          paintUnifiedLiveFromEdge(activeLiveProvider());
+        if(feedMode==="package"&&activePackageScope==="live"){
+          paintSyncedPackage("live",packageCache.get("live")||[]);
         }else if(feedMetas.length){
           renderSampleContent();
         }
