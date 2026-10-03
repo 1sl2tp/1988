@@ -46,4 +46,12 @@ const tikwm=worker.slice(tikwmStart,tikwmEnd);
 assert.match(tikwm,/body\.hdplay \|\| body\.play \|\| ""/);
 assert.doesNotMatch(tikwm,/wmplay/);
 
+assert.match(worker,/function vodTTDownloaderNoWatermarkUrl\(html\)/);
+assert.match(worker,/results-list/);
+assert.match(worker,/children\.find\(x=>\/\\bno\\s\*watermark\\b\/i/);
+assert.match(worker,/ttdownloader\\\.com\\\/dl\\\.php\\\\\?v=/);
+assert.match(worker,/ttd-nowm-hd-v1/);
+assert.match(worker,/const mediaUrl=vodTTDownloaderNoWatermarkUrl\(text\)/);
+assert.match(worker,/ttdownloader_no_watermark_hd_url/);
+
 console.log('tiktok VOD failover contract ok');

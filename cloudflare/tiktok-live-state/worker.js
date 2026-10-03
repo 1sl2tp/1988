@@ -1377,10 +1377,12 @@ async function resolveTdownVideoSource(handle, id, { refresh = false } = {}) {
 
 
 function vodResolverCacheKey(name,handle,id){
+  const sourceVersion=name==="ttdownloader"?"ttd-nowm-hd-v1":"";
   return new Request(
     "https://1988-edge-cache.invalid/tiktok/vod-resolver/"+encodeURIComponent(name)+
     "?user="+encodeURIComponent(String(handle||"").toLowerCase())+
-    "&id="+encodeURIComponent(String(id||""))
+    "&id="+encodeURIComponent(String(id||""))+
+    (sourceVersion?"&v="+encodeURIComponent(sourceVersion):"")
   );
 }
 function vodDecodeHtml(value){
@@ -1676,6 +1678,47 @@ async function resolveTikdownOrgVideoSource(handle,id,{refresh=false}={}){
   });
 }
 
+function vodTTDownloaderNoWatermarkUrl(html){
+  const text=String(html||"");
+  const listOpen=/<div\b[^>]*\bid=["']results-list["'][^>]*>/i.exec(text);
+  if(!listOpen)return "";
+  const children=[];
+  const tagRe=/<\/?div\b[^>]*>/gi;
+  tagRe.lastIndex=(listOpen.index||0)+listOpen[0].length;
+  let depth=0;
+  let start=-1;
+  let tag;
+  while((tag=tagRe.exec(text))){
+    const closing=/^<\//.test(tag[0]);
+    if(closing){
+      if(depth===0)break;
+      depth--;
+      if(depth===0&&start>=0){
+        children.push(text.slice(start,tagRe.lastIndex));
+        start=-1;
+      }
+      continue;
+    }
+    if(depth===0)start=tag.index;
+    depth++;
+  }
+
+  // TTDownloader contract: #results-list > div:nth-child(2)
+  // is "No watermark (HD)". Prefer the label match, then exact row 2.
+  const clean=s=>vodDecodeHtml(String(s||"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim());
+  const row=children.find(x=>/\bno\s*watermark\b/i.test(clean(x)))||children[1]||"";
+  if(!row||!/\bno\s*watermark\b/i.test(clean(row)))return "";
+
+  const downloadBlock=/<div\b[^>]*\bclass=["'][^"']*\bdownload\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i.exec(row)?.[1]||row;
+  const href=/<a\b[^>]*\bhref=["']([^"']+)["']/i.exec(downloadBlock)?.[1]||"";
+  let url=vodDecodeHtml(href).trim();
+  if(!url)return "";
+  if(url.startsWith("//"))url="https:"+url;
+  else if(url.startsWith("/"))url="https://ttdownloader.com"+url;
+  if(!/^https:\/\/ttdownloader\.com\/dl\.php\?v=/i.test(url))return "";
+  return url;
+}
+
 async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
   return vodCachedResolver("ttdownloader",handle,id,{refresh,ttl:240},async()=>{
     const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
@@ -1713,10 +1756,8 @@ async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
     });
     if(!r.ok)throw new Error("ttdownloader_http_"+r.status);
     const text=await r.text();
-    const urls=vodExtractUrls(text);
-    const legacy=[...text.matchAll(/(https?:\/\/[^"'\s<>]+?\.php\?v=[^"'\s<>]+)/gi)].map(m=>vodDecodeHtml(m[1]));
-    const mediaUrl=vodPickVideoUrl([...legacy,...urls]);
-    if(!mediaUrl)throw new Error("ttdownloader_no_media_url");
+    const mediaUrl=vodTTDownloaderNoWatermarkUrl(text);
+    if(!mediaUrl)throw new Error("ttdownloader_no_watermark_hd_url");
     return {
       url:mediaUrl,
       source:"ttdownloader",
