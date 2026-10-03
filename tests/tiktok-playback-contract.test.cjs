@@ -16,7 +16,9 @@ assert.match(html,/const TIKTOK_VOD_CLICK_SOURCES=\["tikwm","tdown","musicaldown
 assert.match(html,/function tiktokVodSourcesForClick\(\)/,'TikTok VOD click source selector missing');
 assert.match(html,/endpoint\.searchParams\.set\("source",source\)/,'production VOD must attach one explicit source per attempt');
 assert.doesNotMatch(html,/endpoint\.searchParams\.set\("source","auto"\)/,'production VOD click must not hide a provider chain behind source=auto');
-assert.match(html,/TIKTOK_VOD_FAILOVER_TIMEOUT_MS=3200/,'TikTok VOD startup failover must be bounded');
+assert.doesNotMatch(html,/function warmTikTokVod\(/,'TikTok VOD must not pre-resolve providers before click');
+assert.doesNotMatch(html,/observeTikTokVodWarmRows/,'TikTok VOD must not background-warm visible rows');
+assert.doesNotMatch(html,/TIKTOK_VOD_FAILOVER_TIMEOUT_MS/,'TikTok VOD frontend must not add a second startup timer');
 assert.doesNotMatch(html,/video-session-stream/,'production TikTok VOD must not relay media bytes through Render');
 
 // Resolver pool: one provider call, then move forward only on failure.
