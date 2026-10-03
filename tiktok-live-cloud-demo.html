@@ -112,7 +112,7 @@ function renderVideos(){
   const rows=videos.slice(0,5);
   if(!rows.length){vodsEl.innerHTML='<div class="empty">Kênh này chưa có video trong thư viện.</div>';return}
   vodsEl.innerHTML=rows.map((v,i)=>{
-    const cover=String(v?.cover?.url||v?.cover?.sourceUrl||"");
+    const cover=String(v?.cover?.url||v?.cover?.sourceUrl||v?.thumbnail||"");
     const title=String(v?.title||("Video "+v?.id));
     return '<button class="vod" data-i="'+i+'">'+
       (cover?'<img class="cover" src="'+esc(cover)+'" alt="">':'<div class="cover"></div>')+
@@ -121,22 +121,35 @@ function renderVideos(){
 }
 function playLive(item){
   stop();
-  const flv=String(item?.streamUrl||"");
-  const hls=String(item?.hlsUrl||"");
+  const direct=String(item?.streamUrl||"");
+  const type=String(item?.streamType||"").toLowerCase();
   const nativeHls=Boolean(video.canPlayType("application/vnd.apple.mpegurl")||video.canPlayType("application/x-mpegURL"));
   nowEl.textContent="@"+handle+" · LIVE";
-  if(nativeHls&&hls){
-    video.src=hls;video.load();video.play().catch(()=>{});return;
+
+  if((type==="hls"||/\.m3u8(?:\?|$)/i.test(direct))&&nativeHls){
+    video.src=direct;video.load();video.play().catch(()=>{});return;
   }
-  if(flv&&window.mpegts?.isSupported?.()){
-    flvPlayer=mpegts.createPlayer({type:"flv",isLive:true,url:flv,cors:true,withCredentials:false},{enableStashBuffer:false,lazyLoad:false,liveSync:true});
-    flvPlayer.attachMediaElement(video);
-    flvPlayer.load();
-    flvPlayer.play().catch(()=>video.play().catch(()=>{}));
+
+  if(direct&&window.mpegts?.isSupported?.()){
+    const attach=url=>{
+      if(flvPlayer){try{flvPlayer.destroy()}catch{}}
+      flvPlayer=mpegts.createPlayer(
+        {type:"flv",isLive:true,url,cors:true,withCredentials:false},
+        {enableStashBuffer:false,lazyLoad:false,liveSync:true}
+      );
+      flvPlayer.attachMediaElement(video);
+      flvPlayer.on(mpegts.Events.ERROR,()=>{
+        if(url.includes("/tiktok/live-stream"))return;
+        attach(RENDER+"/tiktok/live-stream?user="+encodeURIComponent(handle));
+      });
+      flvPlayer.load();
+      flvPlayer.play().catch(()=>video.play().catch(()=>{}));
+    };
+    attach(direct);
     return;
   }
-  if(hls){video.src=hls;video.load();video.play().catch(()=>{});return}
-  statusEl.textContent="LIVE có trạng thái nhưng không có link phát sẵn.";
+
+  statusEl.textContent="LIVE chưa có link phát.";
 }
 function playVod(index){
   const item=videos[index];
@@ -180,23 +193,20 @@ async function inspect(raw){
   stop();
   liveBox.innerHTML='<div class="empty">Đang kiểm tra @'+esc(h)+'…</div>';
   vodsEl.innerHTML='<div class="empty">Đang lấy 5 video…</div>';
-  statusEl.textContent="Chỉ kiểm tra @"+h+"…";
+  statusEl.textContent="Đang lấy LIVE + 5 video của @"+h+"…";
   try{
-    const state=await json(EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),15000);
-    const [liveNow,videoData]=await Promise.all([
-      Number(state?.status)===2
-        ?json(EDGE+"/tiktok/live-now?t="+Date.now(),20000).catch(()=>({items:[]}))
-        :Promise.resolve({items:[]}),
-      json(RENDER+"/tiktok/channel-videos?refresh=0&user="+encodeURIComponent(h)+"&t="+Date.now(),20000)
-    ]);
-    liveItem=(Array.isArray(liveNow?.items)?liveNow.items:[]).find(x=>String(x?.handle||"").toLowerCase()===h.toLowerCase())||null;
-    videos=Array.isArray(videoData?.videos)?videoData.videos.slice(0,5):[];
-    renderLive(state);
+    const profile=await json(
+      RENDER+"/tiktok/profile?user="+encodeURIComponent(h)+"&limit=5&t="+Date.now(),
+      30000
+    );
+    liveItem=profile?.live||null;
+    videos=Array.isArray(profile?.videos)?profile.videos.slice(0,5):[];
+    renderLive({status:liveItem?2:4});
     renderVideos();
-    statusEl.textContent="@"+h+" · "+(Number(state?.status)===2?"đang LIVE":"không LIVE")+" · "+videos.length+" video";
+    statusEl.textContent="@"+h+" · "+(liveItem?"đang LIVE":"không LIVE")+" · "+videos.length+" video";
   }catch(e){
     statusEl.textContent="Lỗi kiểm tra: "+String(e?.message||e);
-    liveBox.innerHTML='<div class="empty">Không lấy được trạng thái LIVE.</div>';
+    liveBox.innerHTML='<div class="empty">Không lấy được LIVE.</div>';
     vodsEl.innerHTML='<div class="empty">Không lấy được video.</div>';
   }
 }
