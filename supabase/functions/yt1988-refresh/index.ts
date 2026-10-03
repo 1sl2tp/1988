@@ -18,8 +18,10 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v43";
+const LIVE_PIPELINE_VERSION="live-v44-package";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
+const YOUTUBE_LIVE_EDGE_NOW_URL="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev/youtube/live-now";
+const LIVE_EDGE_FRESH_MS=5*60*1000;
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -53,11 +55,11 @@ const LIVE_SEARCH_QUERIES=[
   "trực tiếp 24/7"
 ];
 const DEFAULT_SYSTEM_INTERVAL_MINUTES:any={
-  live:2,
-  latest:2,
-  week:5
+  live:1,
+  latest:5,
+  week:30
 };
-const DEFAULT_HASHTAG_INTERVAL_MINUTES=10;
+const DEFAULT_HASHTAG_INTERVAL_MINUTES=15;
 const cors={
   "access-control-allow-origin":"*",
   "access-control-allow-headers":"authorization, x-client-info, apikey, content-type",
@@ -2033,20 +2035,9 @@ Deno.serve(async(req:Request)=>{
   );
   let scopes=requested.size?[...requested]:(clientCheck?["latest"]:SCOPES.slice());
 
-  // YouTube LIVE fast discovery is owned exclusively by the demand-only
-  // Cloudflare worker. This legacy refresh function must never do LIVE work,
-  // even if an old scheduler, trigger, PWA or manual request still asks for it.
-  const requestedLive=scopes.includes("live");
-  scopes=scopes.filter((scope)=>scope!=="live");
-  if(!scopes.length&&requestedLive){
-    return json({
-      ok:true,
-      skipped:true,
-      reason:"live_owned_by_cloudflare",
-      owner:"1988-youtube-live-state"
-    });
-  }
-
+  // Every YouTube surface, including LIVE, is server-packaged. Cloudflare is
+  // only a discovery signal/source for LIVE; the browser never consumes that
+  // discovery snapshot as its feed.
   if(clientCheck){
     const configRes=await fetch(
       rest+"/yt1988_refresh_config?profile_key=eq."+encodeURIComponent(PROFILE)+
@@ -2334,14 +2325,116 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
-      // STEP 1 — selected-channel LIVE is checked on every fast refresh via
-      // /channel/<id>/live. Global discovery is separate and slower: trending
-      // plus keyword search runs at most once every 10 minutes.
       const allSelectedLiveSourceIds=new Set(
         selectedLiveSources.map((source:any)=>source.id).filter(Boolean)
       );
 
-      let discoveryDue=true;
+      // Cloudflare is discovery-only. If it has a fresh snapshot, package that
+      // snapshot here after applying the canonical selected/blocked/keyword
+      // rules. If the edge snapshot is missing/stale, fall back to the existing
+      // server-side verifier so LIVE can still rebuild.
+      let edgeLiveFresh=false;
+      try{
+        const edge=await fetchJson(YOUTUBE_LIVE_EDGE_NOW_URL,{},4500);
+        const checkedAt=Number(edge?.checkedAt)||0;
+        const edgeItems=Array.isArray(edge?.items)?edge.items:[];
+        edgeLiveFresh=
+          checkedAt>0&&
+          Date.now()-checkedAt>=0&&
+          Date.now()-checkedAt<=LIVE_EDGE_FRESH_MS;
+
+        if(edgeLiveFresh){
+          const edgeRows=(await mapLimit(edgeItems.slice(0,48),6,async(item:any)=>{
+            const id=videoId(item);
+            const sid=channelId(item);
+            if(!id||!sid||allBlockedLiveSourceIds.has(sid))return null;
+
+            const source=liveSourceById.get(sid)||{};
+            let sourceName=clean(
+              item?.sourceName||source?.name||"",
+              180
+            );
+            let sourceAvatar=clean(
+              item?.sourceAvatar||source?.thumbnailUrl||"",
+              1000
+            );
+            let title=cleanLiveTitle(item?.title||"");
+            let thumbnail=clean(
+              item?.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
+              1000
+            );
+            let views=Math.max(0,Number(item?.viewerCount)||0);
+
+            if(
+              !title||
+              normalizeLiveText(title)==="dang truc tiep"||
+              !sourceName||
+              !sourceAvatar
+            ){
+              const exact=await youtubeSearchVideoMetadata(
+                supabaseUrl,
+                serviceKey,
+                id
+              );
+              if(exact){
+                if(!title||normalizeLiveText(title)==="dang truc tiep"){
+                  title=cleanLiveTitle(exact?.title||"");
+                }
+                if(!sourceName)sourceName=clean(exact?.sourceName||"",180);
+                if(!sourceAvatar)sourceAvatar=clean(exact?.sourceThumbnailUrl||"",1000);
+                if(!thumbnail)thumbnail=clean(exact?.thumbnailUrl||"",1000);
+              }
+            }
+
+            const row:any={
+              id,
+              videoId:id,
+              url:"/watch?v="+id,
+              title:title||sourceName||"Đang trực tiếp",
+              _displayTitle:title||sourceName||"Đang trực tiếp",
+              channelId:sid,
+              uploaderId:sid,
+              _sourceId:sid,
+              sourceName,
+              uploaderName:sourceName,
+              uploader:sourceName,
+              _sourceName:sourceName,
+              sourceAvatar,
+              uploaderAvatar:sourceAvatar,
+              _sourceThumbnailUrl:sourceAvatar,
+              thumbnail,
+              thumbnailUrl:thumbnail,
+              isLive:true,
+              duration:-1,
+              uploaded:-1,
+              views,
+              viewerCount:views,
+              publishedText:"Đang trực tiếp",
+              _liveOrigin:allSelectedLiveSourceIds.has(sid)?"source":"search",
+              _liveCandidateOrigin:"cloudflare_snapshot",
+              _liveCacheCheckedAt:new Date(checkedAt).toISOString(),
+              _interestPriority:explicitLiveIds.has(sid)
+                ?2
+                :inheritedLiveIds.has(sid)
+                  ?1
+                  :0
+            };
+            if(liveKeywordBlocked(row,liveKeywords))return null;
+            return row;
+          })).filter(Boolean);
+
+          verifiedLiveRowsCache=dedupeRows(edgeRows).sort((a:any,b:any)=>
+            (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
+          );
+        }
+      }catch(error){
+        console.warn("cloud live snapshot unavailable",String(error));
+      }
+
+      if(!edgeLiveFresh){
+        // Fallback path: selected-channel LIVE is checked directly and global
+        // discovery runs on the older bounded server pipeline.
+        let discoveryDue=true;
       try{
         const stateRes=await fetch(
           rest+"/yt1988_discovery_state?profile_key=eq."+encodeURIComponent(PROFILE)+
@@ -2502,6 +2595,7 @@ Deno.serve(async(req:Request)=>{
       ]).sort((a:any,b:any)=>
         (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
       );
+      }
     }
 
     const nonLiveScopes=scopes.filter((scope)=>scope!=="live");
@@ -3316,7 +3410,12 @@ Deno.serve(async(req:Request)=>{
 
       const sig=sourceSignature(rows,scope);
       const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;
-      const identityHash=snapshotRowsIdentityHash(raw,sig);
+      // LIVE packages intentionally include current viewer counts in their
+      // identity so a fresh package can update "đang xem" without the browser
+      // doing any direct metadata lookup.
+      const identityHash=meta.kind==="live"
+        ?snapshotRowsHash(raw,sig)
+        :snapshotRowsIdentityHash(raw,sig);
       const inputHash=fastHash(identityHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
         results.push({scope,changed:false,checked:true,reason:"same_input"});
