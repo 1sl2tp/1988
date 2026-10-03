@@ -211,3 +211,17 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Known residual: Render Static Site thử nghiệm `1988-site` vẫn đang auto-deploy theo main nhưng **không phải production**. Connector Render hiện không có thao tác đổi autoDeploy/xóa service; cần tắt/xóa ở dashboard để bỏ build thừa.
 - Rollback frontend: `14bf92577768f311cf2b55331668de8511ac73ca`.
 
+## 2026-10-03 — Chốt Pages deploy owner và khôi phục workflow sau thử nghiệm 403
+
+- Commit thử đổi Pages source bằng Actions token: `bb2f8c5d93dc45f2b2b5d26336a0ce5a159d44fe`.
+- Kết quả: frontend contract tests PASS nhưng bước đổi Pages source bằng REST API bị `403`; deploy custom bị dừng trước artifact/deploy.
+- Production cũ vẫn phục vụ bình thường; GitHub native Pages run của cùng commit vẫn SUCCESS.
+- Commit khôi phục workflow: `71b020a4f54f6e36325849e47bb535d0d341843b`.
+- Deploy 1988 Player run `37115107607`: SUCCESS.
+- Quy tắc mới:
+  - không dùng workflow token để cố đổi Pages source;
+  - nếu docs-only vẫn sinh `pages build and deployment` event=`dynamic`, đổi bằng UI: Settings → Pages → Build and deployment → Source = GitHub Actions;
+  - custom Pages workflow đã `cancel-in-progress: true`;
+  - Cloudflare static frontend là manual-only;
+  - Render Static Site `1988-site` vẫn là standby không production và còn autoDeploy, cần tắt/xóa ở Render dashboard để hết build thừa.
+

@@ -50,7 +50,8 @@ Người sửa/AI phải **gợi ý cách nhanh và an toàn hơn** nếu yêu c
 - Không tạo chuỗi commit nhỏ trên `main` chỉ để thử từng ý; việc đó kích nhiều deploy và làm chậm.
 - Frontend: chỉ commit cuối cần deploy Pages; run cũ được phép cancel khi commit mới hơn xuất hiện.
 - Backend/Supabase/Worker: chỉ deploy runtime bị ảnh hưởng; không rebuild frontend nếu không đổi frontend.
-- Commit tài liệu/nhật ký sau verify phải là **docs-only và không kích production deploy**.
+- Commit tài liệu/nhật ký sau verify phải là **docs-only và không kích workflow production riêng**.
+- Nếu GitHub vẫn tạo run **`pages build and deployment` event=`dynamic`** cho commit Markdown, repo đang còn Pages native/branch mode song song. Phải vào **Settings → Pages → Build and deployment → Source = GitHub Actions**. Không cố ép bằng `GITHUB_TOKEN`; quyền `pages:write` hiện trả 403 cho thao tác đổi source.
 - Không kích Cloudflare static-site/Render static-site standby trong repair bình thường.
 
 ### 0.6. Trạng thái bắt buộc

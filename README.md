@@ -44,5 +44,6 @@ UI không tự ghép identity riêng ở từng màn hình.
 5. Chỉ deploy runtime bị ảnh hưởng.
 6. Probe production nhỏ nhất.
 7. Sau khi ổn mới cập nhật nhật ký/tài liệu bằng docs-only commit.
+8. GitHub Pages production phải dùng **Source = GitHub Actions**; nếu thấy run `pages build and deployment` event=`dynamic` cho Markdown thì còn branch/native deploy song song.
 
 Chi tiết xem `README_MAINTENANCE.md`.
