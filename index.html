@@ -3870,10 +3870,72 @@ html.tiktok-ui.tiktok-watch .rows{
   const aspectPrimePending=new Map();
   const aspectCorrectionSent=new Map();
   const sourceIdentityCache=new Map();
+  const channelLibraryByKey=new Map();
+  let channelLibraryVersion=0;
   const channelDirectoryPending=new Map();
   const channelDirectorySentSig=new Map();
   let channelDirectoryFlushTimer=0;
   let channelDirectoryFlushPromise=null;
+
+  function channelLibraryKey(platform="",id=""){
+    platform=String(platform||"").trim().toLowerCase();
+    id=String(id||"").trim().replace(/^@/,"");
+    if(!platform||!id)return "";
+    return platform+":"+(
+      platform==="tiktok"
+        ?id.toLowerCase()
+        :id
+    );
+  }
+
+  function channelLibraryEntry(platform="",id=""){
+    return channelLibraryByKey.get(channelLibraryKey(platform,id))||null;
+  }
+
+  function primeUnifiedChannelLibrary(remote={}){
+    channelLibraryByKey.clear();
+    channelLibraryVersion=Math.max(0,Number(remote?.channelLibraryVersion)||0);
+    const rows=Array.isArray(remote?.channelLibrary)?remote.channelLibrary:[];
+    for(const raw of rows){
+      const platform=String(raw?.platform||"").trim().toLowerCase();
+      const id=String(
+        platform==="tiktok"
+          ?(raw?.handle||raw?.id||"")
+          :(raw?.id||"")
+      ).trim().replace(/^@/,"");
+      const key=channelLibraryKey(platform,id);
+      if(!key)continue;
+      const avatar=String(
+        raw?.avatar?.url||
+        raw?.avatar?.storedUrl||
+        raw?.avatar?.sourceUrl||
+        ""
+      ).trim();
+      const row={
+        ...raw,
+        platform,
+        avatar:{
+          ...(raw?.avatar&&typeof raw.avatar==="object"?raw.avatar:{}),
+          url:avatar
+        }
+      };
+      channelLibraryByKey.set(key,row);
+
+      if(platform==="youtube"&&/^UC[A-Za-z0-9_-]+$/.test(id)){
+        const known=sourceIdentityCache.get(id)||{};
+        sourceIdentityCache.set(id,{
+          ...known,
+          sourceName:String(row?.name||known?.sourceName||"").trim(),
+          sourceAvatar:avatar||String(known?.sourceAvatar||"").trim(),
+          sourceVerified:row?.verified===true,
+          sourceStats:row?.stats&&typeof row.stats==="object"?row.stats:{},
+          sourceHandle:String(row?.handle||"").trim(),
+          sourceProfileUrl:String(row?.profileUrl||"").trim()
+        });
+      }
+    }
+    return channelLibraryByKey.size;
+  }
 
   function channelDirectorySignature(row={}){
     return [
@@ -5214,6 +5276,29 @@ html.tiktok-ui.tiktok-watch .rows{
       _aspectSource:String(row?.aspectSource||row?._aspectSource||"")
     };
 
+    const canonicalSource=channelLibraryEntry("youtube",normalized?.sourceId);
+    if(canonicalSource){
+      const canonicalAvatar=String(
+        canonicalSource?.avatar?.url||
+        canonicalSource?.avatar?.storedUrl||
+        canonicalSource?.avatar?.sourceUrl||
+        ""
+      ).trim();
+      if(canonicalSource?.name)normalized.sourceName=String(canonicalSource.name).trim();
+      if(canonicalAvatar)normalized.sourceAvatar=canonicalAvatar;
+      if(canonicalSource?.verified===true)normalized.verified=true;
+      normalized.sourceVerified=canonicalSource?.verified===true;
+      normalized.sourceStats=
+        canonicalSource?.stats&&typeof canonicalSource.stats==="object"
+          ?canonicalSource.stats
+          :{};
+      normalized.sourceSubscribers=
+        canonicalSource?.stats?.subscriberText||
+        canonicalSource?.stats?.subscribers||
+        normalized?.sourceSubscribers||
+        "";
+    }
+
     queueYoutubeChannelDirectory(normalized,"video-metadata");
     return normalized;
   }
@@ -5297,9 +5382,24 @@ html.tiktok-ui.tiktok-watch .rows{
     sourceId=String(sourceId||"").trim();
     if(!sourceId)return {};
 
+    const canonical=channelLibraryEntry("youtube",sourceId);
     const cached=sourceIdentityCache.get(sourceId)||{};
-    let sourceName=String(cached.sourceName||"").trim();
-    let sourceAvatar=String(cached.sourceAvatar||"").trim();
+    let sourceName=String(canonical?.name||cached.sourceName||"").trim();
+    let sourceAvatar=String(
+      canonical?.avatar?.url||
+      canonical?.avatar?.storedUrl||
+      canonical?.avatar?.sourceUrl||
+      cached.sourceAvatar||
+      ""
+    ).trim();
+    let sourceVerified=canonical?.verified===true||cached?.sourceVerified===true;
+    let sourceStats=canonical?.stats&&typeof canonical.stats==="object"
+      ?canonical.stats
+      :(cached?.sourceStats||{});
+    let sourceHandle=String(canonical?.handle||cached?.sourceHandle||"").trim();
+    let sourceProfileUrl=String(
+      canonical?.profileUrl||cached?.sourceProfileUrl||""
+    ).trim();
 
     // Source-state is the canonical channel directory and already carries
     // thumbnail URLs for selected/suggested channels. Use it before falling
@@ -5327,8 +5427,20 @@ html.tiktok-ui.tiktok-watch .rows{
       if(sourceName&&sourceAvatar)break;
     }
 
-    const identity={sourceName,sourceAvatar};
-    if(sourceAvatar||sourceName)sourceIdentityCache.set(sourceId,identity);
+    const identity={
+      sourceName,
+      sourceAvatar,
+      sourceVerified,
+      sourceStats,
+      sourceHandle,
+      sourceProfileUrl
+    };
+    if(sourceAvatar||sourceName){
+      sourceIdentityCache.set(sourceId,{
+        ...(sourceIdentityCache.get(sourceId)||{}),
+        ...identity
+      });
+    }
     return identity;
   }
 
@@ -8558,22 +8670,66 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function tiktokProfileIdentity(handle=""){
+    handle=String(handle||"").trim().replace(/^@/,"");
+    const canonical=channelLibraryEntry("tiktok",handle);
     const channel=tiktokLibraryChannelForHandle(handle);
     const live=tiktokLiveForHandle(handle);
-    const profile=channel?.profile&&typeof channel.profile==="object"?channel.profile:{};
+    const packageProfile=channel?.profile&&typeof channel.profile==="object"?channel.profile:{};
+    const canonicalStats=
+      canonical?.stats&&typeof canonical.stats==="object"
+        ?canonical.stats
+        :{};
     const avatar=String(
-      profile?.avatar?.url||
-      profile?.avatar?.sourceUrl||
-      profile?.avatar?.storedUrl||
+      canonical?.avatar?.url||
+      canonical?.avatar?.storedUrl||
+      canonical?.avatar?.sourceUrl||
+      packageProfile?.avatar?.url||
+      packageProfile?.avatar?.sourceUrl||
+      packageProfile?.avatar?.storedUrl||
       live?.sourceAvatar||
       ""
     ).trim();
     const name=String(
-      profile?.name||
+      canonical?.name||
+      packageProfile?.name||
       live?.sourceName||
-      ("@"+String(handle||"").replace(/^@/,""))
+      ("@"+handle)
     ).trim();
-    return {channel,live,profile,avatar,name};
+    const profile={
+      ...packageProfile,
+      name,
+      avatar:{
+        ...(packageProfile?.avatar&&typeof packageProfile.avatar==="object"
+          ?packageProfile.avatar
+          :{}),
+        url:avatar
+      },
+      followers:
+        canonicalStats?.followers??
+        packageProfile?.followers??
+        0,
+      likes:
+        canonicalStats?.likes??
+        packageProfile?.likes??
+        0,
+      videoCount:
+        canonicalStats?.videos??
+        packageProfile?.videoCount??
+        0,
+      verified:
+        canonical?.verified===true||
+        packageProfile?.verified===true
+    };
+    return {
+      channel,
+      live,
+      profile,
+      avatar,
+      name,
+      canonical,
+      stats:canonicalStats,
+      verified:profile.verified===true
+    };
   }
 
   function tiktokAccountButtonMarkup(handle="",liveMeta=null){
@@ -9119,6 +9275,7 @@ html.tiktok-ui.tiktok-watch .rows{
         const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
         sourceStateRemote=remote;
         sourceIdentityCache.clear();
+        primeUnifiedChannelLibrary(remote);
         primeChannelDirectoryFromState(remote);
 
         // The feed may have painted from IndexedDB before source-state arrived.
