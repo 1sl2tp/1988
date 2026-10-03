@@ -6,6 +6,7 @@ const path=require('node:path');
 
 const worker=fs.readFileSync(path.join(__dirname,'worker.js'),'utf8');
 
+// Resolver cache version must invalidate stale provider URLs.
 assert.match(worker,/const TIKTOK_VOD_SOURCE_VERSION = "avc5"/);
 assert.match(worker,/const VOD_RESOLVE_TIMEOUT_MS = 2200/);
 assert.match(worker,/const VOD_MEDIA_OPEN_TIMEOUT_MS = 1800/);
