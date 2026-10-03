@@ -729,3 +729,22 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Không thêm API/polling/storage/banner data.
 - Verify: run `37144284111` SUCCESS, contracts/build/deploy/custom-domain PASS.
 - Rollback: `d02ed181d0e244b676b923ebf3cf2959acaa77a3`.
+
+
+## 2026-10-04 — TikTok Watch navigation + exact ratio + mobile smart entry
+
+- Base: `2ff42dce666e0110cc2169da7bd8e5f34d99e1c7`.
+- Yêu cầu:
+  - học TikTok web: ↑↓ + wheel/swipe đổi video;
+  - giữ ratio thật, không zoom/crop sai;
+  - LIVE hiển thị đúng;
+  - mobile hẹp vào LIVE hoặc latest video ngay.
+- Fix:
+  - `dcef5e9190fd021b3432df11f96421cd8f9b9e23`: exact ratio, contain preview, smart sequence, navigation, mobile entry, bỏ LIVE→VOD-cover fallback.
+  - `07fbf33f156cd8294f9ad3645dc263349f97e9d0`: profile grid giữ 9:16, PWA v88.
+- Sequence: mỗi kênh một item; LIVE playable thay newest VOD của cùng kênh; sau LIVE là newest VOD các kênh còn lại.
+- Navigation: ↑↓ button, mouse wheel, ArrowUp/ArrowDown, vertical swipe.
+- LIVE imagery: chỉ actual LIVE cover/preview hoặc avatar.
+- Verify: run `37144911223` SUCCESS; contracts/build/deploy/custom-domain PASS.
+- Không đổi Supabase/Cloudflare/Render API, không thêm polling/cron.
+- Rollback: `2ff42dce666e0110cc2169da7bd8e5f34d99e1c7`.
