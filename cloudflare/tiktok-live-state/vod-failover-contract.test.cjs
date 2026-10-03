@@ -37,5 +37,13 @@ assert.match(relay,/continue;/);
 assert.match(worker,/VOD_MEDIA_OPEN_TIMEOUT_MS,"media_open"/);
 assert.match(worker,/VOD_RESOLVE_TIMEOUT_MS,"tdown_resolve"/);
 assert.match(worker,/VOD_PROBE_TIMEOUT_MS,source\.name\+"_probe"/);
+assert.match(worker,/const VOD_EXPLICIT_EXTRA_SOURCES=\["tiklydown","douyinwtf"\]/);
+assert.match(worker,/VOD_EXPLICIT_EXTRA_SOURCES\.includes\(requested\)/);
+const tikwmStart=worker.indexOf("async function resolveTikwmVideoSource");
+const tikwmEnd=worker.indexOf("async function redirectTikTokVideoDirect",tikwmStart);
+assert.ok(tikwmStart>=0&&tikwmEnd>tikwmStart);
+const tikwm=worker.slice(tikwmStart,tikwmEnd);
+assert.match(tikwm,/body\.hdplay \|\| body\.play \|\| ""/);
+assert.doesNotMatch(tikwm,/wmplay/);
 
 console.log('tiktok VOD failover contract ok');

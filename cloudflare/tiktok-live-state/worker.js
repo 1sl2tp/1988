@@ -1276,7 +1276,7 @@ async function resolveTikwmVideoSource(handle, id, { refresh = false } = {}) {
 
   const data = await r.json();
   const body = data?.data || {};
-  let mediaUrl = String(body.play || body.wmplay || body.hdplay || "").trim();
+  let mediaUrl = String(body.hdplay || body.play || "").trim();
   if (!mediaUrl) throw new Error("tikwm_no_media_url");
   if (mediaUrl.startsWith("//")) mediaUrl = "https:" + mediaUrl;
   else if (mediaUrl.startsWith("/")) mediaUrl = "https://www.tikwm.com" + mediaUrl;
@@ -1799,6 +1799,7 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
 }
 
 const VOD_RESOLVER_POOL=["tikwm","tdown","musicaldown","tikdown","ttdownloader"];
+const VOD_EXPLICIT_EXTRA_SOURCES=["tiklydown","douyinwtf"];
 function vodSourceOrder(preferred = "",id="") {
   if(preferred==="native")return ["native",...VOD_RESOLVER_POOL];
   if(preferred==="direct")return ["direct",...VOD_RESOLVER_POOL];
@@ -2119,7 +2120,8 @@ async function relayTikTokVideo(request) {
     const allowed=
       requested==="native"||
       requested==="direct"||
-      VOD_RESOLVER_POOL.includes(requested);
+      VOD_RESOLVER_POOL.includes(requested)||
+      VOD_EXPLICIT_EXTRA_SOURCES.includes(requested);
     if(!allowed)return json({ok:false,error:"invalid_vod_source",source:requested},400);
     // Explicit means strict: the browser already chose this provider for this
     // attempt. Never hide a multi-provider resolver loop behind one video.src.
