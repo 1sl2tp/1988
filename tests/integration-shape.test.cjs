@@ -146,6 +146,8 @@ if(simpleProduction){
   assert.match(html,/FOCUSED VIEWER v1/);
   assert.match(html,/root\.classList\.toggle\(["']viewer-active["'],viewerActive\)/);
   assert.match(html,/html\.viewer-active\.one-col \.media-col[\s\S]{0,360}position:relative!important/);
+  assert.match(html,/html\.viewer-active\.one-col main[\s\S]{0,320}padding:var\(--top-boundary\) 0 0!important/);
+  assert.match(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,360}border-radius:var\(--floating-radius\) var\(--floating-radius\) 0 0!important/);
   assert.match(html,/html\.viewer-active\.one-col \.rows[\s\S]{0,180}grid-template-columns:minmax\(0,1fr\)!important/);
   assert.match(html,/Desktop watch uses the right side as a queue/);
   assert.match(html,/scrolling must never create a floating player/);
