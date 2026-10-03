@@ -1,3 +1,10 @@
+## 2026-10-04 — Demo VOD chỉ giữ TikWM HD + BHWA
+
+- Dừng thử TDown/TTDownloader và các nguồn VOD khác.
+- Chỉ giữ TikWM HD và BHWA, đều gọi thẳng provider gốc từ browser.
+- Demo hiển thị link gốc TikWM và BHWA API.
+- Commit `49f8949d59cba90a028eb28fbe6319204f4e8edf`.
+
 ## 2026-10-04 — Khôi phục TDown direct browser
 
 - Đối chiếu commit `9cbd4771` xác nhận TDown từng chạy trực tiếp từ browser qua `https://tdownv4.sl-bjs.workers.dev/?down=...`.

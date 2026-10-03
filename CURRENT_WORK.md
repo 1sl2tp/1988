@@ -86,6 +86,21 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.29. TikTok VOD demo — chỉ giữ 2 nguồn gốc TikWM HD + BHWA
+
+Thời gian: **2026-10-04**.
+
+- Theo yêu cầu người dùng, dừng dò TDown/TTDownloader và các nguồn thử nghiệm khác.
+- Demo VOD chỉ còn 2 source button:
+  - `tikwm_hd` → gọi thẳng `https://www.tikwm.com/api/?url=...`, ưu tiên `hdplay` rồi `play`;
+  - `bhwa_get` → gọi thẳng `https://downloader-api.bhwa233.com/api/parse?url=...`.
+- Hiển thị luôn link gốc provider trong demo:
+  - `https://www.tikwm.com/`
+  - `https://downloader-api.bhwa233.com/`
+- Hai nguồn này lấy direct URL ở browser; không qua VOD Worker 1988.
+- TikTok LIVE không đổi.
+- Commit: `49f8949d59cba90a028eb28fbe6319204f4e8edf`.
+
 ### 3.28. TikTok VOD demo — khôi phục TDown direct browser như mốc 9cbd4771
 
 Thời gian: **2026-10-04**.
