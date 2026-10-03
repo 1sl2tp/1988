@@ -1,3 +1,12 @@
+## 2026-10-04 — TikTok demo no Render, LIVE + latest 5 song song
+
+- Bỏ Render khỏi luồng demo.
+- LIVE vẫn Cloudflare/TikTok API như rule cũ.
+- 5 video gần nhất lấy từ TikWM user/posts.
+- Mỗi video phát được bằng TikWM HD hoặc BHWA; Auto TikWM → BHWA.
+- Commit `7f3413c2a7a681e42a99de379cbfc82fdc7d4b61`.
+- Player `37158477985` SUCCESS; Pages `37158477564` SUCCESS.
+
 ## 2026-10-04 — Demo VOD chỉ giữ TikWM HD + BHWA
 
 - Dừng thử TDown/TTDownloader và các nguồn VOD khác.

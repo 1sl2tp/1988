@@ -86,6 +86,23 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.30. TikTok demo — no Render, LIVE song song + 5 video TikWM, phát TikWM/BHWA
+
+Thời gian: **2026-10-04**.
+
+- Không dùng Render cho màn demo này.
+- LIVE/tìm LIVE giữ đúng luồng đã chốt: Cloudflare `/refresh` → TikTok `api-live/user/room`.
+- 5 video gần nhất lấy nhanh từ TikWM `/api/user/posts?unique_id=...&count=5`.
+- LIVE và danh sách 5 video chạy song song, không chờ nhau.
+- Mỗi video trong danh sách phát bằng cả hai nguồn:
+  - TikWM HD;
+  - BHWA.
+- Auto: TikWM trước, lỗi get-link/media thì chuyển BHWA.
+- BHWA public parse hiện dùng theo từng media URL, không dùng để quét danh sách kênh.
+- Commit runtime: `7f3413c2a7a681e42a99de379cbfc82fdc7d4b61`.
+- Deploy 1988 Player run `37158477985`: SUCCESS.
+- Pages build/deploy run `37158477564`: SUCCESS.
+
 ### 3.29. TikTok VOD demo — chỉ giữ 2 nguồn gốc TikWM HD + BHWA
 
 Thời gian: **2026-10-04**.
