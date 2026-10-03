@@ -112,11 +112,17 @@ Production migrations:
 - `20261003172108 normalize_youtube_channel_identity`.
 - `20261003172252 normalize_tiktok_channel_identity`.
 - `20261003172431 harden_normalized_identity_access`.
+- `20261003173243 strip_youtube_channel_cache_identity_json`.
 
 Sau sửa:
 - YouTube `yt1988_channel_directory(profile_key,channel_id)` = identity canonical.
 - `yt1988_source_state` chỉ còn membership/status; không name/avatar/subscribers.
 - `yt1988_channel_cache` không còn source_name/thumbnail_url.
+- phát hiện lớp legacy ẩn trong `yt1988_channel_cache.items`: 3,965 cached video items vẫn từng mang `_sourceName/_sourceThumbnailUrl/uploader*`.
+- commit `d766cfbeda9c6d960f68950da0b18d302bb4d314` khóa writer: trước khi ghi cache JSON, strip toàn bộ channel profile/name/avatar nhưng giữ `channelId/_sourceId`.
+- `yt1988-refresh v30` ACTIVE; migration `20261003173243` đã strip dữ liệu cũ.
+- verify sau strip: cache items 3,965; channel identity/profile keys = 0; `channelId` = 3,965, `_sourceId` = 3,964; package 820 items vẫn giữ source name/avatar snapshot để render.
+- tổng `pg_column_size(items)` của channel-cache sau strip khoảng 791 KB.
 - source-state + channel-cache có FK về channel-directory; orphan = 0.
 - legacy `user_state.avatars/customSources` = 0; user-state payload còn khoảng 23.7 KB.
 - TikTok `yt1988_tiktok_channels.id UUID` = PK stable; `handle` unique alias; `user_id/sec_uid` unique external IDs.
@@ -129,6 +135,7 @@ Sau sửa:
 Package exception:
 - YouTube/TikTok prepared package vẫn được phép chứa name/avatar/profile snapshot để UI render nhanh.
 - Package chỉ là read snapshot; **không được ghi ngược làm canonical identity**.
+- Channel-cache JSON **không phải package**: cache chỉ giữ video state + stable channel IDs, không giữ channel profile snapshot.
 
 Security/performance follow-up:
 - thêm covering index `yt1988_source_state(profile_key,channel_id)`.

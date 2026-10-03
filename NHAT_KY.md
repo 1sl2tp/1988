@@ -573,6 +573,7 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - `20261003172108 normalize_youtube_channel_identity`;
   - `20261003172252 normalize_tiktok_channel_identity`;
   - `20261003172431 harden_normalized_identity_access`.
+  - `20261003173243 strip_youtube_channel_cache_identity_json`.
 - YouTube:
   - source_state/cache identity mirrors removed;
   - 7 cache-only IDs backfilled into directory before FK;
@@ -592,6 +593,10 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - video-channel rows 173, null channel_id 0;
   - videos 1,766, null channel_id 0;
   - compatibility upsert test PASS + ROLLBACK.
+- Follow-up audit phát hiện identity còn ẩn trong `yt1988_channel_cache.items` JSON dù cột top-level đã sạch.
+- Commit `d766cfbeda9c6d960f68950da0b18d302bb4d314`: writer strip channel name/avatar/profile ở cache boundary; `yt1988-refresh v30` ACTIVE.
+- Sau migration: 3,965 cache items có 0 identity/profile keys; vẫn giữ 3,965 `channelId` và 3,964 `_sourceId`; package 820 items vẫn có identity snapshot đúng thiết kế.
+- Cache items payload hiện khoảng 791 KB; package snapshot không bị strip.
 - Package name/avatar snapshots intentionally retained as read products; never canonical.
 - Advisor: new FK index issue fixed; source-state RPCs changed to SECURITY INVOKER + service_role-only EXECUTE.
 - Rollback: code `219c16b5` is schema-compatible target. Destructive column cleanup should be reversed only via explicit restore migration, not by reverting frontend code alone.

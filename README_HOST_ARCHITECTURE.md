@@ -43,6 +43,7 @@ Do not force TikTok membership into `yt1988_source_state` just to make the schem
 Identity invariants:
 - `yt1988_source_state` contains only `profile_key + scope + channel_id + status + version + updated_at`.
 - `yt1988_channel_cache` caches video/feed state by `channel_id`; it does not own channel name/avatar.
+  - the same rule applies inside `items[]`: keep stable channel IDs and video metadata, strip channel name/avatar/profile fields before cache persistence.
 - legacy `yt1988_user_state.avatars/customSources` must remain empty.
 - TikTok `yt1988_tiktok_live_channels`, `yt1988_tiktok_video_channels`, and `yt1988_tiktok_videos` carry `channel_id → yt1988_tiktok_channels.id` FKs.
 
