@@ -31,6 +31,6 @@ const liveNowStart=worker.indexOf("async function liveNow(env)");
 const liveNowEnd=worker.indexOf("function normalizeVideoId",liveNowStart);
 const liveNowBlock=worker.slice(liveNowStart,liveNowEnd);
 assert.doesNotMatch(liveNowBlock,/resolveTikTokLiveEdge/);
-assert.match(liveNowBlock,/snapshot\.channels/);
-assert.match(worker,/streamUrl: String\(row\?\.streamUrl \|\| ""\)/);
+assert.match(liveNowBlock,/RENDER_API \+ "\/tiktok\/live-now/);
+assert.match(liveNowBlock,/byHandle\.get\(handle\)/);
 console.log('tiktok demand-only contract ok');

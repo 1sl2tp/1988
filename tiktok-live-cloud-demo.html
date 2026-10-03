@@ -87,7 +87,7 @@ async function refresh(){
   document.getElementById("refresh").disabled=true;
   statusEl.textContent="Cloud đang kiểm tra LIVE…";
   try{
-    // Existing snapshot paints first; one bounded sweep then updates it.
+    // Cloud only checks LIVE/OFFLINE; /live-now returns the already-saved media link.
     await readLive().catch(()=>{});
     const r=await fetch(EDGE+"/sweep?t="+Date.now(),{cache:"no-store"});
     if(!r.ok)throw new Error("sweep "+r.status);
@@ -100,15 +100,6 @@ async function refresh(){
     busy=false;
     document.getElementById("refresh").disabled=false;
   }
-}
-async function ensurePlayable(item){
-  if(item.streamUrl||item.hlsUrl)return item;
-  const h=String(item.handle||"");
-  if(!h)return item;
-  const r=await fetch(EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),{cache:"no-store"});
-  if(r.ok)await r.json().catch(()=>null);
-  await readLive();
-  return items.find(x=>String(x.handle||"")===h)||item;
 }
 function playHls(url,item){
   stop();
@@ -137,7 +128,6 @@ async function openItem(index){
   render();
   titleEl.textContent=(item.sourceName||("@"+current))+" · LIVE";
   statusEl.textContent="Đang mở…";
-  item=await ensurePlayable(item);
   const flv=String(item.streamUrl||"");
   const hls=String(item.hlsUrl||"");
   const nativeHls=Boolean(video.canPlayType("application/vnd.apple.mpegurl")||video.canPlayType("application/x-mpegURL"));
@@ -145,7 +135,7 @@ async function openItem(index){
   if(flv){playFlv(flv,item);return}
   if(hls){playHls(hls,item);return}
   stop();
-  statusEl.textContent="Kênh đang LIVE nhưng lần check này chưa trả link phát.";
+  statusEl.textContent="Kênh đang LIVE nhưng thư viện chưa có link sẵn.";
 }
 listEl.addEventListener("click",e=>{
   const card=e.target.closest(".card[data-i]");

@@ -62,13 +62,7 @@ function normalizeHandle(value) {
 }
 function canonicalMaterial(snapshot) {
   const rows = Object.entries(snapshot?.channels || {})
-    .map(([handle, row]) => [
-      handle,
-      Number(row?.status || 0),
-      String(row?.roomId || ""),
-      Number(row?.status)===2?String(row?.streamUrl||""):"",
-      Number(row?.status)===2?String(row?.hlsUrl||""):""
-    ])
+    .map(([handle, row]) => [handle, Number(row?.status || 0), String(row?.roomId || "")])
     .sort((a, b) => a[0].localeCompare(b[0]));
   return JSON.stringify(rows);
 }
@@ -279,38 +273,7 @@ async function checkTikTok(handle) {
     const room = data?.data?.liveRoom || null;
     const status = Number(room?.status);
     const roomId = String(room?.id || room?.roomId || room?.room_id || "");
-
-    if (status === 2) {
-      const media=collectLiveMedia(room);
-      const flv=[...(media.flv||[])].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
-      const hls=[...(media.hls||[])].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
-      const sourceName=
-        liveSourceName(room,handle)||
-        liveSourceName(data?.data?.user||{},handle)||
-        ("@"+handle);
-      const preview=liveCoverFromRoom(room);
-      const avatar=
-        liveAvatarFromRoom(room)||
-        liveAvatarFromRoom(data?.data?.user||{});
-      const viewerCount=
-        liveViewerCountFromRoom(room)||
-        liveViewerCountFromRoom(data?.data?.liveRoomStats||{})||
-        liveViewerCountFromRoom(data?.data?.live_room_stats||{})||
-        0;
-      return {
-        known:true,
-        status:2,
-        roomId,
-        source:"tiktok-user-room",
-        streamUrl:String(flv[0]||""),
-        hlsUrl:String(hls[0]||""),
-        title:liveTitleFromRoom(room,handle,sourceName)||"Đang trực tiếp",
-        sourceName,
-        preview,
-        avatar,
-        viewerCount
-      };
-    }
+    if (status === 2) return { known: true, status: 2, roomId, source: "tiktok-user-room" };
     if (status === 4) return { known: true, status: 4, roomId, source: "tiktok-user-room" };
     if (!room && !roomId) {
       const code = Number(data?.statusCode);
@@ -321,7 +284,7 @@ async function checkTikTok(handle) {
       return { known: true, status: 4, roomId: "", source: "tiktok-user-room-empty" };
     }
     return { known: false, status: Number.isFinite(status) ? status : null, roomId, source: "no-status" };
-  } catch (error) {
+  } catch {
     return { known: false, status: null, roomId: "", source: "fetch-error" };
   }
 }
@@ -353,14 +316,7 @@ async function sweep(env) {
       status: Number(row?.status || 0) || 0,
       roomId: String(row?.roomId || ""),
       changedAt: Number(row?.changedAt || 0),
-      source: String(row?.source || ""),
-      streamUrl: String(row?.streamUrl || ""),
-      hlsUrl: String(row?.hlsUrl || ""),
-      title: String(row?.title || ""),
-      sourceName: String(row?.sourceName || ""),
-      preview: String(row?.preview || ""),
-      avatar: String(row?.avatar || ""),
-      viewerCount: Math.max(0,Number(row?.viewerCount)||0)
+      source: String(row?.source || "")
     };
   }
 
@@ -391,25 +347,12 @@ async function sweep(env) {
       if (state.status === 2) live += 1;
       else offline += 1;
       const prev = nextChannels[key] || {};
-      const streamUrl=state.status===2?String(state.streamUrl||prev.streamUrl||""):"";
-      const hlsUrl=state.status===2?String(state.hlsUrl||prev.hlsUrl||""):"";
-      const changed =
-        Number(prev.status || 0) !== state.status ||
-        String(prev.roomId || "") !== String(state.roomId || "") ||
-        String(prev.streamUrl || "") !== streamUrl ||
-        String(prev.hlsUrl || "") !== hlsUrl;
+      const changed = Number(prev.status || 0) !== state.status || String(prev.roomId || "") !== String(state.roomId || "");
       nextChannels[key] = {
         status: state.status,
         roomId: String(state.roomId || ""),
         changedAt: changed ? now : Number(prev.changedAt || 0),
-        source: String(state.source || "tiktok-user-room"),
-        streamUrl,
-        hlsUrl,
-        title: state.status===2?String(state.title||prev.title||""):"",
-        sourceName: state.status===2?String(state.sourceName||prev.sourceName||""):"",
-        preview: state.status===2?String(state.preview||prev.preview||""):"",
-        avatar: state.status===2?String(state.avatar||prev.avatar||""):"",
-        viewerCount: state.status===2?Math.max(0,Number(state.viewerCount)||Number(prev.viewerCount)||0):0
+        source: String(state.source || "tiktok-user-room")
       };
     } else {
       unknown += 1;
@@ -892,46 +835,63 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
   };
 }
 async function liveNow(env) {
-  const snapshot=await loadSnapshot(env);
-  const items=Object.entries(snapshot.channels||{})
-    .filter(([,row])=>Number(row?.status)===2)
-    .map(([handle,row])=>{
-      const streamUrl=String(row?.streamUrl||"");
-      const hlsUrl=String(row?.hlsUrl||"");
-      const preview=String(row?.preview||"");
-      return {
-        handle,
-        live:true,
-        detectedLive:true,
-        edgeConfirmed:true,
-        playable:Boolean(streamUrl||hlsUrl),
-        roomId:String(row?.roomId||""),
-        title:String(row?.title||"")||"Đang trực tiếp",
-        sourceName:String(row?.sourceName||"")||("@"+handle),
-        thumbnail:preview,
-        preview,
-        avatar:String(row?.avatar||""),
-        viewerCount:Math.max(0,Number(row?.viewerCount)||0),
-        type:streamUrl?"flv":(hlsUrl?"hls":""),
-        streamUrl,
-        hlsUrl,
-        sourceSig:"tiktok-user-room:"+String(row?.roomId||handle),
-        source:"tiktok-user-room",
-        status:"live",
-        probeState:"live",
-        lastSeenAt:Number(row?.changedAt||snapshot.changedAt||0)
-      };
-    })
-    .sort((a,b)=>a.handle.localeCompare(b.handle));
+  const snapshot = await loadSnapshot(env);
+  const liveHandles = Object.entries(snapshot.channels || {})
+    .filter(([, row]) => Number(row?.status) === 2)
+    .map(([handle]) => handle)
+    .sort();
+
+  if (!liveHandles.length) {
+    return {
+      ok: true,
+      edge: true,
+      realtime: true,
+      checkedAt: Number(snapshot.lastSweepAt || snapshot.changedAt || 0),
+      total: Array.isArray(snapshot.selected) ? snapshot.selected.length : 0,
+      live: 0,
+      items: []
+    };
+  }
+
+  let render = { items: [] };
+  try {
+    const r = await fetch(RENDER_API + "/tiktok/live-now?t=" + Date.now(), {
+      headers: { accept: "application/json" }
+    });
+    if (r.ok) render = await r.json();
+  } catch {}
+
+  const byHandle = new Map(
+    (Array.isArray(render?.items) ? render.items : [])
+      .map((item) => [String(item?.handle || "").toLowerCase(), item])
+  );
+
+  const items = liveHandles.map((handle) => {
+    const item = byHandle.get(handle);
+    if (item) return { ...item, live: true, detectedLive: true, edgeConfirmed: true };
+    return {
+      handle,
+      live: true,
+      detectedLive: true,
+      edgeConfirmed: true,
+      playable: false,
+      type: "",
+      sourceSig: "",
+      streamUrl: "",
+      proxyUrl: "",
+      status: "live",
+      probeState: "live",
+      lastSeenAt: Number(snapshot.channels?.[handle]?.changedAt || snapshot.changedAt || 0)
+    };
+  });
 
   return {
-    ok:true,
-    edge:true,
-    realtime:true,
-    checkedAt:Number(snapshot.lastSweepAt||snapshot.changedAt||0),
-    total:Array.isArray(snapshot.selected)?snapshot.selected.length:0,
-    live:items.length,
-    detectedLive:items.length,
+    ok: true,
+    edge: true,
+    realtime: true,
+    checkedAt: Number(snapshot.lastSweepAt || snapshot.changedAt || 0),
+    total: Array.isArray(snapshot.selected) ? snapshot.selected.length : 0,
+    live: items.length,
     items
   };
 }
@@ -2213,30 +2173,15 @@ async function refreshOne(env, rawHandle) {
   if (state.known && (state.status === 2 || state.status === 4)) {
     const key = handle.toLowerCase();
     const prev = snapshot.channels?.[key] || {};
-    const streamUrl=state.status===2?String(state.streamUrl||prev.streamUrl||""):"";
-    const hlsUrl=state.status===2?String(state.hlsUrl||prev.hlsUrl||""):"";
-    const nextRow={
-      status:state.status,
-      roomId:String(state.roomId||""),
-      changedAt:Number(prev.changedAt||0),
-      source:String(state.source||"tiktok-user-room"),
-      streamUrl,
-      hlsUrl,
-      title:state.status===2?String(state.title||prev.title||""):"",
-      sourceName:state.status===2?String(state.sourceName||prev.sourceName||""):"",
-      preview:state.status===2?String(state.preview||prev.preview||""):"",
-      avatar:state.status===2?String(state.avatar||prev.avatar||""):"",
-      viewerCount:state.status===2?Math.max(0,Number(state.viewerCount)||Number(prev.viewerCount)||0):0
-    };
-    const changed =
-      Number(prev.status||0)!==nextRow.status ||
-      String(prev.roomId||"")!==nextRow.roomId ||
-      String(prev.streamUrl||"")!==streamUrl ||
-      String(prev.hlsUrl||"")!==hlsUrl;
+    const changed = Number(prev.status || 0) !== state.status || String(prev.roomId || "") !== String(state.roomId || "");
     if (changed) {
-      nextRow.changedAt=Date.now();
       snapshot.channels = { ...(snapshot.channels || {}) };
-      snapshot.channels[key] = nextRow;
+      snapshot.channels[key] = {
+        status: state.status,
+        roomId: String(state.roomId || ""),
+        changedAt: Date.now(),
+        source: String(state.source || "tiktok-user-room")
+      };
       snapshot.changedAt = Date.now();
       snapshot.version = Number(snapshot.version || 0) + 1;
       await env.TIKTOK_LIVE.put(SNAPSHOT_KEY, JSON.stringify(snapshot));
