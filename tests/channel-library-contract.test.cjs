@@ -12,7 +12,9 @@ assert.match(state,/platform:\s*"youtube"/);
 assert.match(state,/platform:\s*"tiktok"/);
 assert.match(state,/key:\s*"youtube:"\s*\+\s*id/);
 assert.match(state,/key:\s*"tiktok:"\s*\+\s*handle\.toLowerCase\(\)/);
-assert.match(state,/badges:\s*verified\s*\?\s*\["verified"\]/);
+assert.match(state,/verification:\s*\{/);
+assert.match(state,/known:\s*verificationKnown/);
+assert.match(state,/badges:\s*verified\s*===\s*true\s*\?\s*\["verified"\]/);
 assert.match(state,/selectedScopes/);
 assert.match(state,/blockedScopes/);
 assert.match(state,/suggestedScopes/);
@@ -46,6 +48,7 @@ for(const field of [
   'handle text',
   'description text',
   'verified boolean',
+  'verified_known boolean',
   'subscriber_count bigint',
   'view_count bigint',
   'video_count bigint',
