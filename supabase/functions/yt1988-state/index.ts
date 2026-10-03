@@ -198,7 +198,7 @@ Deno.serve(async (req) => {
 
     const directoryRes = await fetch(
       rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
-      "&select=channel_id,name,thumbnail_url,subscribers,handle,description,verified,subscriber_count,view_count,video_count,profile_url,profile_checked_at,source,last_seen_at,updated_at" +
+      "&select=channel_id,name,thumbnail_url,subscribers,handle,description,verified,verified_known,subscriber_count,view_count,video_count,profile_url,profile_checked_at,source,last_seen_at,updated_at" +
       "&order=channel_id.asc",
       { headers: authHeaders }
     );
@@ -259,7 +259,8 @@ Deno.serve(async (req) => {
       const suggestedScopes = [...relation.suggested].sort();
       const avatar = cleanText(row?.thumbnail_url, 1000);
       const subscriberCount = stat(row?.subscriber_count);
-      const verified = row?.verified === true;
+      const verificationKnown = row?.verified_known === true;
+      const verified = verificationKnown ? row?.verified === true : null;
       return {
         key: "youtube:" + id,
         platform: "youtube",
@@ -275,7 +276,12 @@ Deno.serve(async (req) => {
           storedUrl: ""
         },
         verified,
-        badges: verified ? ["verified"] : [],
+        verification: {
+          known: verificationKnown,
+          verified,
+          badge: verified === true ? "verified" : ""
+        },
+        badges: verified === true ? ["verified"] : [],
         stats: {
           followers: subscriberCount,
           subscribers: subscriberCount,
@@ -304,7 +310,8 @@ Deno.serve(async (req) => {
       if (!handle) continue;
       const avatarSource = cleanText(row?.avatar_source_url, 1000);
       const avatarStored = cleanText(row?.avatar_stored_url, 1000);
-      const verified = row?.verified === true;
+      const verificationKnown = !!row?.profile_checked_at;
+      const verified = verificationKnown ? row?.verified === true : null;
       const selected = row?.selected === true;
       channelLibrary.push({
         key: "tiktok:" + handle.toLowerCase(),
@@ -321,7 +328,12 @@ Deno.serve(async (req) => {
           storedUrl: avatarStored
         },
         verified,
-        badges: verified ? ["verified"] : [],
+        verification: {
+          known: verificationKnown,
+          verified,
+          badge: verified === true ? "verified" : ""
+        },
+        badges: verified === true ? ["verified"] : [],
         stats: {
           followers: stat(row?.follower_count),
           subscribers: null,
@@ -603,6 +615,7 @@ Deno.serve(async (req) => {
               handle,
               description,
               verified: data?.verified === true,
+              verified_known: typeof data?.verified === "boolean",
               subscriber_count: subscriberCount,
               view_count: viewCount,
               video_count: videoCount,
@@ -675,6 +688,7 @@ Deno.serve(async (req) => {
           handle: "",
           description: "",
           verified: null,
+          verified_known: false,
           subscriber_count: 0,
           view_count: 0,
           video_count: 0,
@@ -699,6 +713,7 @@ Deno.serve(async (req) => {
         if (handle) current.handle = handle;
         if (description) current.description = description;
         if (typeof item?.verified === "boolean") current.verified = item.verified;
+        if (item?.verifiedKnown === true || item?.verified_known === true) current.verified_known = true;
         if (subscriberCount > 0) current.subscriber_count = subscriberCount;
         if (viewCount > 0) current.view_count = viewCount;
         if (videoCount > 0) current.video_count = videoCount;
