@@ -99,3 +99,20 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Chỉ được coi là hoàn tất khi commit + test/workflow + deploy + production verify + nhật ký repo + nhật ký Sheet đều đủ.
 - Không ghi secret/token/cookie/password vào tài liệu vận hành.
 
+## 2026-10-03 — Startup video-first + preload LIVE TikTok/YouTube
+
+- Branch nguồn: `main`.
+- Base commit: `3b83281e7bb91d8cc245a8315726e06224e6bf26`.
+- Commits chính:
+  - `ce015076057e14fdcf50bb7b8999d1958d31543c` — startup video-first và preload LIVE.
+  - `d0bd0760758cb52f39604ae21d5d3045201cc381` — sửa khóa nhận diện kênh cho one-video-per-channel.
+  - `a06a757b2df138c8ca8befb89af130f98c372db1` — cập nhật integration contract.
+  - `09ef5f162f5b8c5658db22af54d6f2f0d5a8226d` — trigger validation với contract mới.
+- Khi mở app, landing scope cố định là `latest`; lần paint đầu chỉ giữ 1 video mới nhất cho mỗi kênh/source.
+- TikTok video feed cũng chỉ lấy 1 video mới nhất/kênh.
+- Sau first paint mới preload song song: TikTok library, TikTok LIVE snapshot và YouTube LIVE snapshot.
+- Preload không chạy YouTube live scan nặng và không chặn render home.
+- Test media core/integration/TikTok production contract: PASS trong run `37110432534`.
+- Production deploy: **CHƯA HOÀN TẤT** — GitHub Pages hiện `has_pages=false`; `Configure Pages` fail do `Resource not accessible by integration`.
+- Rollback logic: quay về `3b83281e7bb91d8cc245a8315726e06224e6bf26`.
+
