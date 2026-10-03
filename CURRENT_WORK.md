@@ -2,7 +2,7 @@
 
 > **BẮT BUỘC ĐỌC FILE NÀY TRƯỚC MỌI LẦN SỬA.**
 >
-> Mục tiêu: khi đổi chat / đổi người sửa / quay lại sau một thời gian, chỉ cần đọc file này + `README_MAINTENANCE.md` là biết production đang chạy theo kiến trúc nào, lỗi gần nhất là gì, đã sửa đến đâu và bước tiếp theo phải kiểm tra ở đâu.
+> Mục tiêu: khi đổi chat / đổi người sửa / quay lại sau một thời gian, chỉ cần đọc file này + `README_MAINTENANCE.md` + `README_NO_WAIT_WORKFLOW.md` là biết production đang chạy theo kiến trúc nào, lỗi gần nhất là gì, đã sửa đến đâu và bước tiếp theo phải kiểm tra ở đâu.
 >
 > **Không được sửa production chỉ dựa vào trí nhớ hội thoại.**
 
@@ -14,9 +14,10 @@ Cập nhật gần nhất: **2026-10-03**
 
 1. `CURRENT_WORK.md` — trạng thái gần nhất và việc đang làm.
 2. `README_MAINTENANCE.md` — FAST REPAIR / owner / rollback / deploy.
-3. Nếu đụng package, polling, API, cache, log, media, Supabase traffic: đọc thêm `README_RESOURCE_GUARDRAILS.md`.
-4. Nếu cần rollback: đọc `CHECKPOINT.md`.
-5. Chỉ sau đó mới probe source of truth và viết patch.
+3. `README_NO_WAIT_WORKFLOW.md` — không đứng chờ, không retry mù, không tạo job/deploy trùng.
+4. Nếu đụng package, polling, API, cache, log, media, Supabase traffic: đọc thêm `README_RESOURCE_GUARDRAILS.md`.
+5. Nếu cần rollback: đọc `CHECKPOINT.md`.
+6. Chỉ sau đó mới probe source of truth và viết patch.
 
 Nếu chưa đọc đủ các file bắt buộc thì **không sửa**.
 
@@ -241,6 +242,7 @@ Probe nhỏ nhất, không scan toàn hệ thống:
 - YouTube tab UI: package-only.
 - Supabase project production: project ref `mstltsunsawqomzniqok`.
 - Resource guardrail đang áp dụng:
+  - no-wait rule bắt buộc: còn việc độc lập thì không đứng chờ; cùng cơ chế fail 2 lần thì đổi đường; job đang chạy không tạo job thứ hai;
   - hash không đổi → không tải package;
   - không media bytes qua Supabase;
   - không log từng item;
