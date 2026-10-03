@@ -47,10 +47,9 @@
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
           <button type="button" data-source="tikwm_hd" class="active">TikWM HD</button>
           <button type="button" data-source="tikwm_std">TikWM Standard</button>
-          <button type="button" data-source="tiktok_play">TikTok PlayAddr</button>
           <button type="button" data-source="bhwa_get">Bhwa (có thể logo)</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">TikWM = nguồn sạch chính. TikTok PlayAddr thử playback URL gốc từ TikTok. Bhwa chỉ fallback vì một số video vẫn có watermark bake sẵn.</div>
+        <div class="sourceinfo" id="sourceInfo">TikWM = nguồn sạch chính. Bhwa chỉ fallback vì một số video vẫn có watermark bake sẵn.</div>
         <div class="sourceinfo" id="candidateInfo"></div>
         <div class="player">
           <video id="video" playsinline controls></video>
@@ -208,32 +207,6 @@ async function fetchBhwaParse(item,{force=false}={}){
   renderBhwaCandidates(rows);
   return result;
 }
-async function fetchTikTokPlayAddr(item){
-  const endpoint="https://www.tiktok.com/node/share/video/"+encodeURIComponent(item.id);
-  let data;
-  try{
-    data=await json(endpoint,12000,{credentials:"include"});
-  }catch(error){
-    throw new Error("TikTok PlayAddr bị chặn/CORS hoặc endpoint lỗi: "+String(error?.message||error));
-  }
-  const node=data?.itemInfo?.itemStruct||data?.itemStruct||null;
-  const videoNode=node?.video||{};
-  const list=[];
-  const push=value=>{
-    if(Array.isArray(value))value.forEach(push);
-    else if(typeof value==="string"&&/^https?:\/\//i.test(value)&&!list.includes(value))list.push(value);
-    else if(value&&typeof value==="object"){
-      push(value.urlList);
-      push(value.UrlList);
-      push(value.url_list);
-      push(value.url);
-    }
-  };
-  push(videoNode.playAddr);
-  push(videoNode.bitrateInfo?.map?.(x=>x?.PlayAddr||x?.playAddr));
-  if(!list.length)throw new Error("TikTok không trả playAddr");
-  return list[0];
-}
 async function resolveVodDirect(item,source,{force=false}={}){
   const cached=!force?readVodLinkCache(item,source):"";
   if(cached)return {url:cached,cached:true};
@@ -250,8 +223,6 @@ async function resolveVodDirect(item,source,{force=false}={}){
     ).trim();
     if(url.startsWith("//"))url="https:"+url;
     else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
-  }else if(source==="tiktok_play"){
-    url=await fetchTikTokPlayAddr(item);
   }else if(source==="bhwa_get"){
     const parsed=await fetchBhwaParse(item,{force});
     url=String(parsed.rows[0]?.url||"");
@@ -357,7 +328,7 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
     const getSec=((performance.now()-started)/1000).toFixed(2);
     if(mySeq!==vodSeq)return;
 
-    const label=source==="bhwa_get"?"BHWA FALLBACK":source==="tiktok_play"?"TIKTOK PLAYADDR":source.toUpperCase();
+    const label=source==="bhwa_get"?"BHWA FALLBACK":source.toUpperCase();
     sourceInfo.textContent=label+" · có link sau "+getSec+"s"+(resolved?.cached?" (cache)":"")+" · đang mở video…";
     nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · "+source.toUpperCase()+" · link "+getSec+"s";
 
@@ -368,7 +339,7 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
       if(mySeq!==vodSeq)return;
       const total=((performance.now()-started)/1000).toFixed(2);
       sourceInfo.className="sourceinfo ok";
-      const label=source==="bhwa_get"?"BHWA FALLBACK · CÓ THỂ WATERMARK":source==="tiktok_play"?"TIKTOK PLAYADDR":source.toUpperCase();
+      const label=source==="bhwa_get"?"BHWA FALLBACK · CÓ THỂ WATERMARK":source.toUpperCase();
       sourceInfo.textContent=label+" · PHÁT ĐƯỢC · "+total+"s (get "+getSec+"s)";
       nowEl.textContent=(item.title||("Video "+item.id))+" · "+source.toUpperCase()+" · "+total+"s";
     };
