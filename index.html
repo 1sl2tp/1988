@@ -3426,6 +3426,79 @@ html.tiktok-ui.tiktok-watch .rows{
     display:none!important;
   }
 }
+
+
+/* ============================================================
+   FOCUSED VIEWER v1
+   Browse = responsive feed.
+   Watch = one media viewer; mobile stacks queue below, desktop places queue right.
+   Inline-thumbnail playback and automatic PiP are retired from the primary flow.
+   ============================================================ */
+html.viewer-active.one-col body{
+  min-height:100vh;
+}
+@media(max-width:999px){
+  html.viewer-active.one-col main{
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    padding:0!important;
+    margin:0!important;
+  }
+  html.viewer-active.one-col .media-col{
+    display:block!important;
+    position:relative!important;
+    left:auto!important;
+    top:auto!important;
+    width:100%!important;
+    height:auto!important;
+    max-width:none!important;
+    margin:0!important;
+    overflow:visible!important;
+    z-index:1!important;
+    isolation:isolate!important;
+    contain:none!important;
+    pointer-events:auto!important;
+  }
+  html.viewer-active.one-col .media-col > .stage{
+    position:relative!important;
+    left:auto!important;
+    top:auto!important;
+    width:100%!important;
+    height:auto!important;
+    max-height:calc(100dvh - var(--visible-top-boundary,0px) - 8px)!important;
+    aspect-ratio:var(--media-ratio)!important;
+    overflow:hidden!important;
+    background:#000!important;
+  }
+  html.viewer-active.one-col .media-col > .info{
+    display:block!important;
+  }
+  html.viewer-active.one-col .player{
+    position:absolute!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    transform:none!important;
+    pointer-events:auto!important;
+  }
+  html.viewer-active.one-col .rows{
+    padding-top:16px!important;
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  /* The selected video is already represented by the focused viewer above. */
+  html.viewer-active.one-col .row.selected{
+    display:none!important;
+  }
+  html.media-empty.one-col .media-col{
+    display:none!important;
+  }
+}
+@media(min-width:1000px){
+  html.viewer-active.two-col .rows{
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+}
 </style>
 </head>
 <body>
@@ -5719,9 +5792,10 @@ html.tiktok-ui.tiktok-watch .rows{
 
     if(!isTwoColumn()){
       const feedW=Math.max(1,viewportW-(pageEdge*2));
-      // Mobile + the smallest mini-web width are always one vertical list.
-      // Only wider one-column layouts may split into multiple card columns.
-      const cols=viewportW<=720?1:chooseCardColumns(feedW,cardGap);
+      // Browse may expand responsively. Watch is always a single focused queue.
+      const cols=hasCurrentMedia()
+        ?1
+        :(viewportW<=720?1:chooseCardColumns(feedW,cardGap));
       setFeedColumnCount(cols);
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
@@ -5750,10 +5824,10 @@ html.tiktok-ui.tiktok-watch .rows{
       const mediaW=Math.min(widthCap,heightDrivenW);
 
       const feedW=Math.max(1,contentW-mediaGap-mediaW);
-      const cols=chooseCardColumns(feedW,cardGap);
 
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
-      setFeedColumnCount(cols);
+      // Desktop watch uses the right side as a queue, not a competing grid.
+      setFeedColumnCount(1);
     }
   }
   function dataRow(payload){
@@ -5938,9 +6012,11 @@ html.tiktok-ui.tiktok-watch .rows{
     // Browser Back/Forward owns the selected entry. Replay it only; never
     // create or replace history while traversing.
     if(!playVideoId(id,meta,{history:"none"}))return false;
+    returnPlayerToMainStage();
+    layout();
+    if(!isTwoColumn())scrollPageToTop();
     renderCurrentInfo();
     loadCurrentVideoMeta();
-    schedulePip();
     return true;
   }
 
@@ -12104,54 +12180,33 @@ html.tiktok-ui.tiktok-watch .rows{
     syncBoundaries();
     const two=isTwoColumn();
     const portrait=current?.kind==="portrait";
+    const viewerActive=hasCurrentMedia();
 
     root.classList.toggle("one-col",!two);
     root.classList.toggle("two-col",two);
     root.classList.toggle("portrait",portrait);
     root.classList.toggle("landscape",!portrait);
-    root.classList.toggle("media-empty",two&&!hasCurrentMedia());
+    root.classList.toggle("viewer-active",viewerActive);
+    root.classList.toggle("media-empty",!viewerActive);
 
-    if(activePlatformNav==="tiktok"||currentMediaProvider==="tiktok"){
-      if(pip||inlineVideoId||player.classList.contains("pip")||player.classList.contains("inline-overlay")){
-        returnPlayerToMainStage();
-      }
-      paintText();
-      return;
-    }
-
-    /* CSS owns all geometry:
-       landscape follows width, portrait follows height. */
-
-    if(two){
-      if(inlineVideoId||pip||player.classList.contains("inline-overlay")){
-        returnPlayerToMainStage();
-      }else{
-        pip=false;
-        player.classList.remove("pip");
-        stage.classList.remove("pip-host");
-        clearMobilePipGestureGeometry();
-      }
-    }
-
-    if(!two&&!inlineVideoId){
-      const routedId=routeVideoId();
-      const currentId=String(current?.id||"").trim();
-      let attached=false;
-      if(currentId&&(!routedId||routedId===currentId)){
-        const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
-        if(card){
-          inlineVideoId=currentId;
-          attached=attachPlayerToCard(card,{floating:false});
-        }
-      }
-      if(!attached){
-        if(currentId){
-          inlineVideoId=currentId;
-          showPlayerAsPip();
-        }else{
-          parkPlayerAtMainHome();
-        }
-      }
+    // One viewer contract for YouTube + TikTok on every viewport.
+    // Inline-thumbnail playback and auto-PiP are no longer layout modes.
+    if(
+      inlineVideoId||
+      pip||
+      player.classList.contains("pip")||
+      player.classList.contains("inline-overlay")||
+      stage.classList.contains("pip-host")
+    ){
+      returnPlayerToMainStage();
+    }else{
+      clearInlineCardClasses();
+      clearInlinePlayerGeometry();
+      clearMobilePipGestureGeometry();
+      inlineVideoId="";
+      pip=false;
+      player.classList.remove("pip","inline-overlay");
+      stage.classList.remove("pip-host");
     }
 
     paintText();
@@ -12269,99 +12324,18 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function syncPip(){
-    if(currentMediaProvider==="tiktok"||activePlatformNav==="tiktok"){
-      if(pip||inlineVideoId||player.classList.contains("pip")||player.classList.contains("inline-overlay")){
-        returnPlayerToMainStage();
-      }
-      return;
-    }
-    if(isTwoColumn()){
-      if(inlineVideoId||pip||player.classList.contains("inline-overlay")){
-        returnPlayerToMainStage();
-        paintText();
-      }else{
-        stage.classList.remove("pip-host");
-        clearMobilePipGestureGeometry();
-      }
-      return;
-    }
-
-    const inlineCard=inlineCardForCurrentVideo();
-    const host=inlineCard?.querySelector(".row-thumb")||null;
-
-    if(inlineVideoId){
-      if(!host||!host.isConnected){
-        if(!pip){
-          showPlayerAsPip();
-          paintText();
-        }
-        return;
-      }
-
-      const rect=host.getBoundingClientRect();
-      const viewportBottom=Math.max(
-        1,
-        window.visualViewport?.height ||
-        document.documentElement.clientHeight ||
-        innerHeight ||
-        1
-      );
-
-      // Use only the physical viewport for visibility. Header show/hide must
-      // never move the PiP threshold, otherwise a half-scrolled video can flap
-      // between INLINE and PiP.
-      const visiblePixels=Math.max(
-        0,
-        Math.min(rect.bottom,viewportBottom)-Math.max(rect.top,0)
-      );
-
-      const currentlyFloating=
-        pip ||
-        player.classList.contains("pip") ||
-        host.classList.contains("pip-floating");
-
-      // Small hysteresis only on RETURN from PiP.
-      const hostVisible=currentlyFloating
-        ?visiblePixels>28
-        :visiblePixels>1;
-
-      if(hostVisible){
-        if(currentlyFloating){
-          host.classList.remove("pip-floating");
-          player.classList.remove("pip");
-          player.classList.add("inline-overlay");
-          stage.classList.add("pip-host");
-          syncInlinePlayerOverlay(host); // one write on transition only
-          pip=false;
-          clearMobilePipGestureGeometry();
-          paintText();
-        }
-        return;
-      }
-
-      if(!currentlyFloating){
-        host.classList.add("pip-floating");
-        showPlayerAsPip();
-        paintText();
-      }
-      return;
-    }
-
-    const currentId=String(current?.id||"").trim();
-    if(currentId){
-      const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
-      if(card){
-        inlineVideoId=currentId;
-        attachPlayerToCard(card,{floating:false});
-      }else{
-        inlineVideoId=currentId;
-        showPlayerAsPip();
-      }
+    // Focus-first viewer: scrolling must never create a floating player.
+    // Keep this hook only to clean up stale inline/PiP state from older flows.
+    if(
+      pip||
+      inlineVideoId||
+      player.classList.contains("pip")||
+      player.classList.contains("inline-overlay")||
+      stage.classList.contains("pip-host")
+    ){
+      returnPlayerToMainStage();
       paintText();
-      return;
     }
-
-    parkPlayerAtMainHome();
   }
 
   function setMobileHeaderHidden(hidden){
@@ -12825,11 +12799,11 @@ html.tiktok-ui.tiktok-watch .rows{
 
     const opened=selectedMeta?openMedia(selectedMeta):false;
 
-    if(opened&&!isTwoColumn()&&mediaProviderFor(selectedMeta)!=="tiktok"){
-      openSelectedVideoInline(card,id);
-    }
-
     if(opened){
+      // One focused viewer for every provider and viewport.
+      returnPlayerToMainStage();
+      layout();
+      if(!isTwoColumn())scrollPageToTop();
       renderCurrentInfo();
 
       // Package tabs are complete server snapshots: UI reads them only.
@@ -12841,7 +12815,6 @@ html.tiktok-ui.tiktok-watch .rows{
       ){
         void loadCurrentVideoMeta();
       }
-      if(mediaProviderFor(selectedMeta)!=="tiktok")schedulePip();
     }
   });
   function runPrimaryVideoAction(kind,meta={},anchor=null){
