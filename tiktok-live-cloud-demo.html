@@ -80,7 +80,7 @@ let handle="";
 let liveItem=null;
 let videos=[];
 let account=null;
-const PROFILE_API="https://one988-tiktok-session.onrender.com/tiktok/profile";
+const TIKWM_POSTS_API="https://www.tikwm.com/api/user/posts";
 let vodOpenCount=0;
 let vodSeq=0;
 let playerMode="auto";
@@ -110,18 +110,52 @@ async function resolveHandleFromInput(raw){
     return "";
   }
 }
-function normalizeProfileVideos(rows,h){
-  return (Array.isArray(rows)?rows:[])
+function normalizeTikwmVideos(data,h){
+  const rows=
+    (Array.isArray(data?.data?.videos)&&data.data.videos)||
+    (Array.isArray(data?.data?.items)&&data.data.items)||
+    [];
+  return rows
     .map(row=>({
       kind:"video",
-      handle:String(row?.handle||h||"").replace(/^@/,""),
-      id:String(row?.id||""),
-      title:String(row?.title||""),
-      thumbnail:String(row?.thumbnail||""),
-      pageUrl:String(row?.url||("https://www.tiktok.com/@"+h+"/video/"+row?.id))
+      handle:h,
+      id:String(row?.video_id||row?.aweme_id||row?.id||""),
+      title:String(row?.title||row?.desc||row?.description||""),
+      thumbnail:String(row?.cover||row?.origin_cover||row?.ai_dynamic_cover||""),
+      createTime:Number(row?.create_time||row?.createTime||0),
+      pageUrl:"https://www.tiktok.com/@"+h+"/video/"+String(row?.video_id||row?.aweme_id||row?.id||"")
     }))
     .filter(row=>/^\d{8,}$/.test(row.id))
+    .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
     .slice(0,5);
+}
+async function loadLatestFive(h){
+  const endpoint=new URL(TIKWM_POSTS_API);
+  endpoint.searchParams.set("unique_id",h);
+  endpoint.searchParams.set("count","5");
+  endpoint.searchParams.set("cursor","0");
+  const data=await json(endpoint.toString(),12000);
+  if(Number(data?.code)!==0)throw new Error(String(data?.msg||("TikWM code "+data?.code)));
+  videos=normalizeTikwmVideos(data,h);
+  renderVideos();
+  return videos.length;
+}
+async function loadLiveNow(h,{force=false}={}){
+  const cached=!force?readLiveCache(h):null;
+  if(cached){
+    liveItem=cached;
+    renderLive({status:2});
+  }else{
+    liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
+  }
+  const state=await json(
+    EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),
+    15000
+  );
+  liveItem=Number(state?.status)===2?state:null;
+  if(liveItem)writeLiveCache(h,liveItem);
+  renderLive(state);
+  return Number(state?.status)===2;
 }
 function stop(){
   vodSeq++;
@@ -479,44 +513,49 @@ async function inspect(raw,{force=false}={}){
     statusEl.textContent="Không nhận ra kênh TikTok từ link này.";
     return;
   }
+
   handle=h;
   liveItem=null;
   account=null;
   videos=[];
   currentVodIndex=-1;
   stop();
-  liveBox.innerHTML='<div class="empty">Đang tải @'+esc(h)+'…</div>';
+
+  liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
   vodsEl.innerHTML='<div class="empty">Đang lấy 5 video gần nhất…</div>';
-  statusEl.textContent="Đang lấy @"+h+" · LIVE + 5 video gần nhất…";
+  statusEl.textContent="@"+h+" · đang tải LIVE và video song song…";
 
-  try{
-    const endpoint=new URL(PROFILE_API);
-    endpoint.searchParams.set("user",h);
-    endpoint.searchParams.set("limit","5");
-    if(force)endpoint.searchParams.set("t",Date.now());
-    const data=await json(endpoint.toString(),30000);
+  let videoState="đang tải video";
+  let liveState="đang kiểm tra LIVE";
+  const updateStatus=()=>{
+    statusEl.textContent="@"+h+" · "+liveState+" · "+videoState;
+  };
 
-    account=data?.account||null;
-    videos=normalizeProfileVideos(data?.videos,h);
-    const liveType=String(data?.live?.streamType||"").toLowerCase();
-    const liveUrl=String(data?.live?.streamUrl||"");
-    liveItem=data?.live&&liveUrl?{
-      ...data.live,
-      status:2,
-      sourceName:String(data?.account?.displayName||("@"+h)),
-      avatar:String(data?.account?.avatar||""),
-      hlsUrl:liveType==="hls"?liveUrl:"",
-      streamUrl:liveType==="hls"?"":liveUrl
-    }:null;
+  const videoTask=loadLatestFive(h)
+    .then(count=>{
+      videoState=count+" video gần nhất";
+      updateStatus();
+    })
+    .catch(error=>{
+      videoState="lỗi video";
+      vodsEl.innerHTML='<div class="empty">Không lấy được video của kênh.</div>';
+      updateStatus();
+      console.warn("TikWM latest-five",error);
+    });
 
-    renderLive(liveItem?{status:2}:{status:4});
-    renderVideos();
-    statusEl.textContent="@"+h+" · "+(liveItem?"đang LIVE":"không LIVE")+" · "+videos.length+" video gần nhất";
-  }catch(e){
-    statusEl.textContent="Lỗi tải kênh: "+String(e?.message||e);
-    liveBox.innerHTML='<div class="empty">Không lấy được trạng thái LIVE.</div>';
-    vodsEl.innerHTML='<div class="empty">Không lấy được video của kênh.</div>';
-  }
+  const liveTask=loadLiveNow(h,{force})
+    .then(isLive=>{
+      liveState=isLive?"đang LIVE":"không LIVE";
+      updateStatus();
+    })
+    .catch(error=>{
+      liveState="LIVE chưa xác định";
+      liveBox.innerHTML='<div class="empty">Không lấy được trạng thái LIVE.</div>';
+      updateStatus();
+      console.warn("TikTok live",error);
+    });
+
+  await Promise.allSettled([videoTask,liveTask]);
 }
 form.addEventListener("submit",e=>{e.preventDefault();inspect(input.value,{force:true})});
 renderVideos();
