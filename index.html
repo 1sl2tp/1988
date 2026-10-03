@@ -5477,9 +5477,11 @@ html.tiktok-ui.tiktok-watch .rows{
     const seenChannels=new Set();
     for(const meta of Array.isArray(metas)?metas:[]){
       if(!meta?.id)continue;
+      const sourceId=String(meta?.sourceId||"").trim();
+      const sourceNameKey=sourceIdentityNameKey(meta?.sourceName||"");
       const channelKey=
-        String(meta?.sourceId||"").trim()||
-        ("name:"+sourceIdentityNameKey(meta?.sourceName||""))||
+        sourceId||
+        (sourceNameKey?"name:"+sourceNameKey:"")||
         ("video:"+String(meta.id));
       if(seenChannels.has(channelKey))continue;
       seenChannels.add(channelKey);
