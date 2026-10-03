@@ -46,18 +46,10 @@
       <div class="body">
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
           <button type="button" data-source="tikwm_hd" class="active">TikWM HD</button>
-          <button type="button" data-source="tikwm_std">TikWM Standard</button>
-          <button type="button" data-source="bhwa_get">Bhwa</button>
-          <button type="button" data-source="native">Native</button>
-          <button type="button" data-source="direct">Direct</button>
-          <button type="button" data-source="tdown">TDown</button>
-          <button type="button" data-source="musicaldown">MusicalDown</button>
-          <button type="button" data-source="tikdown">TikDown</button>
-          <button type="button" data-source="ttdownloader">TTDownloader</button>
-          <button type="button" data-source="tiklydown">TiklyDown</button>
-          <button type="button" data-source="douyinwtf">DouyinWTF</button>
+          <button type="button" data-source="bhwa_get">BHWA</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">Bấm từng nguồn để thử media. TikWM/BHWA lấy direct ở trình duyệt; các nguồn còn lại thử qua Cloud Worker.</div>
+        <div class="sourceinfo" id="sourceInfo">Chỉ giữ 2 nguồn VOD gốc: TikWM HD và BHWA.</div>
+        <div class="sourceinfo">Link gốc: <a href="https://www.tikwm.com/" target="_blank" rel="noopener">TikWM</a> · <a href="https://downloader-api.bhwa233.com/" target="_blank" rel="noopener">BHWA API</a></div>
         <div class="sourceinfo" id="candidateInfo"></div>
         <div class="player">
           <video id="video" playsinline controls></video>
@@ -215,66 +207,27 @@ async function fetchBhwaParse(item,{force=false}={}){
   renderBhwaCandidates(rows);
   return result;
 }
-const DIRECT_LINK_VOD_SOURCES=new Set(["ttdownloader"]);
-const EDGE_VOD_SOURCES=new Set(["native","direct","musicaldown","tikdown","tiklydown","douyinwtf"]);
-function isEdgeVodSource(source){return EDGE_VOD_SOURCES.has(String(source||""))}
-function isRemoteVodSource(source){
-  const key=String(source||"");
-  return DIRECT_LINK_VOD_SOURCES.has(key)||EDGE_VOD_SOURCES.has(key);
-}
 async function resolveVodDirect(item,source,{force=false}={}){
-  const cached=!force&&!isRemoteVodSource(source)?readVodLinkCache(item,source):"";
+  const cached=!force?readVodLinkCache(item,source):"";
   if(cached)return {url:cached,cached:true};
   const pageUrl=vodPageUrl(item);
   let url="";
 
-  if(source==="tikwm_hd"||source==="tikwm_std"){
+  if(source==="tikwm_hd"){
     const data=await json("https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl),12000);
     const body=data?.data||{};
-    url=String(
-      source==="tikwm_hd"
-        ? (body.hdplay||body.play||"")
-        : (body.play||body.hdplay||"")
-    ).trim();
+    url=String(body.hdplay||body.play||"").trim();
     if(url.startsWith("//"))url="https:"+url;
     else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
   }else if(source==="bhwa_get"){
     const parsed=await fetchBhwaParse(item,{force});
     url=String(parsed.rows[0]?.url||"");
-  }else if(source==="tdown"){
-    // Restore the known-good path from 9cbd4771:
-    // browser -> TDown -> direct MP4. Do not proxy/resolve TDown through 1988 Worker.
-    const api="https://tdownv4.sl-bjs.workers.dev/?down="+encodeURIComponent(pageUrl);
-    const data=await json(api,12000);
-    url=String(
-      data?.download_url||
-      data?.downloadUrl||
-      data?.video?.download_url||
-      data?.data?.download_url||
-      ""
-    ).trim();
-    if(url.startsWith("//"))url="https:"+url;
-  }else if(DIRECT_LINK_VOD_SOURCES.has(source)){
-    const endpoint=new URL(EDGE+"/tiktok/video-resolve");
-    endpoint.searchParams.set("user",item.handle);
-    endpoint.searchParams.set("id",item.id);
-    endpoint.searchParams.set("source",source);
-    endpoint.searchParams.set("try","demo-"+Date.now());
-    const resolved=await json(endpoint.toString(),12000);
-    url=String(resolved?.url||"").trim();
-  }else if(isEdgeVodSource(source)){
-    const endpoint=new URL(EDGE+"/tiktok/video-stream");
-    endpoint.searchParams.set("user",item.handle);
-    endpoint.searchParams.set("id",item.id);
-    endpoint.searchParams.set("source",source);
-    endpoint.searchParams.set("try","demo-"+Date.now());
-    url=endpoint.toString();
   }else{
-    throw new Error("Nguồn không hỗ trợ media");
+    throw new Error("Nguồn VOD đã tắt khỏi demo");
   }
 
   if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
-  if(!isRemoteVodSource(source))writeVodLinkCache(item,source,url);
+  writeVodLinkCache(item,source,url);
   return {url,cached:false};
 }
 async function json(url,timeout=20000,options={}){
