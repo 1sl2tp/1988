@@ -215,10 +215,15 @@ async function fetchBhwaParse(item,{force=false}={}){
   renderBhwaCandidates(rows);
   return result;
 }
-const EDGE_VOD_SOURCES=new Set(["native","direct","tdown","musicaldown","tikdown","ttdownloader","tiklydown","douyinwtf"]);
+const DIRECT_LINK_VOD_SOURCES=new Set(["tdown","ttdownloader"]);
+const EDGE_VOD_SOURCES=new Set(["native","direct","musicaldown","tikdown","tiklydown","douyinwtf"]);
 function isEdgeVodSource(source){return EDGE_VOD_SOURCES.has(String(source||""))}
+function isRemoteVodSource(source){
+  const key=String(source||"");
+  return DIRECT_LINK_VOD_SOURCES.has(key)||EDGE_VOD_SOURCES.has(key);
+}
 async function resolveVodDirect(item,source,{force=false}={}){
-  const cached=!force&&!isEdgeVodSource(source)?readVodLinkCache(item,source):"";
+  const cached=!force&&!isRemoteVodSource(source)?readVodLinkCache(item,source):"";
   if(cached)return {url:cached,cached:true};
   const pageUrl=vodPageUrl(item);
   let url="";
@@ -236,6 +241,14 @@ async function resolveVodDirect(item,source,{force=false}={}){
   }else if(source==="bhwa_get"){
     const parsed=await fetchBhwaParse(item,{force});
     url=String(parsed.rows[0]?.url||"");
+  }else if(DIRECT_LINK_VOD_SOURCES.has(source)){
+    const endpoint=new URL(EDGE+"/tiktok/video-resolve");
+    endpoint.searchParams.set("user",item.handle);
+    endpoint.searchParams.set("id",item.id);
+    endpoint.searchParams.set("source",source);
+    endpoint.searchParams.set("try","demo-"+Date.now());
+    const resolved=await json(endpoint.toString(),12000);
+    url=String(resolved?.url||"").trim();
   }else if(isEdgeVodSource(source)){
     const endpoint=new URL(EDGE+"/tiktok/video-stream");
     endpoint.searchParams.set("user",item.handle);
@@ -248,7 +261,7 @@ async function resolveVodDirect(item,source,{force=false}={}){
   }
 
   if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
-  if(!isEdgeVodSource(source))writeVodLinkCache(item,source,url);
+  if(!isRemoteVodSource(source))writeVodLinkCache(item,source,url);
   return {url,cached:false};
 }
 async function json(url,timeout=20000,options={}){
@@ -381,7 +394,13 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
     video.load();
     video.play().catch(error=>{
       if(mySeq!==vodSeq)return;
-      sourceInfo.textContent=source.toUpperCase()+" · link đã có, trình duyệt chờ thao tác phát";
+      const name=String(error?.name||"");
+      if(name==="NotAllowedError"){
+        sourceInfo.textContent=source.toUpperCase()+" · link thật đã có · trình duyệt chặn autoplay";
+        return;
+      }
+      sourceInfo.className="sourceinfo bad";
+      sourceInfo.textContent=source.toUpperCase()+" · PLAY LỖI · "+String(error?.message||name||"unknown");
     });
   }catch(error){
     if(mySeq!==vodSeq)return;

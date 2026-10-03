@@ -2146,6 +2146,39 @@ function mediaRelayResponse(upstream, method, sourceLabel) {
   });
 }
 
+const VOD_DIRECT_URL_SOURCES=new Set(["tdown","ttdownloader"]);
+
+async function resolveTikTokVideoUrl(request){
+  const url=new URL(request.url);
+  const handle=normalizeHandle(url.searchParams.get("user")||"");
+  const id=normalizeVideoId(url.searchParams.get("id")||"");
+  const sourceName=String(url.searchParams.get("source")||"").toLowerCase();
+  if(!handle||!id)return json({ok:false,error:"invalid_tiktok_video"},400);
+  if(!VOD_DIRECT_URL_SOURCES.has(sourceName)){
+    return json({ok:false,error:"invalid_direct_url_source",source:sourceName},400);
+  }
+  try{
+    const source=await vodWithTimeout(
+      resolveVodSourceByName(sourceName,handle,id,{refresh:true}),
+      VOD_RESOLVE_TIMEOUT_MS,
+      sourceName+"_resolve_url"
+    );
+    const directUrl=String(source?.url||"").trim();
+    if(!/^https?:\/\//i.test(directUrl))throw new Error(sourceName+"_no_direct_url");
+    return json({
+      ok:true,
+      source:sourceName,
+      url:directUrl
+    });
+  }catch(error){
+    return json({
+      ok:false,
+      source:sourceName,
+      error:String(error?.message||error||sourceName+"_resolve_failed")
+    },502);
+  }
+}
+
 async function relayTikTokVideo(request) {
   const url = new URL(request.url);
   const handle = normalizeHandle(url.searchParams.get("user") || "");
@@ -2991,6 +3024,9 @@ export default {
 
     if (url.pathname === "/tiktok/video-warm-edge" && request.method === "GET") {
       return warmTikTokVod(request);
+    }
+    if (url.pathname === "/tiktok/video-resolve" && request.method === "GET") {
+      return resolveTikTokVideoUrl(request);
     }
     if (url.pathname === "/tiktok/video-stream" && (request.method === "GET" || request.method === "HEAD")) {
       return relayTikTokVideo(request);
