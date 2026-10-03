@@ -3499,6 +3499,72 @@ html.viewer-active.one-col body{
     grid-template-columns:minmax(0,1fr)!important;
   }
 }
+
+
+/* TikTok watch follows the same focus contract as YouTube:
+   browse may show account navigation; watch is only viewer + next queue. */
+@media(min-width:1000px){
+  html.tiktok-ui.tiktok-watch.viewer-active main{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(280px,360px)!important;
+    grid-template-areas:"media feed"!important;
+    gap:18px!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .tiktok-account-rail{
+    display:none!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .media-col{
+    grid-area:media!important;
+    width:100%!important;
+    max-width:none!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .rows{
+    grid-area:feed!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    width:100%!important;
+    min-width:0!important;
+  }
+}
+@media(max-width:999px){
+  html.tiktok-ui.tiktok-watch.viewer-active,
+  html.tiktok-ui.tiktok-watch.viewer-active body{
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:auto!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active main{
+    display:block!important;
+    min-height:100vh!important;
+    padding:0!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .tiktok-account-rail{
+    display:none!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .media-col{
+    position:relative!important;
+    inset:auto!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    z-index:1!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .stage{
+    position:relative!important;
+    inset:auto!important;
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:var(--media-ratio)!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .rows{
+    display:grid!important;
+    position:relative!important;
+    width:100%!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:20px!important;
+    padding:16px 12px calc(24px + env(safe-area-inset-bottom,0px))!important;
+  }
+}
 </style>
 </head>
 <body>
