@@ -85,3 +85,17 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Vẫn giữ blocked source, blacklist keyword, lọc tiếng Việt và dedupe sau khi gộp.
 - Test production: package Live tăng từ 7 lên 20 video ngay ở refresh đầu tiên; refresh OK.
 - Runtime: `yt1988-refresh v64`, `LIVE_PIPELINE_VERSION=live-v42`.
+
+## 2026-10-03 — Khóa quy tắc bảo trì bắt buộc và đồng bộ Google Sheet
+
+- Branch nguồn: `main`.
+- Base commit trước thay đổi: `5cdb4d4b8e7863ea8dbd889b6c4a6d029cc7a5d7`.
+- Commit tạo quy tắc chi tiết: `d7f9648ced78df6068a3122bd59438554a92abb6`.
+- Commit gắn cảnh báo bắt buộc vào README gốc: `251f9ba7fc31b3c4e163f10d15b5fd16b63df943`.
+- Tạo `README_MAINTENANCE.md` làm quy tắc read-before-write cho toàn bộ dự án 1988.
+- Trước mỗi repair/deploy phải đọc quy tắc, xác định branch/base commit/source of truth/rollback.
+- Sau mỗi repair/deploy bắt buộc cập nhật cả `NHAT_KY.md` và Google Sheet **1988 - Vận hành kết nối bảo trì** theo branch/commit thực tế.
+- Nếu thay đổi kiến trúc/UI/data/kết nối phải cập nhật thêm tab chuyên môn tương ứng trong Sheet.
+- Chỉ được coi là hoàn tất khi commit + test/workflow + deploy + production verify + nhật ký repo + nhật ký Sheet đều đủ.
+- Không ghi secret/token/cookie/password vào tài liệu vận hành.
+
