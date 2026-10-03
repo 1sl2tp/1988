@@ -1,3 +1,12 @@
+## 2026-10-04 — Video TikTok mở trong player riêng
+
+- Bấm card video không mở TikTok ngoài nữa.
+- TikWM HD resolve qua edge rồi 302 để browser tải trực tiếp; media không qua Worker.
+- TikWM lỗi mới fallback BHWA một lần.
+- Không Render/Supabase; LIVE không đổi.
+- Runtime `ff39a4252f5f17ec649c71de1645841966621830`.
+- Player run `37161403090`: SUCCESS.
+
 ## 2026-10-04 — TikTok channel videos chuyển sang RSS-Bridge JSON
 
 - Xác nhận TikWM user/posts bị Cloudflare challenge 403 từ server.
