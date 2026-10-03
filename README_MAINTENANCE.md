@@ -61,6 +61,17 @@ Dùng đúng chuỗi trạng thái:
 
 Chỉ được nói **“xong”** sau `PROD VERIFIED` và `DOC UPDATED`.
 
+### 0.7. NO-WAIT — không đứng chờ một job
+
+Bắt buộc áp dụng `README_NO_WAIT_WORKFLOW.md`:
+
+- job/lease/deploy đang chạy → không tạo job thứ hai;
+- còn phần việc độc lập → tiếp tục làm ngay, không trả lời “đợi”;
+- cùng một cơ chế fail 2 lần → dừng retry mù, đổi owner/runtime hoặc rollback;
+- gặp quota/429/403/CAPTCHA → dừng spam request, dùng cache/fallback/batch và đúng runtime owner;
+- không polling workflow/API liên tục chỉ để chờ trạng thái;
+- hard limit là constraint thiết kế, không phải lý do tạo fan-out hoặc nhiều account/job song song.
+
 ## 1. Nguồn sự thật
 
 - **Source code:** GitHub repo `1sl2tp/1988`.
@@ -77,7 +88,7 @@ Chỉ được nói **“xong”** sau `PROD VERIFIED` và `DOC UPDATED`.
 ## 2. Trước mọi lần sửa
 
 1. **Bắt buộc đọc `CURRENT_WORK.md` trước** để biết incident/trạng thái/commit/runtime gần nhất. Không được sửa chỉ dựa vào trí nhớ hội thoại.
-2. Đọc file này và tab **README Quy tac** trong Sheet.
+2. Đọc file này + `README_NO_WAIT_WORKFLOW.md` và tab **README Quy tac** trong Sheet.
 3. Nếu thay đổi liên quan **polling / scheduler / package / API / cache / log / media / Supabase traffic**, bắt buộc đọc `README_RESOURCE_GUARDRAILS.md` và kiểm tra checklist Egress/Log/Data trước khi merge.
 4. Đọc tab liên quan:
    - UI/web: `02 Web va the`, `07 Sua Deploy`, `09 Su co`.
