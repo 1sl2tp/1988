@@ -19,8 +19,8 @@ jobs:
         run: |
           set -u
           EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev'
-          USER='haighepdoi89hy'
-          ID='7689893872066940180'
+          USER='geely.daily'
+          ID='7689814919914458374'
           for SOURCE in tikwm tdown musicaldown tikdown ttdownloader tiklydown douyinwtf; do
             echo "===== $SOURCE ====="
             URL="$EDGE/tiktok/video-stream?user=$USER&id=$ID&source=$SOURCE"
