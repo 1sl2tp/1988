@@ -76,17 +76,18 @@ Chỉ được nói **“xong”** sau `PROD VERIFIED` và `DOC UPDATED`.
 
 ## 2. Trước mọi lần sửa
 
-1. Đọc file này và tab **README Quy tac** trong Sheet.
-2. Nếu thay đổi liên quan **polling / scheduler / package / API / cache / log / media / Supabase traffic**, bắt buộc đọc `README_RESOURCE_GUARDRAILS.md` và kiểm tra checklist Egress/Log/Data trước khi merge.
-3. Đọc tab liên quan:
+1. **Bắt buộc đọc `CURRENT_WORK.md` trước** để biết incident/trạng thái/commit/runtime gần nhất. Không được sửa chỉ dựa vào trí nhớ hội thoại.
+2. Đọc file này và tab **README Quy tac** trong Sheet.
+3. Nếu thay đổi liên quan **polling / scheduler / package / API / cache / log / media / Supabase traffic**, bắt buộc đọc `README_RESOURCE_GUARDRAILS.md` và kiểm tra checklist Egress/Log/Data trước khi merge.
+4. Đọc tab liên quan:
    - UI/web: `02 Web va the`, `07 Sua Deploy`, `09 Su co`.
    - DB/Supabase: `03 Database`, `08 Bao tri`.
    - Render: `04 Render`.
    - TikTok: `05 TikTok`.
    - YouTube: `06 YouTube`.
-4. Ghi nhận branch, HEAD/base commit, last-known-good, file/bảng/endpoint cần sửa.
-5. Kiểm tra source of truth trước. **Không sửa UI để chữa dữ liệu nguồn sai.**
-6. Nêu patch nhỏ nhất và rollback trước khi chỉnh production.
+5. Ghi nhận branch, HEAD/base commit, last-known-good, file/bảng/endpoint cần sửa.
+6. Kiểm tra source of truth trước. **Không sửa UI để chữa dữ liệu nguồn sai.**
+7. Nêu patch nhỏ nhất và rollback trước khi chỉnh production.
 
 ## 3. Nguyên tắc dữ liệu và channel library
 
@@ -127,9 +128,10 @@ Chỉ được nói **“xong”** sau `PROD VERIFIED` và `DOC UPDATED`.
 
 Cập nhật **cả hai**:
 
-### A. `NHAT_KY.md`
+### A. `CURRENT_WORK.md` + `NHAT_KY.md`
 
-Ghi: thời gian, branch, base/commit, owner layer, nguyên nhân, patch, test, deploy, production, data impact, rollback.
+- `CURRENT_WORK.md`: cập nhật incident gần nhất, owner, bằng chứng, commit/runtime, production verify, việc còn lại và next probe để chat sau đọc là tiếp tục được ngay.
+- `NHAT_KY.md`: ghi thời gian, branch, base/commit, owner layer, nguyên nhân, patch, test, deploy, production, data impact, rollback.
 
 ### B. Google Sheet **1988 - Vận hành kết nối bảo trì**
 
