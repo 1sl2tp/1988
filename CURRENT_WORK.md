@@ -86,6 +86,23 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.27. TikTok VOD demo — TDown/TTDownloader resolve direct URL trước khi play
+
+Thời gian: **2026-10-04**.
+
+- Lỗi gốc: demo coi `tdown` và `ttdownloader` là `EDGE_VOD_SOURCES`, nên `resolveVodDirect()` chỉ tạo URL `/tiktok/video-stream?...source=...` tức thì. Dòng `link 0.00s` là URL relay của Cloud Worker, **không phải direct URL thật từ provider**.
+- Sửa:
+  - thêm endpoint JSON `/tiktok/video-resolve` chỉ cho `tdown` và `ttdownloader`;
+  - endpoint chỉ resolve và trả `{ ok, source, url }`, **không truyền media bytes**;
+  - UI chờ JSON xong mới gán `video.src = directUrl`;
+  - TDown trả `download_url` thật từ TDown;
+  - TTDownloader lấy đúng hàng `No watermark (HD)` / `#results-list > div:nth-child(2) > div.download > a`;
+  - sửa thông báo `video.play()`: chỉ `NotAllowedError` mới ghi autoplay; lỗi khác hiển thị `PLAY LỖI`.
+- Commit: `69663e2ef26678d640408af712ebce778dd04af2`.
+- Deploy 1988 Player run `37157204362`: **SUCCESS**.
+- Deploy TikTok Live State Edge run `37157204373`: **SUCCESS**; edge contracts PASS, Worker deploy PASS, zero LIVE schedules PASS.
+- Không đổi TikTok LIVE.
+
 ### 3.26. TikTok VOD demo — KHÔI PHỤC MỐC KNOWN-GOOD e271
 
 Thời gian: **2026-10-04**.

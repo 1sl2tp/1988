@@ -1,3 +1,12 @@
+## 2026-10-04 — Sửa TDown/TTDownloader lấy direct URL trước khi play
+
+- Root cause: demo dùng `/tiktok/video-stream` như thể đó là link provider, nên hiện `link 0.00s` dù chưa resolve direct URL.
+- Thêm `/tiktok/video-resolve` trả JSON direct URL cho TDown/TTDownloader; browser phát direct provider URL, Cloud không relay media bytes.
+- TTDownloader đọc đúng `No watermark (HD)`.
+- Commit `69663e2ef26678d640408af712ebce778dd04af2`.
+- Player run `37157204362`: SUCCESS.
+- Edge run `37157204373`: SUCCESS.
+
 ## 2026-10-04 — Khôi phục TikTok VOD demo về known-good e271
 
 - Theo ảnh người dùng, quay lại đúng mốc commit `e2717d5df2cabee04f9de91d5fe89030206c68e4`.
