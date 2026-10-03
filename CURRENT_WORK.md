@@ -84,6 +84,67 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.5. Incident mới nhất — Egress tăng do full source-state bị tải lặp
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng:
+- Supabase Free plan Egress tăng lên **1.49 / 5 GB**.
+- Log 6 giờ gần nhất trước sửa:
+  - `yt1988-state`: 1,545 request;
+  - response khoảng **228.4 MB**;
+  - chiếm phần lớn Edge Function response bytes.
+- Cloudflare YouTube LIVE và browser đều đang GET full `yt1988-state`.
+- Full response chứa source-state + 1,231 YouTube channels + 173 TikTok channels + profile/description/stats nên mỗi lần có thể ~0.5 MB.
+
+Contract mới:
+```text
+MAIN
+→ GET state manifest nhỏ
+→ stateHash không đổi: dùng cache
+→ stateHash đổi: GET state-lite
+
+Cloudflare YouTube LIVE
+→ chỉ GET state-lite
+→ selected/blocked/suggested ids + source labels/LIVE keywords
+→ không channelLibrary/TikTok profile
+
+/sources/
+→ IndexedDB: manifest + lite + library
+→ luôn check manifest nhỏ
+→ stateHash đổi mới tải lite
+→ libraryHash đổi mới tải channel library
+```
+
+Patch:
+- `yt1988-state`:
+  - `?view=manifest`;
+  - `?view=lite`;
+  - `?view=library`;
+  - default full giữ để tương thích client cũ.
+- lite không còn `channelLibrary`, TikTok profile, description/stats, `customSources`/avatar duplicate.
+- `libraryHash` chỉ phụ thuộc channel directory + TikTok profile; chọn/chặn kênh không làm tải lại library.
+- MAIN dùng manifest + local lite cache; không prime full channelLibrary ở startup.
+- `/sources/` cache library trong IndexedDB `yt1988-source-cache-v1`.
+- Cloudflare Worker dùng `STATE_URL+"?view=lite"`.
+- PWA cache `v74`; `sources.js?v=22`.
+- `yt1988-state v11` ACTIVE.
+
+Production measurements:
+- manifest raw JSON: **236 bytes**.
+- lite raw JSON: **24,723 bytes** sau tối ưu; trước đó 256,089 bytes.
+- Cloudflare production targeted sync log: URL `?view=lite`, transmitted content length khoảng **16,275 bytes**.
+- library raw JSON hiện ~1.40 MB, nhưng chỉ tải khi mở `/sources/` và `libraryHash` thay đổi.
+- targeted LIVE sync Dân Ca Lofi vẫn HTTP 200, không full scan.
+- frontend deploy run `37136133606`: SUCCESS.
+
+Rule:
+- MAIN/Cloudflare **cấm GET full yt1988-state**.
+- Full channel library chỉ thuộc source manager.
+- Source selection/block chỉ đổi stateHash, không đổi libraryHash.
+- Library cache invalidation chỉ khi canonical channel/TikTok profile data thay đổi.
+- Khi hash không đổi, không tải lại payload lớn.
+
 ### 3.4. Incident mới nhất — Trạng thái Chọn/Chặn và LIVE kế thừa không đồng bộ
 
 Thời gian: **2026-10-03**.
