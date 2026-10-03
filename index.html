@@ -3498,6 +3498,10 @@ html.viewer-active.one-col body{
   html.viewer-active.two-col .rows{
     grid-template-columns:minmax(0,1fr)!important;
   }
+  /* Queue means next choices; do not repeat the video already in the viewer. */
+  html.viewer-active.two-col .row.selected{
+    display:none!important;
+  }
 }
 
 
