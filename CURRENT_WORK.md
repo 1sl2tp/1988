@@ -86,6 +86,19 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.24. TikTok demo VOD — 2 video mẫu cố định
+
+Thời gian: **2026-10-04**.
+
+- Bỏ hoàn toàn việc tải 5 video gần nhất trong demo.
+- Demo luôn có đúng 2 VOD mẫu:
+  - dài: `@giadinhnhaman / 7691953502813293832`;
+  - ngắn: `@emlinhday201 / 7687601468794277128`.
+- Mỗi sample tự mang `handle + videoId`; player VOD dùng đúng handle của sample, không dùng handle của ô LIVE.
+- VOD vẫn thử TikWM/TDown theo contract hiện tại.
+- Không đổi MAIN.
+- TikTok LIVE direct rule 3.23 giữ nguyên; lượt sửa này không thay runtime LIVE.
+
 ### 3.23. KHÓA KIẾN TRÚC — TikTok LIVE direct từ API TikTok qua Cloud
 
 Thời gian: **2026-10-04**.

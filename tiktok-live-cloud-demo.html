@@ -34,7 +34,7 @@
     <section class="panel">
       <div class="head">Kênh / LIVE</div>
       <div class="body" id="liveBox"><div class="empty">Chưa kiểm tra.</div></div>
-      <div class="head">5 video gần nhất</div>
+      <div class="head">2 video mẫu</div>
       <div class="body vods" id="vods"><div class="empty">Chưa tải video.</div></div>
     </section>
     <section class="panel">
@@ -59,7 +59,22 @@ const nowEl=document.getElementById("now");
 let flvPlayer=null;
 let handle="";
 let liveItem=null;
-let videos=[];
+let videos=[
+  {
+    kind:"long",
+    handle:"giadinhnhaman",
+    id:"7691953502813293832",
+    title:"Video dài mẫu",
+    pageUrl:"https://www.tiktok.com/@giadinhnhaman/video/7691953502813293832"
+  },
+  {
+    kind:"short",
+    handle:"emlinhday201",
+    id:"7687601468794277128",
+    title:"Video ngắn mẫu",
+    pageUrl:"https://www.tiktok.com/@emlinhday201/video/7687601468794277128"
+  }
+];
 let vodOpenCount=0;
 let vodSeq=0;
 
@@ -109,16 +124,14 @@ function renderLive(state){
   });
 }
 function renderVideos(){
-  const rows=videos.slice(0,5);
-  if(!rows.length){vodsEl.innerHTML='<div class="empty">Kênh này chưa có video trong thư viện.</div>';return}
-  vodsEl.innerHTML=rows.map((v,i)=>{
-    const cover=String(v?.cover?.url||v?.cover?.sourceUrl||v?.thumbnail||"");
-    const title=String(v?.title||("Video "+v?.id));
-    return '<button class="vod" data-i="'+i+'">'+
-      (cover?'<img class="cover" src="'+esc(cover)+'" alt="">':'<div class="cover"></div>')+
-      '<div><div class="vtitle">'+esc(title)+'</div><div class="vmeta">'+Number(v?.duration||0)+'s · '+esc(String(v?.id||""))+'</div></div></button>';
-  }).join("");
+  vodsEl.innerHTML=videos.map((v,i)=>
+    '<button class="vod" data-i="'+i+'">'+
+      '<div class="cover fallback">'+(v.kind==="long"?"DÀI":"NGẮN")+'</div>'+
+      '<div><div class="vtitle">'+esc(v.title)+'</div>'+
+      '<div class="vmeta">@'+esc(v.handle)+' · '+esc(v.id)+'</div></div></button>'
+  ).join("");
 }
+
 function playLive(item){
   stop();
   const direct=String(item?.streamUrl||"");
@@ -160,7 +173,7 @@ function playVod(index){
   const second=first==="tikwm"?"tdown":"tikwm";
   const sources=[first,second];
   let attempt=0;
-  nowEl.textContent=(item.title||("Video "+item.id))+" · "+first.toUpperCase();
+  nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · "+first.toUpperCase();
   const open=()=>{
     if(mySeq!==vodSeq)return;
     const source=sources[attempt];
@@ -168,13 +181,13 @@ function playVod(index){
       if(mySeq!==vodSeq)return;
       attempt++;
       if(attempt<sources.length){
-        nowEl.textContent=(item.title||("Video "+item.id))+" · fallback "+sources[attempt].toUpperCase();
+        nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · fallback "+sources[attempt].toUpperCase();
         open();
       }else{
         statusEl.textContent="Video lỗi cả TikWM và TDown.";
       }
     };
-    video.src=mediaUrl(handle,item.id,source);
+    video.src=mediaUrl(item.handle,item.id,source);
     video.load();
     video.play().catch(()=>{});
   };
@@ -189,21 +202,20 @@ async function inspect(raw){
   if(!h){statusEl.textContent="Link/handle TikTok không hợp lệ.";return}
   handle=h;
   liveItem=null;
-  videos=[];
   stop();
   liveBox.innerHTML='<div class="empty">Đang kiểm tra @'+esc(h)+'…</div>';
-  vodsEl.innerHTML='<div class="empty">Đang lấy 5 video…</div>';
-  statusEl.textContent="Đang lấy LIVE + 5 video của @"+h+"…";
+  vodsEl.innerHTML='<div class="empty">2 video mẫu cố định</div>';
+  statusEl.textContent="Đang kiểm tra LIVE của @"+h+"…";
   try{
     const profile=await json(
       RENDER+"/tiktok/profile?user="+encodeURIComponent(h)+"&limit=5&t="+Date.now(),
       30000
     );
     liveItem=profile?.live||null;
-    videos=Array.isArray(profile?.videos)?profile.videos.slice(0,5):[];
+    renderVideos();
     renderLive({status:liveItem?2:4});
     renderVideos();
-    statusEl.textContent="@"+h+" · "+(liveItem?"đang LIVE":"không LIVE")+" · "+videos.length+" video";
+    statusEl.textContent="@"+h+" · "+(liveItem?"đang LIVE":"không LIVE")+" · 2 video mẫu";
   }catch(e){
     statusEl.textContent="Lỗi kiểm tra: "+String(e?.message||e);
     liveBox.innerHTML='<div class="empty">Không lấy được LIVE.</div>';
@@ -211,6 +223,7 @@ async function inspect(raw){
   }
 }
 form.addEventListener("submit",e=>{e.preventDefault();inspect(input.value)});
+renderVideos();
 inspect(input.value);
 </script>
 </body>
