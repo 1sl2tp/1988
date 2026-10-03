@@ -887,15 +887,6 @@ function applyUnifiedLibrary(data){
           comments:Number(v?.stats?.comments||0),
           shares:Number(v?.stats?.shares||0),
           collects:Number(v?.stats?.collects||0)
-        },
-        playback:{
-          type:String(v?.playback?.type||'mp4'),
-          ready:Boolean(v?.playback?.ready),
-          url:String(v?.playback?.url||''),
-          proxyUrl:String(v?.playback?.proxyUrl||''),
-          source:String(v?.playback?.source||''),
-          expiresAt:v?.playback?.expiresAt||null,
-          updatedAt:v?.playback?.updatedAt||null
         }
       }))
       .filter(v=>/^\d{8,}$/.test(v.id));
