@@ -84,11 +84,17 @@ assert.doesNotMatch(
 const mp4PersistStart=server.indexOf('async function persistTikTokCanonicalMp4Source');
 const mp4PersistEnd=server.indexOf('function collectTikTokOriginPlayUrls',mp4PersistStart);
 const mp4Persist=server.slice(mp4PersistStart,mp4PersistEnd);
-assert.match(
+assert.doesNotMatch(
   mp4Persist,
-  /if\(packageMetaChanged\)await persistTikTokCanonicalPackage\(\)/,
-  'signed MP4 refresh must not rewrite the full UI package unless durable metadata changes'
+  /upsertTikTokCanonicalRows|mp4_url\s*=/,
+  'signed MP4 URLs must stay RAM-only and never be written to canonical Supabase rows'
 );
+assert.match(server,/videos:'latest-10-per-channel'/,
+  'TikTok canonical package must declare bounded 10-video retention');
+assert.match(server,/async function pruneTikTokCanonicalVideos\(handles\)/,
+  'TikTok canonical writes must have one bounded retention owner');
+assert.match(server,/await pruneTikTokCanonicalVideos\(target\)/,
+  'targeted channel sync must prune canonical history back to the latest 10');
 
 console.log('tiktok-live-state-contract: assertions passed');
 
@@ -170,6 +176,21 @@ assert.match(
   server,
   /const RENDER_LIVE_BACKGROUND_SWEEP=String\(process\.env\.RENDER_LIVE_BACKGROUND_SWEEP\|\|'0'\)==='1';/,
   'Render recurring LIVE sweep must stay opt-in and off by default'
+);
+assert.doesNotMatch(
+  server,
+  /setInterval\(\(\)=>\{void ensureTikTokVideoPackageScan/,
+  'TikTok video discovery must not poll in the Render background'
+);
+assert.doesNotMatch(
+  server,
+  /setInterval\(\(\)=>\{void refreshTikTokCanonicalProfile/,
+  'TikTok profile metadata must refresh only for targeted demand'
+);
+assert.doesNotMatch(
+  server,
+  /setInterval\(\(\)=>\{void enrichNextTikTokCanonicalVideo/,
+  'TikTok video enrichment must not run as a background timer'
 );
 assert.match(
   server,

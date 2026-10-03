@@ -5324,32 +5324,6 @@ function lookupTikTokVideoSourceFast(rawHandle,rawId){
   if(!handle||!/^[0-9]{8,}$/.test(id))return null;
   const key=handle.toLowerCase()+':'+id;
 
-  if(tiktokCanonicalLoaded){
-    const stored=tiktokCanonicalVideos.get(id);
-    if(stored&&String(stored.handle||'').toLowerCase()===handle.toLowerCase()&&canonicalMp4Usable(stored)){
-      const data={
-        at:Date.now(),
-        handle,
-        id,
-        url:String(stored.mp4_url||''),
-        ext:'mp4',
-        mime:'',
-        headers:{
-          'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
-          'referer':'https://www.tiktok.com/@'+handle,
-          'accept':'*/*',
-          ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
-        },
-        width:Number(stored.width||0),
-        height:Number(stored.height||0),
-        duration:Number(stored.duration||0),
-        source:String(stored.mp4_source||'library')
-      };
-      tiktokVideoSourceCache.set(key,data);
-      return data;
-    }
-  }
-
   const cached=tiktokVideoSourceCache.get(key);
   if(cached&&tiktokVideoSourceReusable(cached))return cached;
   return null;
@@ -5377,44 +5351,11 @@ function queueTikTokVideoPriorityWarm(rawHandle,rawId,{force=false}={}){
 }
 
 async function persistTikTokCanonicalMp4Source(source){
-  if(!source?.handle||!source?.id||!isDirectTikTokMediaUrl(source.url))return false;
-  const ext=String(source?.ext||'').toLowerCase();
-  const width=Number(source?.width||0);
-  const height=Number(source?.height||0);
-  if(ext!=='mp4'||width<=0||height<=0){
-    console.log('[tiktok-mp4-library] reject non-video',source?.handle,source?.id,ext,width+'x'+height);
-    return false;
-  }
-  if(!tiktokCanonicalLoaded)return false;
-  const row=tiktokCanonicalVideos.get(String(source.id));
-  if(!row||String(row.handle||'').toLowerCase()!==String(source.handle||'').toLowerCase())return false;
-  const nextWidth=width>0?Math.round(width):Number(row.width||0);
-  const nextHeight=height>0?Math.round(height):Number(row.height||0);
-  const nextDuration=Number(source?.duration||0)>0
-    ?Math.round(Number(source.duration))
-    :Number(row.duration||0);
-  const packageMetaChanged=
-    nextWidth!==Number(row.width||0)||
-    nextHeight!==Number(row.height||0)||
-    nextDuration!==Number(row.duration||0);
-  const expiresAt=tiktokStreamExpiresAt(source.url)||Date.now()+10*60_000;
-  if(row.mp4_url===source.url&&canonicalMp4Usable(row,90_000)&&!packageMetaChanged)return true;
-  row.mp4_url=String(source.url||'');
-  row.mp4_expires_at=new Date(expiresAt).toISOString();
-  row.mp4_source=String(source.source||'yt-dlp');
-  row.mp4_updated_at=nowIso();
-  row.width=nextWidth;
-  row.height=nextHeight;
-  row.duration=nextDuration;
-  row.updated_at=nowIso();
-  tiktokCanonicalVideos.set(String(row.video_id),row);
-  await upsertTikTokCanonicalRows([], [row]);
-  // Signed URLs rotate frequently and are not part of the browser package.
-  // Rebuild the large package only if durable metadata changed.
-  if(packageMetaChanged)await persistTikTokCanonicalPackage();
-  console.log('[tiktok-mp4-library]',source.handle,source.id,'saved',row.mp4_source);
-  return true;
+  // Compatibility no-op. Signed/direct MP4 URLs are intentionally RAM-only.
+  // Never write rotating playback URLs into Supabase canonical metadata.
+  return Boolean(source?.handle&&source?.id);
 }
+
 function collectTikTokOriginPlayUrls(payload,wantedId){
   const out=[];
   const seenObj=new Set();
@@ -6479,36 +6420,8 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
 
   const key=handle.toLowerCase()+':'+id;
   if(force)tiktokVideoSourceCache.delete(key);
-  if(!force&&tiktokCanonicalLoaded){
-    const stored=tiktokCanonicalVideos.get(id);
-    if(stored&&String(stored.handle||'').toLowerCase()===handle.toLowerCase()&&canonicalMp4Usable(stored)){
-      const data={
-        at:Date.now(),
-        handle,
-        id,
-        url:String(stored.mp4_url||''),
-        ext:'mp4',
-        mime:'',
-        headers:{
-          'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
-          'referer':'https://www.tiktok.com/@'+handle,
-          'accept':'*/*',
-          ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
-        },
-        width:Number(stored.width||0),
-        height:Number(stored.height||0),
-        duration:Number(stored.duration||0),
-        source:String(stored.mp4_source||'library')
-      };
-      tiktokVideoSourceCache.set(key,data);
-      return data;
-    }
-  }
   const cached=tiktokVideoSourceCache.get(key);
-  if(cached&&tiktokVideoSourceReusable(cached)){
-    if(tiktokCanonicalLoaded)void persistTikTokCanonicalMp4Source(cached).catch(()=>{});
-    return cached;
-  }
+  if(cached&&tiktokVideoSourceReusable(cached))return cached;
 
   const existing=tiktokVideoSourceInflight.get(key);
   if(existing)return existing;
@@ -6571,9 +6484,6 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
       source:'yt-dlp'
     };
     tiktokVideoSourceCache.set(key,data);
-    await persistTikTokCanonicalMp4Source(data).catch(error=>{
-      console.log('[tiktok-mp4-library] save failed',handle,id,compactText(error?.message||error,120));
-    });
     console.log('[tiktok-video-source]',handle,id,'ok',data.ext,data.width+'x'+data.height);
     return data;
   })().finally(()=>tiktokVideoSourceInflight.delete(key));
@@ -7817,14 +7727,12 @@ function canonicalMergeVideo(handle,video){
   if(Number(video?.width||0)>0)next.width=Math.round(Number(video.width));
   if(Number(video?.height||0)>0)next.height=Math.round(Number(video.height));
 
-  const directMp4=String(video?.mp4Url||video?.mp4_url||video?.playback?.url||video?.playUrl||'').trim();
-  if(isDirectTikTokMediaUrl(directMp4)){
-    const expiresAt=tiktokStreamExpiresAt(directMp4)||Date.now()+10*60_000;
-    next.mp4_url=directMp4;
-    next.mp4_expires_at=new Date(expiresAt).toISOString();
-    next.mp4_source=canonicalText(video?.mp4Source||video?.mp4_source||video?.playback?.source,'yt-dlp');
-    next.mp4_updated_at=nowIso();
-  }
+  // Direct media URLs are rotating playback state. Canonical rows keep only
+  // durable channel/video metadata; playback sources stay in short-lived RAM.
+  next.mp4_url='';
+  next.mp4_expires_at=null;
+  next.mp4_source='';
+  next.mp4_updated_at=null;
 
   let statsChanged=false;
   for(const [key,value] of [
@@ -7989,7 +7897,7 @@ function buildTikTokCanonicalPackage(){
     recentVideoLimit:TIKTOK_LIBRARY_RECENT_VIDEOS,
     retention:{
       channels:'persistent-until-unselected',
-      videos:'append-only-by-video-id',
+      videos:'latest-10-per-channel',
       liveStream:'edge/transient-not-channel-profile',
       images:'current-reference-only-with-orphan-cleanup',
       videoPlayback:'resolved-on-demand-outside-ui-package'
@@ -8075,25 +7983,6 @@ async function loadTikTokCanonicalStore(){
       if(/^\d{8,}$/.test(id)&&handle){
         const canonical={...canonicalVideoDefault(handle,id),...row,video_id:id,handle};
         tiktokCanonicalVideos.set(id,canonical);
-        if(canonicalMp4Usable(canonical)){
-          tiktokVideoSourceCache.set(handle.toLowerCase()+':'+id,{
-            at:Date.now(),
-            handle,
-            id,
-            url:String(canonical.mp4_url||''),
-            ext:'mp4',
-            mime:'',
-            headers:{
-              'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
-              'referer':'https://www.tiktok.com/@'+handle,
-              'accept':'*/*'
-            },
-            width:Number(canonical.width||0),
-            height:Number(canonical.height||0),
-            duration:Number(canonical.duration||0),
-            source:String(canonical.mp4_source||'library')
-          });
-        }
       }
     }
     const pkg=Array.isArray(packageRows)?packageRows[0]:null;
@@ -8143,6 +8032,52 @@ async function upsertTikTokCanonicalRows(channelRows=[],videoRows=[]){
   }
   await Promise.all(tasks);
 }
+
+async function pruneTikTokCanonicalVideos(handles){
+  const wanted=new Set(
+    (Array.isArray(handles)?handles:[])
+      .map(normalizeTikTokHandle)
+      .filter(Boolean)
+      .map(x=>x.toLowerCase())
+  );
+  if(!wanted.size)return 0;
+
+  const byHandle=new Map();
+  for(const row of tiktokCanonicalVideos.values()){
+    const key=String(row?.handle||'').toLowerCase();
+    if(!wanted.has(key))continue;
+    if(!byHandle.has(key))byHandle.set(key,[]);
+    byHandle.get(key).push(row);
+  }
+
+  const stale=[];
+  for(const rows of byHandle.values()){
+    rows.sort((a,b)=>
+      Number(b.create_time||0)-Number(a.create_time||0)||
+      String(b.video_id||'').localeCompare(String(a.video_id||''))
+    );
+    stale.push(...rows.slice(TIKTOK_LIBRARY_RECENT_VIDEOS).map(x=>String(x.video_id||'')).filter(Boolean));
+  }
+  if(!stale.length)return 0;
+
+  for(const id of stale)tiktokCanonicalVideos.delete(id);
+  for(let i=0;i<stale.length;i+=200){
+    const ids=stale.slice(i,i+200);
+    const filter='in.('+ids.join(',')+')';
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_videos?video_id='+encodeURIComponent(filter),
+      {
+        method:'DELETE',
+        headers:storeHeaders({prefer:'return=minimal'}),
+        signal:AbortSignal.timeout(12_000)
+      }
+    );
+    if(!r.ok)throw new Error('tiktok_library_prune_'+r.status+':'+compactText(await r.text(),140));
+  }
+  console.log('[tiktok-library] pruned','videos='+stale.length,'channels='+wanted.size);
+  return stale.length;
+}
+
 function validateTikTokCanonicalPackage(payload){
   if(!payload||payload.schema!=='tiktok-library-v3'||!Array.isArray(payload.channels)){
     throw new Error('tiktok_library_package_invalid_shape');
@@ -8423,6 +8358,7 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
   }
 
   await upsertTikTokCanonicalRows(channelRows,videoRows);
+  await pruneTikTokCanonicalVideos(target);
   await persistTikTokCanonicalPackage();
   // MP4 URLs are resolved on demand by playback. Metadata/profile sync must
   // not force yt-dlp refreshes for unrelated videos.
@@ -11124,13 +11060,7 @@ server.listen(PORT,'0.0.0.0',()=>{
         'live='+tiktokRealtimeLiveHandles.size
       );
 
-      // Cloudflare owns recurring LIVE status. Render only runs a sweep on
-      // explicit fallback/refresh requests so idle bandwidth stays near zero.
-      if(RENDER_LIVE_BACKGROUND_SWEEP){
-        void runTikTokLiveMinuteSweep();
-        startTikTokLiveSweepScheduler();
-      }
-
+      // Cloudflare owns LIVE. Preview mode never starts a Render LIVE loop.
       // The exhaustive sweep above owns LIVE discovery. Do not run a second
       // 18/171-channel status burst here; that duplicate traffic was one cause
       // of TikTok 403s and missing LIVE channels.
@@ -11157,43 +11087,19 @@ server.listen(PORT,'0.0.0.0',()=>{
       return;
     }
 
-    // Startup must be read-mostly. Do not re-sync every selected channel, run
-    // full metadata bootstrap, repair every missing video, or full-resync all
-    // media after each deploy. Incremental workers below handle small batches.
-    if(canonicalReady){
-      setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},30_000).unref();
-      // Image URLs stay at origin; no background Storage mirror.
-    }
-
-    if(RENDER_LIVE_BACKGROUND_SWEEP){
-      void runTikTokLiveMinuteSweep();
-      startTikTokLiveSweepScheduler();
-    }else{
-      console.log('[tiktok-live] recurring Render sweep disabled; Cloudflare edge owns LIVE state');
-    }
-    // Cloudflare edge owns frequent video-change detection. Keep only a
-    // delayed single-channel recovery scan after startup.
-    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(1));},30*60_000).unref();
+    // Production TikTok is demand-driven. Supabase already contains the durable
+    // library; Render only refreshes the specific channel requested by UI/edge.
+    // No startup/interval profile scan, video scan, media warm, or LIVE sweep.
+    console.log(
+      '[tiktok-library] on-demand only',
+      'channels='+tiktokCanonicalChannels.size,
+      'videos='+tiktokCanonicalVideos.size
+    );
+    console.log('[tiktok-live] Cloudflare owns LIVE; Render background sweep disabled');
   });
-  if(AUTO_COLLECT){
-    // Recovery only: normal video discovery is edge-triggered by videoCount.
-    setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(1));},2*60*60_000).unref();
-    setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},5*60_000).unref();
-    setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},2*60*60_000).unref();
-    // No recurring image mirror: keep only source URLs in metadata.
-    setInterval(()=>{void enrichNextTikTokCanonicalVideo();},15*60_000).unref();
-  }
 
   for(const platform of PLATFORMS)void loadSnapshot(platform);
-  if(AUTO_COLLECT&&LEGACY_TIKTOK_FEED_COLLECT){
-    void getBrowser()
-      .then(()=>console.log('[collector] browser prewarmed'))
-      .catch(error=>console.warn('[collector] browser prewarm failed',String(error?.message||error)));
-    setTimeout(()=>{void schedulerTick();},8000).unref();
-    setInterval(()=>{void schedulerTick();},30000).unref();
-  }else{
-    console.log('[collector] legacy TikTok feed polling disabled; edge/on-demand paths remain active');
-  }
+  console.log('[collector] TikTok background polling disabled; targeted routes remain active');
 });
 
 const shutdown=async()=>{
