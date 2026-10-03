@@ -6765,31 +6765,25 @@ html.tiktok-ui.tiktok-watch .rows{
       const age=Date.now()-Number(saved?.at||0);
       if(!saved||age<0||age>5*60_000||!Array.isArray(saved?.items))return false;
 
-      const youtube=[];
       const tiktok=[];
       for(const meta of saved.items){
         if(!meta?.id||meta?.isLive!==true)continue;
-        if(String(meta?.provider||"youtube").toLowerCase()==="tiktok")tiktok.push(meta);
-        else youtube.push(meta);
-      }
-      if(youtube.length){
-        youtubeEdgeLiveMetas=youtube;
-        youtubeEdgeLiveReady=true;
+        if(String(meta?.provider||"").toLowerCase()==="tiktok")tiktok.push(meta);
       }
       if(tiktok.length){
         tiktokLiveMetas=tiktok;
         tiktokLiveReady=true;
       }
-      return youtube.length>0||tiktok.length>0;
+      return tiktok.length>0;
     }catch{
       return false;
     }
   }
 
   function saveClientLiveSnapshot(){
-    if(!youtubeEdgeLiveReady&&!tiktokLiveReady)return false;
+    if(!tiktokLiveReady)return false;
     try{
-      const items=mergeUnifiedLiveFeed(packageCache.get("live")||[])
+      const items=(Array.isArray(tiktokLiveMetas)?tiktokLiveMetas:[])
         .slice(0,36)
         .map(meta=>({...meta}));
       localStorage.setItem(
@@ -7243,131 +7237,9 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function currentYoutubeLiveMetas(fallback=[]){
-    const base=Array.isArray(fallback)?fallback:[];
-
-    const finalize=(items=[])=>items
-      .map(meta=>{
-        const sourceName=String(meta?.sourceName||"").trim();
-        const cleaned=cleanYoutubeLiveDisplayTitle(meta?.title||"",sourceName);
-        return {
-          ...meta,
-          title:cleaned||"Đang trực tiếp"
-        };
-      })
-      .filter(meta=>!youtubeLiveSourceBlocked(meta?.sourceId))
-      .filter(meta=>!clientLiveKeywordBlocked(meta))
-      .sort((a,b)=>
-        Number(youtubeLiveSourceSelected(b?.sourceId))-
-        Number(youtubeLiveSourceSelected(a?.sourceId))
-      );
-
-    if(!youtubeEdgeLiveReady)return finalize(base);
-
-    // Old LIVE package/source rows remain the metadata dictionary only.
-    // Cloudflare decides the membership (which videoIds are LIVE now).
-    const byId=new Map(base.map(meta=>[String(meta?.id||""),meta]));
-    const bySource=new Map(
-      base
-        .filter(meta=>String(meta?.sourceId||"").trim())
-        .map(meta=>[String(meta.sourceId).trim(),meta])
-    );
-
-    const next=youtubeEdgeLiveMetas
-      .map(edge=>{
-        const edgeSourceId=String(edge?.sourceId||"").trim();
-        const fallbackMeta=
-          byId.get(String(edge?.id||""))||
-          (edgeSourceId?bySource.get(edgeSourceId):null)||
-          {};
-
-        const resolvedSourceId=
-          edgeSourceId||
-          String(fallbackMeta?.sourceId||"").trim();
-
-        // Do not spread the sparse edge object over the package row: empty
-        // sourceName/avatar/views used to erase the complete YouTube card.
-        const fallbackLiveViewsLabel=
-          /(?:đang xem|watching)/i.test(String(fallbackMeta?.viewsLabel||""))
-            ?String(fallbackMeta.viewsLabel).trim()
-            :"";
-        const merged={
-          ...fallbackMeta,
-          id:String(edge?.id||fallbackMeta?.id||"").trim(),
-          provider:"youtube",
-          isLive:true,
-          sourceId:resolvedSourceId,
-          title:String(
-            edge?.title||
-            fallbackMeta?.title||
-            edge?.sourceName||
-            fallbackMeta?.sourceName||
-            "Đang trực tiếp"
-          ).trim(),
-          sourceName:String(
-            edge?.sourceName||
-            fallbackMeta?.sourceName||
-            ""
-          ).trim(),
-          sourceAvatar:String(
-            edge?.sourceAvatar||
-            fallbackMeta?.sourceAvatar||
-            ""
-          ).trim(),
-          thumbnail:String(
-            edge?.thumbnail||
-            fallbackMeta?.thumbnail||
-            ("https://i.ytimg.com/vi/"+encodeURIComponent(String(edge?.id||fallbackMeta?.id||""))+"/hqdefault.jpg")
-          ).trim(),
-          livePreview:String(
-            edge?.livePreview||
-            edge?.thumbnail||
-            fallbackMeta?.livePreview||
-            fallbackMeta?.thumbnail||
-            ""
-          ).trim(),
-          viewerCount:Math.max(
-            0,
-            Number(edge?.viewerCount)||Number(fallbackMeta?.viewerCount)||0
-          ),
-          viewsLabel:String(
-            edge?.viewsLabel||
-            fallbackLiveViewsLabel||
-            ""
-          ).trim(),
-          publishedLabel:"Đang trực tiếp",
-          durationLabel:"",
-          duration:-1,
-          uploaded:-1,
-          verified:edge?.verified===true||fallbackMeta?.verified===true,
-          mediaKind:String(fallbackMeta?.mediaKind||"landscape"),
-          aspectRatio:validMediaAspect(fallbackMeta?.aspectRatio)||16/9,
-          videoWidth:Number(fallbackMeta?.videoWidth)||0,
-          videoHeight:Number(fallbackMeta?.videoHeight)||0,
-          _aspectVerified:fallbackMeta?._aspectVerified===true,
-          _aspectSource:String(fallbackMeta?._aspectSource||"youtube-live-edge"),
-          _liveOrigin:String(edge?._liveOrigin||fallbackMeta?._liveOrigin||"cloudflare"),
-          _liveItem:String(edge?._liveItem||fallbackMeta?._liveItem||""),
-          checkedAt:Number(edge?.checkedAt||fallbackMeta?.checkedAt||0)
-        };
-
-        const identity=resolvedSourceIdentity(merged);
-        merged.sourceId=String(identity?.sourceId||merged.sourceId||"").trim();
-        merged.sourceName=String(identity?.sourceName||merged.sourceName||"").trim();
-        merged.sourceAvatar=String(identity?.sourceAvatar||merged.sourceAvatar||"").trim();
-        merged.title=
-          cleanYoutubeLiveDisplayTitle(merged.title,merged.sourceName)||
-          "Đang trực tiếp";
-
-        if(!merged.viewsLabel&&merged.viewerCount){
-          merged.viewsLabel=compactLiveViewerCount(merged.viewerCount);
-        }
-        return merged;
-      });
-
-    // Client repeats the canonical filters as a safety net. That way a stale
-    // edge snapshot cannot re-introduce a blocked channel/keyword while the
-    // next Cloudflare scan is still pending.
-    return finalize(next);
+    // Legacy compatibility only. YouTube LIVE visible membership is exactly
+    // the prepared package and is never filtered/merged with edge state here.
+    return Array.isArray(fallback)?fallback:[];
   }
 
   async function fetchYoutubeLiveSnapshot({signal=null}={}){
@@ -7550,18 +7422,14 @@ html.tiktok-ui.tiktok-watch .rows{
     provider=String(provider||"").toLowerCase();
     if(!liveDemandActive(provider))return false;
 
-    const next=liveMetasForProvider(
-      provider,
-      packageCache.get("live")||[]
-    );
-    feedMetas=next;
-
-    // A discovered YouTube LIVE must become a canonical channel-library row
-    // even when the old package never contained that channel/avatar.
     if(provider==="youtube"){
-      queueDiscoveredYoutubeHydration(next,"live-discovery");
+      // Cloudflare never paints YouTube. Membership + link + title + channel
+      // identity all come from the prepared Supabase package.
+      paintSyncedPackage("live",packageCache.get("live")||[]);
+      return true;
     }
 
+    feedMetas=liveMetasForProvider(provider,[]);
     renderSampleContent();
     return true;
   }
@@ -7606,20 +7474,11 @@ html.tiktok-ui.tiktok-watch .rows{
           state?.done!==true
         )return false;
 
-        const snapshot=await fetchYoutubeLiveSnapshot({signal:controller.signal});
-        if(seq!==youtubeLiveScanSeq||!scanAllowed())return false;
-
-        youtubeEdgeLiveMetas=snapshot.metas;
-        youtubeEdgeLiveReady=true;
+        // The completed edge cycle is only a discovery/wake signal.
+        // Do not copy its items into browser feed state and do not repair
+        // package title/avatar/viewers on the client.
         youtubeLiveLastCycleAt=Date.now();
         liveDiscoveryLastAt=youtubeLiveLastCycleAt;
-
-        // The previous LIVE array stays untouched until this full scan + snapshot
-        // succeeds. Background warming therefore never clears the visible list
-        // halfway through a refresh.
-        if(paint&&liveDemandActive("youtube"))paintUnifiedLiveFromEdge("youtube");
-        void hydrateMissingYoutubeLiveAvatars({paint:paint&&liveDemandActive("youtube")});
-        void hydrateMissingYoutubeLiveViewers({paint:paint&&liveDemandActive("youtube")});
         return true;
       }catch(error){
         if(error?.name!=="AbortError"){
@@ -9070,7 +8929,8 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function renderCurrentInfo(){
-    if(currentMeta&&!currentMeta.sourceAvatar&&currentMeta.sourceId){
+    const packageAuthoritative=packageYoutubeIdentityAuthoritative(currentMeta||{});
+    if(!packageAuthoritative&&currentMeta&&!currentMeta.sourceAvatar&&currentMeta.sourceId){
       const identity=localSourceIdentity(currentMeta.sourceId);
       if(identity?.sourceAvatar&&!currentMeta.sourceAvatar){
         currentMeta.sourceAvatar=identity.sourceAvatar;
@@ -9144,10 +9004,23 @@ html.tiktok-ui.tiktok-watch .rows{
     '</svg>';
   }
 
+  function packageYoutubeIdentityAuthoritative(meta={}){
+    return (
+      feedMode==="package" &&
+      String(meta?.provider||"youtube").toLowerCase()==="youtube"
+    );
+  }
+
   function avatarMarkup(meta,eager=false){
-    // Resolve the avatar from the exact row first, then channelId, then the
-    // canonical source directory / same channel name already present locally.
-    const identity=resolvedSourceIdentity(meta);
+    // Prepared YouTube packages are authoritative. Never repair a package
+    // avatar/name from client caches, edge snapshots or another channel row.
+    const authoritative=packageYoutubeIdentityAuthoritative(meta);
+    const identity=authoritative
+      ?{
+          sourceName:String(meta?.sourceName||"").trim(),
+          sourceAvatar:String(meta?.sourceAvatar||"").trim()
+        }
+      :resolvedSourceIdentity(meta);
     const avatar=String(identity?.sourceAvatar||"").trim();
     if(avatar){
       return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
@@ -10851,7 +10724,11 @@ html.tiktok-ui.tiktok-watch .rows{
       // leave the browser's broken-image glyph on the card.
       if(img.dataset.youtubeLiveFinal!=="1"){
         img.dataset.youtubeLiveFinal="1";
-        const avatar=String(resolvedSourceIdentity(meta)?.sourceAvatar||meta?.sourceAvatar||"").trim();
+        const avatar=String(
+          packageYoutubeIdentityAuthoritative(meta)
+            ?(meta?.sourceAvatar||"")
+            :(resolvedSourceIdentity(meta)?.sourceAvatar||meta?.sourceAvatar||"")
+        ).trim();
         if(avatar){
           img.src=avatar;
           return;
@@ -11146,7 +11023,12 @@ html.tiktok-ui.tiktok-watch .rows{
 
   function feedVisualSignature(cards=[]){
     return cards.map(meta=>{
-      const identity=resolvedSourceIdentity(meta);
+      const identity=packageYoutubeIdentityAuthoritative(meta)
+        ?{
+            sourceName:String(meta?.sourceName||"").trim(),
+            sourceAvatar:String(meta?.sourceAvatar||"").trim()
+          }
+        :resolvedSourceIdentity(meta);
       return [
       String(meta?.id||""),
       String(meta?.thumbnail||""),
@@ -11185,7 +11067,12 @@ html.tiktok-ui.tiktok-watch .rows{
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
-    const renderLimit=feedMode==="tiktok-video"?60:18;
+    const renderLimit=
+      feedMode==="tiktok-video"
+        ?60
+        :(feedMode==="package"&&activePackageScope==="live"
+          ?cards.length
+          :18);
     const rendered=cards.slice(0,renderLimit);
     const signature=feedVisualSignature(rendered);
 
