@@ -776,3 +776,21 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Deploy run `37145430565` SUCCESS; contracts/build/deploy/custom-domain PASS.
 - Không đổi backend/data/network/polling.
 - Rollback: `9eca8ad3717573370d730ccb21d00611f9545376`.
+
+
+## 2026-10-04 — TikTok VOD slow-open — bounded provider failover
+
+- Base: `375204cdaa21b1925d6cd8f875caba2cb0005034`.
+- Root cause:
+  - provider resolver/media open không có timeout cứng;
+  - warm winner `native` bị `readVodWarmPreference` bỏ qua;
+  - warm cache hit resolve lại cả chain.
+- Patch:
+  - `d168c3c043cc587a9c012e87f53421558999bbc7`: timeout helpers + native warm winner + cached warm short path + contract.
+  - deploy đầu fail vì legacy contract còn khóa avc3; Worker chưa deploy.
+  - `5a9470aba20d3db74d0c631ae6cbe42bffa53ea1`: contract avc4 + TDown direct abort.
+- Limits: resolve 2200 ms, media-open 1800 ms, probe 1400 ms.
+- Deploy TikTok Live State Edge run `37146003420`: SUCCESS.
+- Không thêm provider/polling/cron/fan-out; one provider call per source per click vẫn giữ nguyên.
+- Không có direct latency probe vì tool environment không resolve workers.dev.
+- Rollback: `375204cdaa21b1925d6cd8f875caba2cb0005034`.
