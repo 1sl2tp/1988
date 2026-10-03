@@ -318,7 +318,6 @@ Deno.serve(async (req) => {
         sourceLabels: savedLabels,
         avatars: {}
       };
-      const customById = new Map<string, any>();
       let version = Math.max(0, Number(legacy?.version) || 0);
       let updatedAt = String(legacy?.updated_at || "");
 
@@ -345,24 +344,13 @@ Deno.serve(async (req) => {
           if (!Array.isArray(state.scopedSuggested[scope])) state.scopedSuggested[scope] = [];
           state.scopedSuggested[scope].push(id);
         }
-
-        // Lite identity is only for source controls/LIVE targeting. Do not copy
-        // description/profile/stats/TikTok library into this response.
-        if (status === "selected" || status === "blocked") {
-          const name = cleanText(row?.name, 180);
-          const thumbnailUrl = cleanText(row?.thumbnail_url, 1000);
-          const subscribers = cleanText(row?.subscribers, 120);
-          if (name || thumbnailUrl || subscribers) {
-            const current = customById.get(id) || { id, name: "", thumbnailUrl: "", subscribers: "" };
-            if (name) current.name = name;
-            if (thumbnailUrl) current.thumbnailUrl = thumbnailUrl;
-            if (subscribers) current.subscribers = subscribers;
-            customById.set(id, current);
-            if (current.thumbnailUrl) state.avatars[id] = current.thumbnailUrl;
-          }
-        }
       }
-      state.customSources = [...customById.values()];
+
+      // Identity does not belong in lite state. Cloudflare only needs channel
+      // membership + LIVE keywords. MAIN gets card identity from packages/search.
+      // /sources/ gets canonical name/avatar/profile from view=library and caches it.
+      state.customSources = [];
+      state.avatars = {};
 
       const hashtagUpdated = hashtags.reduce(
         (max: string, row: any) => String(row?.updatedAt || "") > max ? String(row.updatedAt) : max,
