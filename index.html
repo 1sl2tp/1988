@@ -4292,6 +4292,120 @@ html.tiktok-ui.tiktok-watch .rows{
     return channelDirectoryFlushPromise;
   }
 
+  // Search/LIVE are discovery surfaces: a card may arrive before the canonical
+  // channel directory knows its id/avatar/name. Paint first, then hydrate the
+  // missing identity in the background and persist it into the shared library.
+  const discoveredYoutubeHydrationPending=new Map();
+  const discoveredYoutubeHydrationQueue=[];
+  let discoveredYoutubeHydrationWorkers=0;
+  const DISCOVERED_YOUTUBE_HYDRATION_CONCURRENCY=4;
+
+  function youtubeDiscoveryNeedsHydration(meta={}){
+    if(String(meta?.provider||"youtube").toLowerCase()!=="youtube")return false;
+    const id=String(meta?.id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
+    return (
+      !/^UC[A-Za-z0-9_-]+$/.test(String(meta?.sourceId||"").trim())||
+      !String(meta?.sourceName||"").trim()||
+      !String(meta?.sourceAvatar||"").trim()
+    );
+  }
+
+  async function hydrateDiscoveredYoutubeMeta(meta={},source="discovery"){
+    const id=String(meta?.id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
+
+    // If the discovery row already contains a complete channel identity, write
+    // it immediately; no extra metadata request is needed.
+    queueYoutubeChannelDirectory(meta,source);
+    if(!youtubeDiscoveryNeedsHydration(meta))return true;
+    if(discoveredYoutubeHydrationPending.has(id)){
+      return discoveredYoutubeHydrationPending.get(id);
+    }
+
+    const task=(async()=>{
+      try{
+        if(!window.YT1988_API?.video)return false;
+        const payload=await window.YT1988_API.video(id);
+        const full=cardMetaFromRow(dataRow(payload));
+        if(!full?.id)return false;
+
+        const sourceId=String(full?.sourceId||meta?.sourceId||"").trim();
+        const sourceName=String(full?.sourceName||meta?.sourceName||"").trim();
+        const sourceAvatar=String(full?.sourceAvatar||meta?.sourceAvatar||"").trim();
+
+        if(sourceId&&!meta.sourceId)meta.sourceId=sourceId;
+        if(sourceName&&!meta.sourceName)meta.sourceName=sourceName;
+        if(sourceAvatar&&!meta.sourceAvatar)meta.sourceAvatar=sourceAvatar;
+
+        // Video thumbnail/live preview is session/UI state, not channel-library
+        // state. It may fill the visible card, but queueYoutubeChannelDirectory
+        // only persists channel identity fields.
+        if(!String(meta?.thumbnail||"").trim()&&String(full?.thumbnail||"").trim()){
+          meta.thumbnail=String(full.thumbnail).trim();
+        }
+
+        const identity={sourceId,sourceName,sourceAvatar};
+        applySourceIdentityToVideo(id,identity);
+        queueYoutubeChannelDirectory({
+          ...full,
+          ...meta,
+          provider:"youtube",
+          sourceId,
+          sourceName,
+          sourceAvatar
+        },source);
+        return true;
+      }catch(_){
+        return false;
+      }finally{
+        discoveredYoutubeHydrationPending.delete(id);
+      }
+    })();
+
+    discoveredYoutubeHydrationPending.set(id,task);
+    return task;
+  }
+
+  function pumpDiscoveredYoutubeHydration(){
+    while(
+      discoveredYoutubeHydrationWorkers<DISCOVERED_YOUTUBE_HYDRATION_CONCURRENCY&&
+      discoveredYoutubeHydrationQueue.length
+    ){
+      const job=discoveredYoutubeHydrationQueue.shift();
+      if(!job)break;
+      discoveredYoutubeHydrationWorkers++;
+      void hydrateDiscoveredYoutubeMeta(job.meta,job.source)
+        .finally(()=>{
+          discoveredYoutubeHydrationWorkers--;
+          pumpDiscoveredYoutubeHydration();
+        });
+    }
+  }
+
+  function queueDiscoveredYoutubeHydration(metas=[],source="discovery"){
+    const seen=new Set();
+    for(const meta of Array.isArray(metas)?metas:[]){
+      if(String(meta?.provider||"youtube").toLowerCase()!=="youtube")continue;
+      const id=String(meta?.id||"").trim();
+      if(!/^[A-Za-z0-9_-]{11}$/.test(id)||seen.has(id))continue;
+      seen.add(id);
+
+      // Complete identities still go straight into the persistent directory.
+      queueYoutubeChannelDirectory(meta,source);
+      if(!youtubeDiscoveryNeedsHydration(meta))continue;
+      if(discoveredYoutubeHydrationPending.has(id))continue;
+      if(discoveredYoutubeHydrationQueue.some(job=>String(job?.meta?.id||"")===id))continue;
+      discoveredYoutubeHydrationQueue.push({meta,source});
+    }
+    pumpDiscoveredYoutubeHydration();
+    return seen.size;
+  }
+
+  addEventListener("pagehide",()=>{
+    if(channelDirectoryPending.size)void flushYoutubeChannelDirectory();
+  },{passive:true});
+
   function validMediaAspect(value){
     const ratio=Number(value)||0;
     if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)return 0;
@@ -5546,12 +5660,14 @@ html.tiktok-ui.tiktok-watch .rows{
 
   function applySourceIdentityToVideo(id,identity={}){
     id=String(id||"").trim();
+    const sourceId=String(identity?.sourceId||"").trim();
     const avatar=String(identity?.sourceAvatar||"").trim();
     const name=String(identity?.sourceName||"").trim();
-    if(!id||(!avatar&&!name))return false;
+    if(!id||(!sourceId&&!avatar&&!name))return false;
 
     const patchMeta=(meta)=>{
       if(!meta||String(meta.id||"").trim()!==id)return;
+      if(sourceId&&!meta.sourceId)meta.sourceId=sourceId;
       if(avatar&&!meta.sourceAvatar)meta.sourceAvatar=avatar;
       if(name&&!meta.sourceName)meta.sourceName=name;
     };
@@ -6669,6 +6785,13 @@ html.tiktok-ui.tiktok-watch .rows{
       packageCache.get("live")||[]
     );
     feedMetas=next;
+
+    // A discovered YouTube LIVE must become a canonical channel-library row
+    // even when the old package never contained that channel/avatar.
+    if(provider==="youtube"){
+      queueDiscoveredYoutubeHydration(next,"live-discovery");
+    }
+
     renderSampleContent();
     return true;
   }
@@ -6810,8 +6933,25 @@ html.tiktok-ui.tiktok-watch .rows{
     };
   }
 
+  function youtubeLivePreviewUrl(id="",variant="hqdefault_live.jpg"){
+    id=String(id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+    // LIVE preview is intentionally runtime-only. Do not save this URL into a
+    // package or channel directory; it can change while the stream is running.
+    const bucket=Math.floor(Date.now()/60_000);
+    return "https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/"+variant+"?live="+bucket;
+  }
+
   function livePreviewForMeta(meta={}){
     if(!meta?.isLive)return String(meta?.thumbnail||"").trim();
+    const provider=String(meta?.provider||"youtube").toLowerCase();
+    if(provider==="youtube"){
+      return (
+        youtubeLivePreviewUrl(meta?.id)||
+        String(meta?.livePreview||meta?.thumbnail||"").trim()||
+        String(meta?.sourceAvatar||"").trim()
+      );
+    }
     return String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
   }
   function tiktokLibraryChannelForHandle(handle=""){
@@ -9847,6 +9987,24 @@ html.tiktok-ui.tiktok-watch .rows{
       }
     }
 
+    const meta=feedMetas.find(item=>String(item?.id||"")===id);
+    if(meta?.isLive===true){
+      // LIVE preview belongs to runtime UI. After the live/static YouTube
+      // thumbnail fallbacks are exhausted, use the channel avatar once; never
+      // leave the browser's broken-image glyph on the card.
+      if(img.dataset.youtubeLiveFinal!=="1"){
+        img.dataset.youtubeLiveFinal="1";
+        const avatar=String(resolvedSourceIdentity(meta)?.sourceAvatar||meta?.sourceAvatar||"").trim();
+        if(avatar){
+          img.src=avatar;
+          return;
+        }
+      }
+      img.removeAttribute("src");
+      img.style.visibility="hidden";
+      return;
+    }
+
     const base=String(img.dataset.thumbBase||"").trim();
     if(base&&base!==img.src){
       img.dataset.thumbBase="";
@@ -10302,6 +10460,11 @@ html.tiktok-ui.tiktok-watch .rows{
     feedMetas=next;
     syncFeedHeader();
     primeMediaAspects(next,18);
+
+    // Search results are discovery input. Render immediately, then complete
+    // channel id/name/avatar in the background and persist it to the library.
+    queueDiscoveredYoutubeHydration(next,"search-discovery");
+
     renderSampleContent();
     rememberRecentSearch(query,next);
     return true;
