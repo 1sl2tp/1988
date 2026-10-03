@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v49-directory-avatar";
+const LIVE_PIPELINE_VERSION="live-v50-exact-title";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -623,6 +623,72 @@ async function enrichLiveRowsFromChannelDirectory(rest:string,headers:any,rows:a
   return list.map((row:any)=>{
     const sid=channelId(row);
     return applyLiveDirectoryIdentity(row,directory.get(sid));
+  });
+}
+
+function liveTitleNeedsExact(row:any){
+  const title=clean(row?._displayTitle||row?.title||"",300);
+  const sourceName=validChannelDisplayName(
+    row?._sourceName||row?.sourceName||row?.uploaderName||row?.uploader||""
+  );
+  if(!title)return true;
+  if(!sourceName)return false;
+  return compactTitleIdentity(title)===compactTitleIdentity(sourceName);
+}
+
+async function exactVideoMetaById(
+  supabaseUrl:string,
+  serviceKey:string,
+  id:string
+){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+  try{
+    const result=await fetchJson(
+      supabaseUrl+"/functions/v1/yt1988?action=video_meta&id="+encodeURIComponent(id),
+      {
+        "apikey":serviceKey,
+        "authorization":"Bearer "+serviceKey
+      },
+      6000
+    );
+    const data=result?.data||{};
+    return {
+      title:clean(data?.title||"",300),
+      sourceName:validChannelDisplayName(data?.uploaderName||data?.uploader||""),
+      thumbnailUrl:clean(data?.thumbnailUrl||data?.thumbnail||"",1000)
+    };
+  }catch{
+    return null;
+  }
+}
+
+async function enrichLiveRowsExactTitles(
+  supabaseUrl:string,
+  serviceKey:string,
+  rows:any[]
+){
+  const list=Array.isArray(rows)?rows:[];
+  const targets=list.filter((row:any)=>liveTitleNeedsExact(row));
+  if(!targets.length)return list;
+
+  const exactById=new Map<string,any>();
+  await mapLimit(targets,4,async(row:any)=>{
+    const id=videoId(row);
+    if(!id||exactById.has(id))return null;
+    const exact=await exactVideoMetaById(supabaseUrl,serviceKey,id);
+    if(exact?.title)exactById.set(id,exact);
+    return null;
+  });
+
+  return list.map((row:any)=>{
+    if(!liveTitleNeedsExact(row))return row;
+    const exact=exactById.get(videoId(row));
+    if(!exact?.title)return row;
+    return {
+      ...row,
+      title:exact.title,
+      _displayTitle:exact.title
+    };
   });
 }
 
@@ -2840,6 +2906,11 @@ Deno.serve(async(req:Request)=>{
         authHeaders,
         verifiedLiveRowsCache
       );
+      verifiedLiveRowsCache=await enrichLiveRowsExactTitles(
+        supabaseUrl,
+        serviceKey,
+        verifiedLiveRowsCache
+      );
     }
 
     const nonLiveScopes=scopes.filter((scope)=>scope!=="live");
@@ -3646,6 +3717,11 @@ Deno.serve(async(req:Request)=>{
             rest,
             authHeaders,
             previousItems
+          );
+          raw=await enrichLiveRowsExactTitles(
+            supabaseUrl,
+            serviceKey,
+            raw
           );
         }else{
           degradedNotes.push(scope+":empty_candidate_kept_previous");
