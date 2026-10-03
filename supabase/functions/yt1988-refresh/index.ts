@@ -20,8 +20,9 @@ const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v44-package";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
-const YOUTUBE_LIVE_EDGE_NOW_URL="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev/youtube/live-now";
-const LIVE_EDGE_FRESH_MS=5*60*1000;
+const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
+const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
+const LIVE_EDGE_FRESH_MS=3*60*1000;
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -997,6 +998,41 @@ async function fetchJson(url:string,headers:any={},timeout=7000){
     if(!res.ok||data?.ok===false)throw new Error(data?.error||("HTTP "+res.status));
     return data;
   }finally{clearTimeout(timer);}
+}
+
+async function freshCloudLiveSnapshot(){
+  let snapshot=await fetchJson(YOUTUBE_LIVE_EDGE_NOW_URL,{},4500).catch(()=>null);
+  const age=Date.now()-Number(snapshot?.checkedAt||0);
+  if(
+    snapshot&&
+    Number(snapshot?.checkedAt)>0&&
+    age>=0&&
+    age<=LIVE_EDGE_FRESH_MS
+  )return snapshot;
+
+  // First app open (or a stale edge snapshot) asks Cloudflare to perform the
+  // detection work. Supabase still owns filtering/metadata/package publication.
+  let step=await fetchJson(
+    YOUTUBE_LIVE_EDGE_API+"/youtube/live-scan?start=1&t="+Date.now(),
+    {},
+    20000
+  ).catch(()=>null);
+
+  for(let i=0;i<10&&step&&step?.done!==true;i++){
+    step=await fetchJson(
+      YOUTUBE_LIVE_EDGE_API+"/youtube/live-scan?t="+Date.now()+"&step="+i,
+      {},
+      20000
+    ).catch(()=>null);
+  }
+
+  snapshot=await fetchJson(
+    YOUTUBE_LIVE_EDGE_NOW_URL+"?t="+Date.now(),
+    {},
+    4500
+  ).catch(()=>snapshot);
+
+  return snapshot;
 }
 async function enrichRowsWithStoredVideoMeta(
   rest:string,
@@ -2217,7 +2253,9 @@ Deno.serve(async(req:Request)=>{
     // Source 1 = external search; Source 2 = selected channels.
     const allBlockedLiveSourceIds=new Set<string>([
       ...generalBlockedIds,
-      ...liveBlockedIds
+      ...SCOPES.flatMap(
+        (scope)=>[...(blockedByScope.get(scope)||new Set<string>())]
+      )
     ]);
 
     const explicitLiveSources=selectedByScope.get("live")||[];
@@ -2335,7 +2373,7 @@ Deno.serve(async(req:Request)=>{
       // server-side verifier so LIVE can still rebuild.
       let edgeLiveFresh=false;
       try{
-        const edge=await fetchJson(YOUTUBE_LIVE_EDGE_NOW_URL,{},4500);
+        const edge=await freshCloudLiveSnapshot();
         const checkedAt=Number(edge?.checkedAt)||0;
         const edgeItems=Array.isArray(edge?.items)?edge.items:[];
         edgeLiveFresh=
@@ -2365,11 +2403,16 @@ Deno.serve(async(req:Request)=>{
             );
             let views=Math.max(0,Number(item?.viewerCount)||0);
 
+            const titleIsSource=
+              !!title&&!!sourceName&&
+              compactTitleIdentity(title)===compactTitleIdentity(sourceName);
             if(
               !title||
               normalizeLiveText(title)==="dang truc tiep"||
+              titleIsSource||
               !sourceName||
-              !sourceAvatar
+              !sourceAvatar||
+              views<=0
             ){
               const exact=await youtubeSearchVideoMetadata(
                 supabaseUrl,
@@ -2377,12 +2420,17 @@ Deno.serve(async(req:Request)=>{
                 id
               );
               if(exact){
-                if(!title||normalizeLiveText(title)==="dang truc tiep"){
+                if(
+                  !title||
+                  normalizeLiveText(title)==="dang truc tiep"||
+                  titleIsSource
+                ){
                   title=cleanLiveTitle(exact?.title||"");
                 }
                 if(!sourceName)sourceName=clean(exact?.sourceName||"",180);
                 if(!sourceAvatar)sourceAvatar=clean(exact?.sourceThumbnailUrl||"",1000);
                 if(!thumbnail)thumbnail=clean(exact?.thumbnailUrl||"",1000);
+                if(views<=0)views=Math.max(0,Number(exact?.views)||0);
               }
             }
 
@@ -3383,7 +3431,8 @@ Deno.serve(async(req:Request)=>{
         ))return false;
         if(titleLooksBroken(r))return false;
         if(scope==="live"&&liveKeywordBlocked(r,liveKeywords))return false;
-        if(SYSTEM_SCOPES.includes(scope)&&titleLooksEnglishOnly(r))return false;
+        // Do not filter by language. 1988 keeps the original language and only
+        // applies source/title/content policy.
         return true;
       });
 
