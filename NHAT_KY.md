@@ -1,3 +1,12 @@
+## 2026-10-04 — Khôi phục TikTok VOD demo về known-good e271
+
+- Theo ảnh người dùng, quay lại đúng mốc commit `e2717d5df2cabee04f9de91d5fe89030206c68e4`.
+- Phục hồi nguyên 4 file demo/Worker/test liên quan.
+- Commit restore: `a06cb6fe6d9db027a0ba912e83e75f06f8dcc53e`.
+- Edge deploy `37156612837`: SUCCESS.
+- Player deploy `37156612927`: SUCCESS.
+- Bỏ các thay đổi sau mốc này về 3-source chain, TTDownloader HQ selector và cache `avc5`.
+
 ## 2026-10-04 — TikTok VOD demo dùng TTDownloader, không phải TDown
 
 - Sửa demo chỉ còn **TikWM → TTDownloader → BHWA**.
