@@ -690,3 +690,18 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Verify: Deploy 1988 Player run `37143464690` SUCCESS; frontend contracts/build/Pages/custom-domain đều PASS.
 - Impact: UI/CSS only; không đổi data/network/polling.
 - Rollback: `328643014793ce9cf84196615636fb9d4e32a4ae`.
+
+
+## 2026-10-04 — Portrait viewer compact — thu nhẹ + bo 4 góc
+
+- Base: `ebfd45193840870b3ef55e3b73031c39b4799d3e`.
+- Yêu cầu: portrait viewer thu gọn nhẹ để giống cảm giác YouTube Shorts hơn, vẫn giữ bo góc.
+- Patch `1c989c9042ccef94cda1e6597b1b178e435b662a`:
+  - portrait one-column stage = `min(calc(100% - 32px),480px)`;
+  - căn giữa;
+  - stage/player/iframe bo 4 góc;
+  - landscape giữ full-width;
+  - PWA v84.
+- Verify: Deploy 1988 Player run `37143714726` SUCCESS; frontend contracts/build/Pages/custom-domain đều PASS.
+- Impact: UI/CSS only; không đổi data/network/polling.
+- Rollback: `ebfd45193840870b3ef55e3b73031c39b4799d3e`.

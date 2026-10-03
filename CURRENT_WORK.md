@@ -85,6 +85,39 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.13. Portrait viewer compact — thu nhẹ + bo 4 góc
+
+Thời gian: **2026-10-04**.
+
+Ảnh production so với YouTube Shorts cho thấy:
+- portrait Watch đang chạm gần sát hai mép viewport;
+- cảm giác video dọc bị phóng quá lớn dù tỷ lệ media đúng;
+- user muốn thu nhẹ, không đổi thành Shorts nhỏ hẳn.
+
+Patch:
+- commit `1c989c9042ccef94cda1e6597b1b178e435b662a`;
+- chỉ portrait one-column Watch:
+  - `width:min(calc(100% - 32px),480px)`;
+  - căn giữa bằng auto margins;
+  - stage/player/iframe bo đủ 4 góc bằng `--floating-radius`;
+- landscape viewer giữ full-width;
+- TikTok dedicated watch layout không đổi;
+- PWA **v84**.
+
+Production verify:
+- Deploy 1988 Player run `37143714726`: **SUCCESS**;
+- frontend contracts, artifact build, Pages deploy và custom-domain verify đều PASS.
+
+Rule:
+- portrait one-column Watch được phép compact nhẹ để cân thị giác;
+- không zoom/crop media để tạo cảm giác nhỏ hơn;
+- landscape không bị ảnh hưởng;
+- mức compact hiện tại = 16px biên mỗi bên trên mobile, cap 480px.
+
+Impact:
+- UI/CSS only; không đổi data/network/polling.
+- Rollback: `ebfd45193840870b3ef55e3b73031c39b4799d3e`.
+
 ### 3.12. Mid-width viewer gap — 657–999px double top-boundary
 
 Thời gian: **2026-10-04**.
