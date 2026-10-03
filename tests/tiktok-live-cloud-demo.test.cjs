@@ -8,6 +8,12 @@ assert.match(demo,/Video mới nhất/);
 assert.match(demo,/EDGE\+"\/lookup\?user="/);
 assert.match(demo,/EDGE\+"\/tiktok\/channel-videos"/);
 assert.match(demo,/async function loadLive\(h\)/);
+assert.match(demo,/let currentLiveState=null/);
+assert.match(demo,/id="liveReplay"/);
+assert.match(demo,/playLive\(currentLiveState\)/);
+assert.match(demo,/video\.onerror=null/);
+assert.match(demo,/height:clamp\(360px,58vh,560px\)/);
+assert.match(demo,/object-fit:contain/);
 assert.match(demo,/async function loadChannelVideos\(h\)/);
 assert.match(demo,/endpoint\.searchParams\.set\("count","1"\)/);
 assert.match(demo,/Promise\.allSettled\(\[liveTask,videoTask\]\)/);
@@ -22,4 +28,4 @@ assert.doesNotMatch(demo,/onrender\.com/);
 assert.match(demo,/TikWM HD/);
 assert.match(demo,/BHWA/);
 
-console.log('tiktok demo: latest video opens in own player via TikWM redirect with BHWA fallback');
+console.log('tiktok demo: video/live switching works and compact player keeps full frame visible');

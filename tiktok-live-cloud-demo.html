@@ -10,12 +10,12 @@
 *{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}
 .top{position:sticky;top:0;z-index:5;padding:12px;background:#111;border-bottom:1px solid #26262a}
 .search{max-width:980px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}
-.page{max-width:980px;margin:auto;padding:14px}.status{font-size:13px;color:#aaa;margin-bottom:12px;min-height:18px}
-.grid{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);gap:14px}.panel{background:#121216;border:1px solid #26262a;border-radius:14px;overflow:hidden}.head{padding:12px 14px;font-weight:800;border-bottom:1px solid #26262a}.body{padding:10px}
-.livecard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:12px;padding:12px;text-align:left;display:flex;gap:10px;align-items:center}.avatar{width:58px;height:58px;border-radius:50%;object-fit:cover;background:#2a2a2f}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:4px}.pill{display:inline-block;margin-top:7px;background:#fe2c55;padding:4px 7px;border-radius:5px;font-size:11px;font-weight:800}
-.empty{color:#999;padding:18px 6px;text-align:center}.videos{display:grid;gap:8px}.videoitem{width:100%;border:0;display:grid;grid-template-columns:78px minmax(0,1fr);gap:10px;align-items:center;padding:8px;border-radius:10px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.thumb{width:78px;height:104px;object-fit:cover;border-radius:8px;background:#29292f}.vtitle{font-size:14px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:12px;color:#aaa;margin-top:5px}.player{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:9/16;display:grid;place-items:center}video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
-.streamrow{margin-top:10px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:9px;font-size:12px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 12px;cursor:pointer}.now{padding:10px 2px 0;font-size:13px;color:#aaa;min-height:28px}
-@media(max-width:760px){.grid{grid-template-columns:1fr}.player{max-height:58vh}.search{gap:6px}.search button{padding:0 14px}}
+.page{max-width:940px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
+.grid{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:10px}.panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a}.body{padding:8px}
+.livecard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:10px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover{background:#222228}.livecard:disabled{cursor:default;opacity:.75}.avatar{width:50px;height:50px;border-radius:50%;object-fit:cover;background:#2a2a2f}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}
+.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:10px;overflow:hidden;height:clamp(360px,58vh,560px);display:grid;place-items:center}video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
+.streamrow{margin-top:8px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:7px 8px;font-size:11px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 10px;cursor:pointer}.now{padding:7px 2px 0;font-size:12px;color:#aaa;min-height:24px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.player{height:56vh;min-height:320px;max-height:520px}.search{gap:6px}.search button{padding:0 14px}}
 </style>
 </head>
 <body>
@@ -61,6 +61,7 @@ const copyBtn=document.getElementById("copyBtn");
 const nowEl=document.getElementById("now");
 let flvPlayer=null;
 let handle="";
+let currentLiveState=null;
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function parseHandle(raw){
@@ -72,6 +73,7 @@ function parseHandle(raw){
 }
 function stopPlayer(){
   if(flvPlayer){try{flvPlayer.destroy()}catch{} flvPlayer=null}
+  video.onerror=null;
   try{video.pause()}catch{}
   video.removeAttribute("src");
   video.load();
@@ -90,16 +92,27 @@ async function getJson(url,timeout=15000){
 }
 function renderState(state){
   const live=Number(state?.status)===2;
+  const playable=Boolean(live&&(state?.streamUrl||state?.hlsUrl));
+  if(playable)currentLiveState=state;
+  else if(!live)currentLiveState=null;
+
   const avatar=String(state?.avatar||"");
   const name=String(state?.sourceName||("@"+handle));
   const viewer=Number(state?.viewerCount||0);
   liveBox.innerHTML=
-    '<div class="livecard">'+
+    '<button type="button" class="livecard" id="liveReplay"'+(playable?'':' disabled')+'>'+
       (avatar?'<img class="avatar" src="'+esc(avatar)+'" alt="">':'<div class="avatar"></div>')+
       '<div class="meta"><div class="name">'+esc(name)+'</div>'+
       '<div class="sub">@'+esc(handle)+(viewer?" · "+viewer+" người xem":"")+'</div>'+
-      (live?'<span class="pill">LIVE</span>':'<div class="sub">Không có LIVE đang phát</div>')+
-      '</div></div>';
+      (live
+        ? '<span class="pill">LIVE</span><div class="sub">Bấm để quay lại LIVE</div>'
+        : '<div class="sub">Không có LIVE đang phát</div>')+
+      '</div></button>';
+
+  const liveReplay=document.getElementById("liveReplay");
+  if(playable&&liveReplay){
+    liveReplay.addEventListener("click",()=>playLive(currentLiveState));
+  }
 }
 async function playLive(state){
   stopPlayer();
@@ -255,6 +268,7 @@ async function checkLive(raw){
   }
 
   handle=h;
+  currentLiveState=null;
   stopPlayer();
   streamUrlEl.value="";
   liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
