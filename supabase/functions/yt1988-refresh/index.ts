@@ -1741,11 +1741,13 @@ function exactSearchVideoMeta(data:any,id:string){
   return {
     duration:durationSeconds(row),
     isLive:isLive(row),
+    sourceId:channelId(row),
     sourceName:validChannelDisplayName(row?.uploaderName||row?.uploader||row?.channelName||""),
     sourceThumbnailUrl:normalizeAvatarUrl(clean(
       row?.uploaderAvatar||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",
       1000
     )),
+    title:cleanLiveTitle(row?.title||row?.name||""),
     thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
     views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0)
   };
@@ -2395,7 +2397,46 @@ Deno.serve(async(req:Request)=>{
         edgeLiveFresh=edgeItems.length>0;
 
         if(edgeLiveFresh){
-          const edgeRows=(await mapLimit(edgeItems.slice(0,48),6,async(item:any)=>{
+          const boundedEdgeItems=edgeItems.slice(0,48);
+
+          // Cloudflare only discovers candidate LIVE videoIds. It is not the
+          // authority for video→channel identity. A channel /live page can
+          // contain recommendations, so the same videoId may be claimed by
+          // multiple channels. Resolve only those conflicts once by exact
+          // videoId search, then keep the row whose sourceId really owns it.
+          const claimsByVideo=new Map<string,Set<string>>();
+          for(const item of boundedEdgeItems){
+            const id=videoId(item);
+            const sid=channelId(item);
+            if(!id||!sid)continue;
+            if(!claimsByVideo.has(id))claimsByVideo.set(id,new Set<string>());
+            claimsByVideo.get(id)!.add(sid);
+          }
+
+          const conflictedVideoIds=[...claimsByVideo.entries()]
+            .filter(([,ids])=>ids.size>1)
+            .map(([id])=>id);
+          const exactOwnerByVideo=new Map<string,string>();
+          await mapLimit(conflictedVideoIds,4,async(id:string)=>{
+            const exact=await youtubeSearchVideoMetadata(
+              supabaseUrl,
+              serviceKey,
+              id
+            );
+            const owner=clean(exact?.sourceId||"",180);
+            if(/^UC[A-Za-z0-9_-]+$/.test(owner)){
+              exactOwnerByVideo.set(id,owner);
+            }
+          });
+
+          const canonicalEdgeItems=boundedEdgeItems.filter((item:any)=>{
+            const id=videoId(item);
+            const owner=exactOwnerByVideo.get(id);
+            if(!owner)return true;
+            return channelId(item)===owner;
+          });
+
+          const edgeRows=(await mapLimit(canonicalEdgeItems,6,async(item:any)=>{
             const id=videoId(item);
             const sid=channelId(item);
             if(!id||!sid||allBlockedLiveSourceIds.has(sid))return null;
