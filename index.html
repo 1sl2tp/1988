@@ -3703,6 +3703,7 @@ html.tiktok-ui.tiktok-watch .rows{
   let tiktokControlsTimer=0;
   let tiktokLiveMetas=[];
   let tiktokLiveFetchPromise=null;
+  let tiktokLiveScanPromise=null;
   let tiktokLiveLastAt=0;
   let tiktokLiveReady=false;
   let tiktokVideoMetas=[];
@@ -6559,6 +6560,7 @@ html.tiktok-ui.tiktok-watch .rows{
           reason:"tab-open",
           provider:"youtube"
         });
+        scheduleLiveBackgroundRefresh();
       }
       return feedMetas;
     }
@@ -6684,26 +6686,36 @@ html.tiktok-ui.tiktok-watch .rows{
     return packageDemandPending;
   }
 
+  function resumeVisibleDemand(reason="resume"){
+    if(document.hidden||feedMode!=="package")return false;
+    if(activePackageScope==="live"){
+      const provider=activeLiveProvider();
+      void refreshUnifiedLiveInBackground({
+        force:true,
+        reason,
+        provider
+      });
+      scheduleLiveBackgroundRefresh();
+      return true;
+    }
+    void checkPackagesOnDemand([activePackageScope]);
+    return true;
+  }
+
   document.addEventListener("visibilitychange",()=>{
     if(document.visibilityState!=="visible"){
       stopYoutubeLiveDemand();
       return;
     }
-    if(feedMode==="package"){
-      void checkPackagesOnDemand([activePackageScope]);
-    }
+    resumeVisibleDemand("visibility");
   },{passive:true});
 
   addEventListener("focus",()=>{
-    if(feedMode==="package"&&!document.hidden){
-      void checkPackagesOnDemand([activePackageScope]);
-    }
+    resumeVisibleDemand("focus");
   },{passive:true});
 
   addEventListener("online",()=>{
-    if(feedMode==="package"&&!document.hidden){
-      void checkPackagesOnDemand([activePackageScope]);
-    }
+    resumeVisibleDemand("online");
   },{passive:true});
 
   function activeLiveProvider(){
@@ -6743,6 +6755,8 @@ html.tiktok-ui.tiktok-watch .rows{
     youtubeLiveScanSeq++;
     try{youtubeLiveAbortController?.abort()}catch{}
     youtubeLiveAbortController=null;
+    clearTimeout(liveBackgroundTimer);
+    liveBackgroundTimer=0;
   }
 
   function restoreClientLiveSnapshot(){
@@ -7417,29 +7431,37 @@ html.tiktok-ui.tiktok-watch .rows{
 
   function scheduleLiveBackgroundRefresh(delay=LIVE_BACKGROUND_REFRESH_MS){
     clearTimeout(liveBackgroundTimer);
+    liveBackgroundTimer=0;
+    if(!liveDemandActive())return false;
+
+    const provider=activeLiveProvider();
     liveBackgroundTimer=setTimeout(async()=>{
-      if(document.hidden){
-        scheduleLiveBackgroundRefresh(30_000);
+      if(!liveDemandActive(provider)){
+        liveBackgroundTimer=0;
         return;
       }
 
-      // Cheap client work only: compare the package manifest and download a
-      // changed LIVE package. The server/Cloudflare own discovery and rebuild.
-      await loadPackageManifest();
-      await syncPreparedPackages(["live"]);
-
-      // While the app is open, one due-gated wake per minute protects freshness
-      // even if the Cloudflare signal is temporarily unavailable.
-      if(Date.now()-livePackageLastWakeAt>=LIVE_PACKAGE_WAKE_MS){
-        livePackageLastWakeAt=Date.now();
-        void requestPreparedRefresh(["live"]);
+      // Cheap sync is allowed only while LIVE is visible. YouTube still renders
+      // only its prepared Supabase package; TikTok reads its edge snapshot.
+      if(provider==="youtube"){
+        await loadPackageManifest();
+        await syncPreparedPackages(["live"]);
       }
 
-      if(liveDemandActive("youtube")){
-        paintSyncedPackage("live",packageCache.get("live")||[]);
+      // Discovery is demand-only: no open LIVE tab means no scan. A visible
+      // LIVE tab may start one shared logical scan about once per minute.
+      if(Date.now()-liveDiscoveryLastAt>=LIVE_DISCOVERY_MIN_GAP_MS){
+        await refreshUnifiedLiveInBackground({
+          force:true,
+          reason:"visible-live",
+          provider
+        });
       }
-      scheduleLiveBackgroundRefresh();
+
+      if(liveDemandActive(provider))scheduleLiveBackgroundRefresh();
+      else liveBackgroundTimer=0;
     },Math.max(1_000,Number(delay)||LIVE_BACKGROUND_REFRESH_MS));
+    return true;
   }
 
   function scheduleStartupLivePreload(){
@@ -7495,6 +7517,9 @@ html.tiktok-ui.tiktok-watch .rows{
 
     unifiedLiveRefreshPromise=(async()=>{
       if(provider==="youtube"){
+        await runYoutubeLiveCycle({force:true,paint:false});
+        if(!liveDemandActive("youtube"))return false;
+
         livePackageLastWakeAt=Date.now();
         await syncPreparedScopeAfterWake(
           "live",
@@ -7506,7 +7531,7 @@ html.tiktok-ui.tiktok-watch .rows{
       }
 
       if(provider==="tiktok"){
-        await refreshTikTokLiveFeed({paint:false,force:true});
+        await runTikTokLiveCycle();
         if(!tiktokLiveReady||!liveDemandActive("tiktok"))return false;
         paintUnifiedLiveFromEdge("tiktok");
         primeTikTokPlaybackNeighborhood();
@@ -8332,6 +8357,46 @@ html.tiktok-ui.tiktok-watch .rows{
       ...youtube,
       ...tiktokLiveMetas.filter(meta=>meta?.id&&!seen.has(String(meta.id)))
     ];
+  }
+
+  async function runTikTokLiveCycle(){
+    if(!liveDemandActive("tiktok"))return false;
+    if(tiktokLiveScanPromise)return tiktokLiveScanPromise;
+
+    tiktokLiveScanPromise=(async()=>{
+      try{
+        let response=await fetch(
+          TIKTOK_LIVE_API+"/tiktok/live-scan?start=1&t="+Date.now(),
+          {cache:"no-store"}
+        );
+        if(!response.ok)throw new Error("tiktok_live_scan_"+response.status);
+        let state=await response.json();
+
+        while(
+          state?.ok===true&&
+          state?.done!==true&&
+          liveDemandActive("tiktok")
+        ){
+          response=await fetch(
+            TIKTOK_LIVE_API+"/tiktok/live-scan?t="+Date.now(),
+            {cache:"no-store"}
+          );
+          if(!response.ok)throw new Error("tiktok_live_scan_"+response.status);
+          state=await response.json();
+        }
+
+        if(!liveDemandActive("tiktok")||state?.done!==true)return false;
+        await refreshTikTokLiveFeed({paint:false,force:true});
+        return true;
+      }catch(error){
+        console.warn("tiktok_live_scan_failed",error);
+        await refreshTikTokLiveFeed({paint:false,force:true}).catch(()=>{});
+        return false;
+      }finally{
+        tiktokLiveScanPromise=null;
+      }
+    })();
+    return tiktokLiveScanPromise;
   }
 
   async function refreshTikTokLiveFeed({paint=true,force=false}={}){
@@ -10244,6 +10309,28 @@ html.tiktok-ui.tiktok-watch .rows{
     return tiktokLibraryFetchPromise;
   }
 
+  function showTikTokLiveFeed(){
+    activeTikTokSubtab="live";
+    feedRequest++;
+    channelFeedRequest++;
+    channelFeedBackStack.length=0;
+    channelFeedSourceId="";
+    channelFeedName="";
+    feedMode="package";
+    activePackageScope="live";
+    feedMetas=Array.isArray(tiktokLiveMetas)?tiktokLiveMetas:[];
+    renderSampleContent();
+    syncFeedHeader();
+    scrollPageToTop();
+
+    void refreshUnifiedLiveInBackground({
+      force:true,
+      reason:"tab-open",
+      provider:"tiktok"
+    });
+    scheduleLiveBackgroundRefresh();
+  }
+
   function showTikTokVideoFeed(){
     activeTikTokSubtab="video";
     stopYoutubeLiveDemand();
@@ -10420,11 +10507,8 @@ html.tiktok-ui.tiktok-watch .rows{
     // Paint remembered tabs immediately; network state can refresh them later.
     renderExistingSourceNames(storedRows.length?storedRows:fallbackRows);
 
-    // Start loading the already-committed LIVE package immediately, in parallel
-    // with the first/latest paint. This is package I/O only; no LIVE discovery
-    // and no rebuild can delay the initial page.
-    const firstLivePackagePromise=ensurePreparedPackageReady("live");
-
+    // First app entry is video-first. LIVE remains fully dormant until the
+    // user explicitly opens a LIVE surface.
     // First app entry is always video-first: paint the latest package from
     // IndexedDB immediately and keep one newest video per channel.
     const firstPackagePromise=(async()=>{
@@ -10433,11 +10517,6 @@ html.tiktok-ui.tiktok-watch .rows{
       await restoreStoredPackage(scope);
       const painted=await showPackageScope(scope,{hydrateLive:false});
 
-      // The current LIVE package is already loading above. After it is ready,
-      // wake a new server-side LIVE package build in the background.
-      void firstLivePackagePromise.finally(()=>{
-        void preloadStartupLiveLists();
-      });
       return painted;
     })();
 
@@ -10502,8 +10581,9 @@ html.tiktok-ui.tiktok-watch .rows{
       await showPackageScope(activePackageScope);
     }
 
-    // Synchronizer compares manifest hashes and downloads only changed scopes.
-    prefetchPackages(scopes);
+    // Do not fetch unopened scopes. The active tab is demand-driven; every
+    // other committed package stays local until the user actually opens it.
+    prefetchPackages([activePackageScope]);
 
     // The visible package may refresh in the background after its first paint.
     // Other tabs refresh only when opened; their committed packages are already
@@ -12422,7 +12502,13 @@ html.tiktok-ui.tiktok-watch .rows{
 
       const subtab=String(platformSubchip.dataset.platformSubtab||"");
       if(activePlatformNav==="tiktok"){
-        void showTikTokWorkspace(tiktokWorkspaceHandle);
+        if(subtab==="live"){
+          showTikTokLiveFeed();
+        }else if(subtab==="video"){
+          showTikTokVideoFeed();
+        }else{
+          void showTikTokWorkspace(tiktokWorkspaceHandle);
+        }
       }
       return;
     }
