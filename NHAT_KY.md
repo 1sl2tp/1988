@@ -403,3 +403,23 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - item count 31;
   - `LI-7QtW-_bs` đã có đúng title gốc;
   - UI không thay đổi.
+
+
+## 2026-10-03 — Sửa LIVE đã hết vẫn còn trong package
+
+- Triệu chứng: Cloudflare checked ~248 nhưng trả `live=0`; Supabase giữ last-known-good 31 LIVE nên UI còn LIVE đã hết.
+- Root cause:
+  - Cloudflare dùng InnerTube làm cổng duy nhất;
+  - Supabase verify lại snapshot bằng InnerTube từ IP bị Google block.
+- Patch:
+  - infrastructure `a00e27e75aef51079a7927f9ade0ab9e922a6e07`: watch-page `ytInitialPlayerResponse` là primary verifier; owner phải khớp channelId; InnerTube chỉ fallback.
+  - 1988 `046d5bf68b58df79406e2bb571027a5290ed1b15`: snapshot edge fresh đã verified thì package builder không InnerTube verify lại.
+- Deploy:
+  - Cloudflare run `37132871574` SUCCESS; schedule count = 0.
+  - `yt1988-refresh v28` ACTIVE.
+- Production verify:
+  - edge version 130: checked 249, live 18;
+  - package LIVE `23v6p2 / 31 → 1d9yemd / 18`;
+  - refresh last_ok=true, pending_scopes=[].
+- UI không đổi; chỉ nhận hash/package mới.
+- Rule: realtime LIVE/owner ở Cloudflare; Supabase filter/enrich/package; UI chỉ đọc.
