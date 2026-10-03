@@ -151,26 +151,32 @@ function sourceSegmentMatches(value="",sourceName=""){
 function cleanLiveDisplayTitle(value="",sourceName=""){
   const original=clean(value,300);
   if(!original)return "";
+
   let title=original.replace(
     /^(?:[^A-Za-zÀ-ỹ0-9]*)(?:(?:trực\s*tiếp)|(?:live\s*stream)|livestream|live)\b(?:[^A-Za-zÀ-ỹ0-9]*)/iu,
     ""
   ).trim();
 
-  const pieces=title
-    .split(/\s*[|•·]\s*|\s+[-–—]\s+|\s*:\s*/u)
-    .map(part=>clean(part,180))
-    .filter(Boolean);
-  if(pieces.length>1){
-    const kept=pieces.filter(part=>
-      !genericLiveSegment(part)&&
-      !sourceSegmentMatches(part,sourceName)
-    );
-    if(kept.length)title=kept.join(" | ");
+  const edgeSeparator="(?:\\s*(?:[|•·]|[-–—]|:)\\s*)";
+  for(let i=0;i<3;i++){
+    const leading=title.match(new RegExp("^(.{1,180}?)"+edgeSeparator+"(.+)$","u"));
+    if(!leading)break;
+    const head=clean(leading[1],180);
+    if(!genericLiveSegment(head)&&!sourceSegmentMatches(head,sourceName))break;
+    title=clean(leading[2],300);
+  }
+  for(let i=0;i<3;i++){
+    const trailing=title.match(new RegExp("^(.+?)"+edgeSeparator+"([^|•·:–—-]{1,180})$","u"));
+    if(!trailing)break;
+    const tail=clean(trailing[2],180);
+    if(!genericLiveSegment(tail)&&!sourceSegmentMatches(tail,sourceName))break;
+    title=clean(trailing[1],300);
   }
 
   if(genericLiveSegment(title)||sourceSegmentMatches(title,sourceName))return "";
-  return clean(title,300);
+  return clean(title,300)||original;
 }
+
 function validChannelId(value){
   const id=clean(value,180);
   return /^UC[A-Za-z0-9_-]+$/.test(id)?id:"";
@@ -633,7 +639,8 @@ async function startCycle(env){
 }
 function snapshotMaterial(items){
   return items.map(row=>[
-    row.channelId,row.videoId,row.title,row.sourceName,row.thumbnail,row.sourceAvatar,row.origin,row.viewerCount
+    row.channelId,row.videoId,row.title,row.sourceName,row.thumbnail,row.sourceAvatar,
+    row.origin,row.viewerCount,row.verifiedLive===true,row.verifiedOwner===true,row.verification||""
   ].join("|")).sort().join("\n");
 }
 async function scanStep(env,{start=false}={}){
@@ -696,7 +703,10 @@ async function scanStep(env,{start=false}={}){
         uploaded:-1,
         views:0,
         origin:clean(row.origin,80),
-        checkedAt:Number(row.checkedAt)||Date.now()
+        checkedAt:Number(row.checkedAt)||Date.now(),
+        verifiedLive:row?.verifiedLive===true,
+        verifiedOwner:row?.verifiedOwner===true,
+        verification:clean(row?.verification,120)
       };
     });
 
@@ -712,7 +722,9 @@ async function scanStep(env,{start=false}={}){
       !channelId||
       nextChannels.has(channelId)||
       !probe||
-      probe.known!==false
+      probe.known!==false||
+      prev?.verifiedLive!==true||
+      prev?.verifiedOwner!==true
     )continue;
     items.push({...prev});
     nextChannels.add(channelId);
