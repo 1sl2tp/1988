@@ -143,6 +143,13 @@ if(simpleProduction){
   assert.match(html,/grid-auto-flow:row dense/);
   assert.match(html,/const cardGap=16/);
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
+  assert.match(html,/FOCUSED VIEWER v1/);
+  assert.match(html,/root\.classList\.toggle\(["']viewer-active["'],viewerActive\)/);
+  assert.match(html,/html\.viewer-active\.one-col \.media-col[\s\S]{0,360}position:relative!important/);
+  assert.match(html,/html\.viewer-active\.one-col \.rows[\s\S]{0,180}grid-template-columns:minmax\(0,1fr\)!important/);
+  assert.match(html,/Desktop watch uses the right side as a queue/);
+  assert.match(html,/scrolling must never create a floating player/);
+  assert.doesNotMatch(html,/if\(opened&&!isTwoColumn\(\)&&mediaProviderFor\(selectedMeta\)!==["']tiktok["']\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
   assert.match(sw,/1988-simple-media-v\d+/);
