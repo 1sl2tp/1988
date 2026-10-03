@@ -3771,6 +3771,90 @@ html.tiktok-ui.tiktok-watch .rows{
       );
     }
   }
+  // Ambient strength follows the number of visible feed columns.
+  // YouTube lets a narrow 1-column view carry more cinematic color, then
+  // progressively neutralizes the chrome as the desktop grid grows to 4 cols.
+  const CHROME_AMBIENT_BY_COLS={
+    1:{
+      headerWash:.34,searchWash:.54,
+      pageLeft:.090,pageMid:.038,pageRight:.010,
+      control:.036,controlHover:.060,
+      surface:.028,surfaceStrong:.042,
+      onePageStrong:.040,onePageSoft:.014,
+      oneControl:.030,oneControlHover:.050,
+      oneSurface:.020,oneSurfaceStrong:.032
+    },
+    2:{
+      headerWash:.30,searchWash:.48,
+      pageLeft:.075,pageMid:.032,pageRight:.009,
+      control:.034,controlHover:.056,
+      surface:.030,surfaceStrong:.046,
+      onePageStrong:.034,onePageSoft:.012,
+      oneControl:.028,oneControlHover:.046,
+      oneSurface:.019,oneSurfaceStrong:.030
+    },
+    3:{
+      headerWash:.24,searchWash:.40,
+      pageLeft:.055,pageMid:.022,pageRight:.006,
+      control:.028,controlHover:.046,
+      surface:.024,surfaceStrong:.036,
+      onePageStrong:.028,onePageSoft:.010,
+      oneControl:.022,oneControlHover:.038,
+      oneSurface:.016,oneSurfaceStrong:.026
+    },
+    4:{
+      headerWash:.18,searchWash:.31,
+      pageLeft:.036,pageMid:.013,pageRight:.003,
+      control:.019,controlHover:.033,
+      surface:.017,surfaceStrong:.026,
+      onePageStrong:.020,onePageSoft:.007,
+      oneControl:.016,oneControlHover:.028,
+      oneSurface:.013,oneSurfaceStrong:.020
+    }
+  };
+  let chromeAmbientProfileKey="";
+
+  function ambientColumnCount(){
+    const raw=getComputedStyle(root).getPropertyValue("--feed-cols");
+    return Math.max(1,Math.min(4,Math.round(Number(raw)||1)));
+  }
+
+  function applyChromeAmbientProfile({force=false}={}){
+    const cols=ambientColumnCount();
+    const light=root.dataset.theme==="light";
+    const key=(light?"light":"dark")+":"+cols;
+    if(!force&&key===chromeAmbientProfileKey)return false;
+
+    const p=CHROME_AMBIENT_BY_COLS[cols]||CHROME_AMBIENT_BY_COLS[4];
+    const ambientScale=light?.35:1;
+    const washScale=light?.72:1;
+    const set=(name,value)=>root.style.setProperty(name,String(value));
+
+    set("--header-wash-opacity",p.headerWash*washScale);
+    set("--header-search-wash-opacity",p.searchWash*washScale);
+    set("--ambient-page-left",p.pageLeft*ambientScale);
+    set("--ambient-page-mid",p.pageMid*ambientScale);
+    set("--ambient-page-right",p.pageRight*ambientScale);
+    set("--ambient-control",p.control*ambientScale);
+    set("--ambient-control-hover",p.controlHover*ambientScale);
+    set("--ambient-surface",p.surface*ambientScale);
+    set("--ambient-surface-strong",p.surfaceStrong*ambientScale);
+    set("--ambient-one-page-strong",p.onePageStrong*ambientScale);
+    set("--ambient-one-page-soft",p.onePageSoft*ambientScale);
+    set("--ambient-one-control",p.oneControl*ambientScale);
+    set("--ambient-one-control-hover",p.oneControlHover*ambientScale);
+    set("--ambient-one-surface",p.oneSurface*ambientScale);
+    set("--ambient-one-surface-strong",p.oneSurfaceStrong*ambientScale);
+
+    chromeAmbientProfileKey=key;
+    return true;
+  }
+
+  function syncChromeAmbientForLayout({force=false}={}){
+    const changed=applyChromeAmbientProfile({force});
+    if((changed||force)&&currentMeta)applyHeaderTint(currentMeta);
+  }
+
   function applyTheme(value,{persist=true,retint=true}={}){
     const theme=normalizedTheme(value);
     root.dataset.theme=theme;
@@ -3789,6 +3873,7 @@ html.tiktok-ui.tiktok-watch .rows{
       try{localStorage.setItem(THEME_KEY,theme)}catch{}
     }
     syncThemeControls();
+    applyChromeAmbientProfile({force:true});
     if(retint&&currentMeta)applyHeaderTint(currentMeta);
   }
   function closeSettingsMenu(){
@@ -4446,9 +4531,19 @@ html.tiktok-ui.tiktok-watch .rows{
       // every header pixel and every chip.
       const base=light?[255,255,255]:[15,15,15];
       root.style.setProperty("--header-rgb",base.join(","));
+      // The same thumbnail color is progressively weakened as the grid grows.
+      // 1 column may feel cinematic; 4 columns stays very close to neutral
+      // YouTube desktop chrome instead of becoming one large colored strip.
+      const cols=ambientColumnCount();
+      const accentMixByCols={1:.90,2:.74,3:.58,4:.44};
+      const sourceAccent=palette.chromeAccent||palette.accent;
+      const accentMix=accentMixByCols[cols]??.44;
+      const layoutAccent=sourceAccent.map((value,index)=>Math.round(
+        base[index]*(1-accentMix)+value*accentMix
+      ));
       root.style.setProperty(
         "--header-accent-rgb",
-        (palette.chromeAccent||palette.accent).join(",")
+        layoutAccent.join(",")
       );
 
       // Do NOT paint browser/PWA status chrome with the media color.
@@ -4989,11 +5084,13 @@ html.tiktok-ui.tiktok-watch .rows{
       // Only wider one-column layouts may split into multiple card columns.
       const cols=viewportW<=720?1:chooseCardColumns(feedW,cardGap);
       root.style.setProperty("--feed-cols",String(cols));
+      syncChromeAmbientForLayout();
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
       const hasSelectedMedia=hasCurrentMedia();
       if(!hasSelectedMedia){
         root.style.setProperty("--feed-cols",String(chooseCardColumns(contentW,cardGap)));
+        syncChromeAmbientForLayout();
         return;
       }
 
@@ -5012,6 +5109,7 @@ html.tiktok-ui.tiktok-watch .rows{
 
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
       root.style.setProperty("--feed-cols",String(cols));
+      syncChromeAmbientForLayout();
     }
   }
   function dataRow(payload){
