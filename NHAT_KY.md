@@ -1,3 +1,10 @@
+## 2026-10-04 — Khôi phục TDown direct browser
+
+- Đối chiếu commit `9cbd4771` xác nhận TDown từng chạy trực tiếp từ browser qua `https://tdownv4.sl-bjs.workers.dev/?down=...`.
+- Regression là việc chuyển TDown qua Worker 1988.
+- Commit sửa `7bad5afb152b97dc419bfc12448bf1aca731d4fe`: phục hồi đúng flow browser → TDown JSON → direct MP4.
+- Deploy 1988 Player `37157459699`: SUCCESS.
+
 ## 2026-10-04 — Sửa TDown/TTDownloader lấy direct URL trước khi play
 
 - Root cause: demo dùng `/tiktok/video-stream` như thể đó là link provider, nên hiện `link 0.00s` dù chưa resolve direct URL.

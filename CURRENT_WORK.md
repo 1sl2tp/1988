@@ -86,6 +86,19 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.28. TikTok VOD demo — khôi phục TDown direct browser như mốc 9cbd4771
+
+Thời gian: **2026-10-04**.
+
+- Root cause: TDown từng chạy ổn vì browser gọi trực tiếp `https://tdownv4.sl-bjs.workers.dev/?down=<TikTok URL>`, nhận JSON `download_url`, rồi gán direct MP4 vào `video.src`.
+- Regression sau đó: TDown bị chuyển qua Worker 1988 `/tiktok/video-resolve` / `/tiktok/video-stream`, làm khác đường known-good và phát sinh lỗi.
+- Sửa tối thiểu: chỉ đưa `source==="tdown"` trong `tiktok-live-cloud-demo.html` về đúng flow cũ:
+  `browser → TDown API → download_url → video.src`.
+- TTDownloader và các nguồn thử nghiệm khác không đổi trong lượt sửa này.
+- Commit: `7bad5afb152b97dc419bfc12448bf1aca731d4fe`.
+- Deploy 1988 Player run `37157459699`: **SUCCESS**; frontend contracts PASS, deploy PASS, custom-domain verify PASS.
+- Mốc tham chiếu cũ: `9cbd4771`.
+
 ### 3.27. TikTok VOD demo — TDown/TTDownloader resolve direct URL trước khi play
 
 Thời gian: **2026-10-04**.
