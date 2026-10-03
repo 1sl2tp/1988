@@ -3,9 +3,6 @@ main = "worker.js"
 compatibility_date = "2026-10-03"
 workers_dev = true
 
-[[routes]]
-pattern = "yt.taphoa.xyz/*"
-zone_name = "taphoa.xyz"
 
 [assets]
 directory = "../../_site"
