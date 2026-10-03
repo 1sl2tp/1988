@@ -6649,6 +6649,10 @@ html.tiktok-ui.tiktok-watch .rows{
         background:true
       }).catch(()=>false);
 
+      queueDiscoveredYoutubeHydration(
+        youtubeEdgeLiveMetas,
+        "live-background"
+      );
       await hydrateMissingYoutubeLiveAvatars({paint:false}).catch(()=>false);
       saveClientLiveSnapshot();
 
@@ -6684,6 +6688,10 @@ html.tiktok-ui.tiktok-watch .rows{
         refreshTikTokLiveFeed({paint:false,force:true})
       ]);
 
+      queueDiscoveredYoutubeHydration(
+        youtubeEdgeLiveMetas,
+        "live-background-refresh"
+      );
       await hydrateMissingYoutubeLiveAvatars({paint:false}).catch(()=>false);
       saveClientLiveSnapshot();
 
