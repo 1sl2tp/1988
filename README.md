@@ -1,5 +1,11 @@
 # 1988
 
+> ## ⚠️ BẮT BUỘC TRƯỚC KHI SỬA / DEPLOY
+>
+> Mọi sửa chữa dự án phải đọc **[README_MAINTENANCE.md](./README_MAINTENANCE.md)** trước khi thao tác.
+> Sau mỗi repair/deploy phải cập nhật cả `NHAT_KY.md` và Google Sheet **1988 - Vận hành kết nối bảo trì** theo đúng branch/commit nguồn.
+> Không được coi là “xong” nếu code đã deploy nhưng nhật ký vận hành chưa được cập nhật.
+
 Web xem YouTube và phát âm thanh nền theo hướng mobile-first.
 
 ## Kiến trúc
