@@ -155,6 +155,10 @@ if(simpleProduction){
   assert.doesNotMatch(html,/routedId&&currentId&&routedId===currentId/);
   assert.equal((html.match(/showPlayerAsPip\(\)/g)||[]).length,2);
   assert.equal((html.match(/attachPlayerToCard\(/g)||[]).length,2);
+  assert.match(html,/html\.viewer-active\.two-col \.row\.selected[\s\S]{0,120}display:none!important/);
+  assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active main[\s\S]{0,260}grid-template-areas:"media feed"!important/);
+  assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active \.tiktok-account-rail[\s\S]{0,100}display:none!important/);
+  assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active \.rows[\s\S]{0,260}grid-template-columns:minmax\(0,1fr\)!important/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
   assert.match(sw,/1988-simple-media-v\d+/);
