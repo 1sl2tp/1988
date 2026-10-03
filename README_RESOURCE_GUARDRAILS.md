@@ -216,7 +216,7 @@ Rules:
 - MAIN/Cloudflare must never fetch default/full state during normal operation.
 - `libraryHash` must not change on selected/blocked-only edits.
 - Channel library is not a render prerequisite for package feed; package identity remains authoritative.
-- Keep default full view only for backward compatibility, not as a normal read path.
+- Public default/full view is disabled: no-view, `view=full`, and unknown views degrade to compact `view=lite`. Full canonical library is available only through explicit `view=library` for `/sources/`.
 
 ## 4. Quy tắc Log Ingestion
 
