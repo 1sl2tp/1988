@@ -85,6 +85,65 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.14. TikTok YouTube-shell — Profile + Shorts-style Watch
+
+Thời gian: **2026-10-04**.
+
+Yêu cầu:
+- TikTok dùng cùng ngôn ngữ giao diện với YouTube/1988 thay vì một workspace riêng;
+- Profile giống channel page: sidebar trái, banner, avatar, stats, tabs, grid video dọc;
+- Watch giống Shorts: portrait viewer ở giữa, action rail cạnh video, thông tin kênh + queue;
+- không đổi data/API/player owner.
+
+Patch:
+- `3e964bd5321bb57bff09125fcf73284ce7f43bc6`:
+  - thêm `TIKTOK YOUTUBE-SHELL v1`;
+  - Profile: banner từ thumbnail/video mới nhất (fallback avatar), profile header, bio/stats, follow pill, tabs, dedicated portrait grid;
+  - sidebar dùng chính danh sách LIVE + followed canonical hiện có;
+  - Watch: `tiktokWatchActions`, like/comment counts từ metadata hiện có, share dùng navigator.share/clipboard;
+  - current video bị loại khỏi queue;
+  - không thêm endpoint hay polling.
+- `1e3814b0b2bf3d3ffbaa97569abccce8cabd0dcf`:
+  - ≥1280px Watch giữ sidebar trái + viewer + queue giống YouTube desktop;
+  - 1000–1279px giữ focused viewer + queue;
+  - 657–999px không reserve top-boundary;
+  - ≤656px mới reserve fixed header;
+  - PWA **v86**.
+
+Responsive contract:
+
+```text
+PROFILE
+>=1000  : sidebar + channel page
+657-999 : channel page, không sidebar, 3-column portrait grid
+<=656   : channel page, 2-column portrait grid
+
+WATCH
+>=1280  : sidebar + portrait viewer/action rail + queue
+1000-1279: portrait viewer/action rail + queue
+657-999 : viewer/action rail + queue dưới, không double top gap
+<=656   : fixed-header offset + viewer/action rail + queue dưới
+```
+
+Production verify:
+- Deploy 1988 Player run `37144284111`: **SUCCESS**;
+- frontend contracts, artifact build, deploy và custom-domain verify đều PASS.
+- Backend/data không đổi:
+  - Supabase canonical giữ nguyên;
+  - Cloudflare LIVE demand-only giữ nguyên;
+  - Render TikTok resolver/library giữ nguyên;
+  - không thêm request nền.
+
+Rule:
+- TikTok và YouTube dùng cùng visual shell, nhưng không trộn owner/data model.
+- Profile banner chỉ là presentation từ ảnh đã có; không lưu thêm ảnh/banner canonical.
+- Action rail chỉ dùng metadata hiện có; không fan-out API theo card.
+- Mobile/tablet breakpoint phải tuân fixed-header rule chung của 1988.
+
+Impact:
+- UI/JS presentation only.
+- Rollback UI: `d02ed181d0e244b676b923ebf3cf2959acaa77a3`.
+
 ### 3.13. Portrait viewer compact — thu nhẹ + bo 4 góc
 
 Thời gian: **2026-10-04**.

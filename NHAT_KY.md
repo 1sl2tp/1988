@@ -705,3 +705,27 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Verify: Deploy 1988 Player run `37143714726` SUCCESS; frontend contracts/build/Pages/custom-domain đều PASS.
 - Impact: UI/CSS only; không đổi data/network/polling.
 - Rollback: `ebfd45193840870b3ef55e3b73031c39b4799d3e`.
+
+
+## 2026-10-04 — TikTok YouTube-shell — Profile + Shorts-style Watch
+
+- Base: `d02ed181d0e244b676b923ebf3cf2959acaa77a3`.
+- Mục tiêu: đưa TikTok về cùng shell/UX với YouTube, không đổi backend/data.
+- Code:
+  - `3e964bd5321bb57bff09125fcf73284ce7f43bc6`: banner/profile/tabs/grid + Shorts-style watch/action rail/share.
+  - `1e3814b0b2bf3d3ffbaa97569abccce8cabd0dcf`: responsive final + desktop wide sidebar + breakpoint fixed-header; PWA v86.
+- Profile:
+  - desktop sidebar trái;
+  - banner từ thumbnail/video mới nhất hoặc avatar fallback;
+  - avatar/name/handle/follower/video/bio;
+  - tabs visual;
+  - grid video dọc 5 cols desktop / 3 tablet / 2 mobile.
+- Watch:
+  - portrait viewer;
+  - action rail;
+  - title/creator/follow;
+  - queue loại current video;
+  - >=1280 có sidebar trái giống YouTube Shorts.
+- Không thêm API/polling/storage/banner data.
+- Verify: run `37144284111` SUCCESS, contracts/build/deploy/custom-domain PASS.
+- Rollback: `d02ed181d0e244b676b923ebf3cf2959acaa77a3`.
