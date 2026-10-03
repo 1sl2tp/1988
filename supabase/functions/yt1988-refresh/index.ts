@@ -14,6 +14,7 @@ function validScopeSyntax(value:any){
 }
 const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
+const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
@@ -2512,8 +2513,32 @@ Deno.serve(async(req:Request)=>{
     const newlyDiscoveredRowsByChannel=new Map<string,any[]>();
     const cacheById=new Map<string,any>();
     const cacheWrites:any[]=[];
+    const channelProfileCheckedAt=new Map<string,number>();
+    const channelDirectoryWrites:any[]=[];
     const fingerprintTouchIds:string[]=[];
     const now=Date.now();
+
+    // Profile freshness shares the same bounded refresh rotation. A stale
+    // profile makes the existing channel request run even when the newest
+    // video fingerprint is unchanged, so we enrich the canonical library
+    // without introducing another crawler or fan-out loop.
+    for(let start=0;start<neededIds.length;start+=50){
+      const ids=neededIds.slice(start,start+50);
+      if(!ids.length)continue;
+      const profileRes=await fetch(
+        rest+"/yt1988_channel_directory?profile_key=eq."+encodeURIComponent(PROFILE)+
+        "&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")"+
+        "&select=channel_id,profile_checked_at",
+        {headers:authHeaders}
+      ).catch(()=>null);
+      if(!profileRes||!profileRes.ok)continue;
+      const profileRows=await profileRes.json().catch(()=>[]);
+      for(const row of Array.isArray(profileRows)?profileRows:[]){
+        const id=clean(row?.channel_id,180);
+        const checked=Date.parse(String(row?.profile_checked_at||""));
+        if(id&&Number.isFinite(checked))channelProfileCheckedAt.set(id,checked);
+      }
+    }
 
     // Load persistent per-channel snapshots. These are the server equivalent
     // of the old browser channel cache: one failed upstream request must never
@@ -2616,11 +2641,17 @@ Deno.serve(async(req:Request)=>{
         // Fingerprint path: one tiny RSS response is enough to prove the channel
         // has no new upload. Reuse the complete cached snapshot and do not call
         // the heavier channel resolver, metadata endpoints or verification fanout.
+        const profileCheckedAt=channelProfileCheckedAt.get(id)||0;
+        const profileStale=
+          !profileCheckedAt||
+          now-profileCheckedAt>=CHANNEL_PROFILE_TTL_MS;
+
         if(
           fingerprint.known&&
           cachedLatest&&
           fingerprint.videoId===cachedLatest&&
-          previousRows.length
+          previousRows.length&&
+          !profileStale
         ){
           channelRows.set(id,previousRows);
           channelFetchOk.add(id);
@@ -2639,9 +2670,53 @@ Deno.serve(async(req:Request)=>{
           data?.avatarUrl||data?.thumbnailUrl||data?.avatar||"",
           1000
         ));
+        const subscriberCount=Math.max(
+          0,
+          Math.round(Number(data?.subscriberCount||data?.subscribers||0)||0)
+        );
+        const subscriberText=clean(
+          data?.subscriberText||
+          (subscriberCount>0?String(subscriberCount):"")||
+          data?.subscribers||
+          "",
+          120
+        );
+        const channelHandle=clean(
+          data?.handle||data?.vanityUrl||data?.customUrl||"",
+          120
+        )
+          .replace(/^https?:\/\/www\.youtube\.com\//i,"")
+          .replace(/^@/,"");
+        const channelDescription=clean(data?.description||data?.bio||"",2000);
+        const channelViewCount=Math.max(
+          0,
+          Math.round(Number(data?.viewCount||data?.views||0)||0)
+        );
+        const channelVideoCount=Math.max(
+          0,
+          Math.round(Number(data?.videoCount||data?.videosCount||0)||0)
+        );
+
         if(discoveredName)source.name=discoveredName;
         if(discoveredAvatar)source.thumbnailUrl=discoveredAvatar;
         if(discoveredName||discoveredAvatar)channelMeta.set(id,source);
+
+        channelDirectoryWrites.push({
+          channel_id:id,
+          name:discoveredName,
+          thumbnail_url:discoveredAvatar,
+          subscribers:subscriberText,
+          handle:channelHandle,
+          description:channelDescription,
+          verified:data?.verified===true,
+          subscriber_count:subscriberCount,
+          view_count:channelViewCount,
+          video_count:channelVideoCount,
+          profile_url:"https://www.youtube.com/channel/"+id,
+          profile_checked_at:checkedAt,
+          source:"server-channel-refresh"
+        });
+        channelProfileCheckedAt.set(id,Date.parse(checkedAt));
 
         const raw=Array.isArray(data?.relatedStreams)
           ?data.relatedStreams
@@ -2994,6 +3069,31 @@ Deno.serve(async(req:Request)=>{
       };
       if(index>=0)cacheWrites[index]={...existing,...write};
       else cacheWrites.push(write);
+    }
+
+    // Persist canonical profile fields in one batched RPC. This reuses the
+    // same channel fetches that produced video snapshots; no extra upstream
+    // channel request is made for library maintenance.
+    for(let start=0;start<channelDirectoryWrites.length;start+=40){
+      const chunk=channelDirectoryWrites.slice(start,start+40);
+      if(!chunk.length)continue;
+      const directoryWrite=await fetch(
+        rest+"/rpc/yt1988_upsert_channel_directory",
+        {
+          method:"POST",
+          headers:authHeaders,
+          body:JSON.stringify({
+            p_profile_key:PROFILE,
+            p_channels:chunk
+          })
+        }
+      ).catch(()=>null);
+      if(!directoryWrite||!directoryWrite.ok){
+        console.warn(
+          "channel directory write failed",
+          directoryWrite?await directoryWrite.text():"request_failed"
+        );
+      }
     }
 
     const sourceMetaUpdates=[...channelMeta.values()].filter((source:any)=>{
