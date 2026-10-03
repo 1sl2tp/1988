@@ -8349,7 +8349,6 @@ html.tiktok-ui.tiktok-watch .rows{
       ?channel.profile
       :{};
     const cover=video?.cover&&typeof video.cover==="object"?video.cover:{};
-    const playback=video?.playback&&typeof video.playback==="object"?video.playback:{};
     const stats=video?.stats&&typeof video.stats==="object"?video.stats:{};
 
     const width=Math.max(0,Number(cover?.width)||0);
@@ -8391,11 +8390,7 @@ html.tiktok-ui.tiktok-watch .rows{
       videoHeight:height,
       _aspectVerified:width>0&&height>0,
       _aspectSource:"tiktok-library",
-      pageUrl:String(video?.pageUrl||"").trim(),
-      playbackUrl:String(playback?.url||"").trim(),
-      playbackReady:playback?.ready===true,
-      playbackType:String(playback?.type||"mp4").toLowerCase(),
-      playbackExpiresAt:playback?.expiresAt||null
+      pageUrl:String(video?.pageUrl||"").trim()
     };
   }
 
