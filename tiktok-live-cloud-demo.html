@@ -15,7 +15,7 @@
 .grid{display:grid;grid-template-columns:minmax(280px,390px) minmax(0,1fr);gap:14px}.panel{background:#121216;border:1px solid #26262a;border-radius:14px;overflow:hidden}.head{padding:12px 14px;font-weight:800;border-bottom:1px solid #26262a}.body{padding:10px}
 .livecard,.vod{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:12px;padding:10px;text-align:left;cursor:pointer}.livecard{display:flex;gap:10px;align-items:center}.livecard[disabled]{opacity:.55;cursor:default}
 .avatar{width:58px;height:58px;border-radius:50%;object-fit:cover;background:#2a2a2f}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:4px}.pill{display:inline-block;margin-top:7px;background:#fe2c55;padding:4px 7px;border-radius:5px;font-size:11px;font-weight:800}
-.player-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.modes{display:flex;gap:5px}.modes button{border:1px solid #34343a;background:#1b1b20;color:#bbb;border-radius:14px;padding:5px 9px;cursor:pointer}.modes button.active{background:#fff;color:#111;border-color:#fff}.player{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:9/16;display:grid;place-items:center}video,iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}video{object-fit:contain}iframe{display:none}.now{padding:10px 2px 0;font-size:14px;font-weight:700;min-height:28px}
+.player-head{display:flex;align-items:center;justify-content:space-between;gap:10px}.modes,.sources{display:flex;gap:5px;flex-wrap:wrap}.modes button,.sources button{border:1px solid #34343a;background:#1b1b20;color:#bbb;border-radius:14px;padding:5px 9px;cursor:pointer}.modes button.active,.sources button.active{background:#fff;color:#111;border-color:#fff}.sourcebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}.sourcebar>span{font-size:12px;color:#aaa}.sourceinfo{font-size:12px;color:#aaa;margin:0 0 8px}.sourceinfo.ok{color:#8bd48b}.sourceinfo.bad{color:#ff8d8d}.player{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:9/16;display:grid;place-items:center}video,iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}video{object-fit:contain}iframe{display:none}.now{padding:10px 2px 0;font-size:14px;font-weight:700;min-height:28px}
 .vods{display:grid;gap:8px}.vod{display:grid;grid-template-columns:78px 1fr;gap:10px;align-items:center}.cover{width:78px;height:104px;object-fit:cover;border-radius:8px;background:#29292f}.vtitle{font-size:14px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:12px;color:#aaa;margin-top:5px}
 .empty{color:#999;padding:18px 6px;text-align:center}
 @media(max-width:760px){.grid{grid-template-columns:1fr}.player{max-height:58vh}.search{gap:6px}.search button{padding:0 14px}}
@@ -44,6 +44,13 @@
         <button type="button" data-mode="iframe">Iframe</button>
       </div></div>
       <div class="body">
+        <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
+          <button type="button" data-source="tikwm" class="active">TikWM</button>
+          <button type="button" data-source="tdown">TDown</button>
+          <button type="button" data-source="tiklydown">TiklyDown</button>
+          <button type="button" data-source="douyinwtf">DouyinWTF</button>
+        </div></div>
+        <div class="sourceinfo" id="sourceInfo">Chọn video rồi bấm nguồn để thử thủ công.</div>
         <div class="player">
           <video id="video" playsinline controls></video>
           <iframe id="iframe" title="TikTok player" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
@@ -63,6 +70,8 @@ const vodsEl=document.getElementById("vods");
 const video=document.getElementById("video");
 const iframe=document.getElementById("iframe");
 const modes=document.getElementById("modes");
+const sources=document.getElementById("sources");
+const sourceInfo=document.getElementById("sourceInfo");
 const nowEl=document.getElementById("now");
 let flvPlayer=null;
 let handle="";
@@ -86,6 +95,7 @@ let videos=[
 let vodOpenCount=0;
 let vodSeq=0;
 let playerMode="auto";
+let selectedSource="tikwm";
 let currentVodIndex=-1;
 const LIVE_CACHE_MS=60_000;
 
@@ -139,34 +149,76 @@ function writeVodLinkCache(item,source,url){
   if(!/^https?:\/\//i.test(String(url||"")))return;
   try{sessionStorage.setItem(vodLinkCacheKey(item,source),JSON.stringify({at:Date.now(),url:String(url)}))}catch{}
 }
+function pickJsonVideoUrl(data){
+  const found=[];
+  const seen=new Set();
+  const walk=(node,path="",depth=0)=>{
+    if(node==null||depth>10)return;
+    if(typeof node==="string"){
+      const url=String(node||"").trim();
+      if(/^https?:\/\//i.test(url)){
+        const key=path.toLowerCase();
+        let score=0;
+        if(/\.mp4(?:$|[?#])/i.test(url))score+=120;
+        if(/download|video|play|nowatermark|no_watermark|hd/.test(key))score+=70;
+        if(/tiktokcdn|byteoversea|ibytedtos|muscdn|akamaized/i.test(url))score+=30;
+        if(/cover|avatar|image|music|audio|mp3|m4a|thumbnail/.test(key))score-=180;
+        found.push({url,score});
+      }
+      return;
+    }
+    if(typeof node!=="object"||seen.has(node))return;
+    seen.add(node);
+    if(Array.isArray(node)){node.forEach((v,i)=>walk(v,path+"["+i+"]",depth+1));return}
+    Object.entries(node).forEach(([k,v])=>walk(v,path?path+"."+k:k,depth+1));
+  };
+  walk(data);
+  found.sort((a,b)=>b.score-a.score);
+  return String(found[0]?.url||"");
+}
 async function resolveVodDirect(item,source){
   const cached=readVodLinkCache(item,source);
   if(cached)return cached;
   const pageUrl=vodPageUrl(item);
+  let url="";
 
   if(source==="tikwm"){
-    const api="https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl);
-    const data=await json(api,12000);
+    const data=await json("https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl),12000);
     const body=data?.data||{};
-    let url=String(body.play||body.wmplay||body.hdplay||"").trim();
+    url=String(body.play||body.wmplay||body.hdplay||"").trim();
     if(url.startsWith("//"))url="https:"+url;
     else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
-    if(!/^https?:\/\//i.test(url))throw new Error("TikWM không trả MP4");
-    writeVodLinkCache(item,source,url);
-    return url;
+  }else if(source==="tdown"){
+    const data=await json("https://tdownv4.sl-bjs.workers.dev/?down="+encodeURIComponent(pageUrl),12000);
+    url=String(
+      data?.download_url||
+      data?.downloadUrl||
+      data?.video?.download_url||
+      data?.data?.download_url||
+      ""
+    ).trim();
+    if(url.startsWith("//"))url="https:"+url;
+  }else if(source==="tiklydown"){
+    let lastError=null;
+    for(const base of ["https://api.tiklydown.eu.org/api/download","https://api.tiklydown.link/api/download"]){
+      try{
+        const data=await json(base+"?url="+encodeURIComponent(pageUrl),12000);
+        url=pickJsonVideoUrl(data);
+        if(url)break;
+      }catch(error){lastError=error}
+    }
+    if(!url&&lastError)throw lastError;
+  }else if(source==="douyinwtf"){
+    const data=await json(
+      "https://api.douyin.wtf/api/hybrid/video_data?minimal=false&url="+encodeURIComponent(pageUrl),
+      12000
+    );
+    url=pickJsonVideoUrl(data);
+  }else{
+    throw new Error("Nguồn không hỗ trợ");
   }
 
-  const api="https://tdownv4.sl-bjs.workers.dev/?down="+encodeURIComponent(pageUrl);
-  const data=await json(api,12000);
-  let url=String(
-    data?.download_url||
-    data?.downloadUrl||
-    data?.video?.download_url||
-    data?.data?.download_url||
-    ""
-  ).trim();
-  if(url.startsWith("//"))url="https:"+url;
-  if(!/^https?:\/\//i.test(url))throw new Error("TDown không trả MP4");
+  if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
   writeVodLinkCache(item,source,url);
   return url;
 }
@@ -231,77 +283,74 @@ function playLive(item){
   statusEl.textContent="LIVE nhưng response lần này chưa có link phát.";
 }
 function iframeUrl(item){
-  return "https://www.tiktok.com/player/v1/"+encodeURIComponent(item.id)+"?autoplay=1&loop=0";
+  return "https://www.tiktok.com/player/v1/"+encodeURIComponent(item.id)+"?autoplay=1&muted=0&loop=1&rel=0&description=0&music_info=0";
 }
 function playVodIframe(item){
   stop();
+  const seq=vodSeq;
+  const started=performance.now();
   video.style.display="none";
   iframe.style.display="block";
+  sourceInfo.className="sourceinfo";
+  sourceInfo.textContent="Iframe · đang mở…";
+  iframe.onload=()=>{
+    if(seq!==vodSeq)return;
+    const sec=((performance.now()-started)/1000).toFixed(2);
+    sourceInfo.className="sourceinfo ok";
+    sourceInfo.textContent="Iframe · tải xong "+sec+"s · loop · âm thanh bật nếu trình duyệt cho phép";
+    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · IFRAME · "+sec+"s";
+  };
   iframe.src=iframeUrl(item);
   nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · IFRAME";
 }
-async function playVodMedia(item,{iframeFallback=false}={}){
+async function playVodMedia(item,{iframeFallback=false,source=selectedSource}={}){
   stop();
   const mySeq=vodSeq;
-  const first=vodOpenCount++%2===0?"tikwm":"tdown";
-  const second=first==="tikwm"?"tdown":"tikwm";
-  const sources=[first,second];
-  let attempt=0;
+  const started=performance.now();
+  sourceInfo.className="sourceinfo";
+  sourceInfo.textContent=source.toUpperCase()+" · đang get link…";
 
-  while(attempt<sources.length&&mySeq===vodSeq){
-    const source=sources[attempt];
-    try{
-      nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · GET "+source.toUpperCase();
-      const direct=await resolveVodDirect(item,source);
-      if(mySeq!==vodSeq)return;
-
-      video.style.display="block";
-      iframe.style.display="none";
-      nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · MEDIA "+source.toUpperCase();
-      video.onerror=()=>{
-        if(mySeq!==vodSeq)return;
-        attempt++;
-        if(attempt<sources.length){
-          playVodMediaWithSources(item,sources,attempt,mySeq,iframeFallback);
-        }else if(iframeFallback){
-          playVodIframe(item);
-        }else{
-          statusEl.textContent="Media lỗi cả TikWM và TDown.";
-        }
-      };
-      video.src=direct;
-      video.load();
-      video.play().catch(()=>{});
-      return;
-    }catch(error){
-      attempt++;
-      if(attempt>=sources.length){
-        if(iframeFallback){playVodIframe(item);return}
-        statusEl.textContent="Không get được link Media: "+String(error?.message||error);
-        return;
-      }
-    }
-  }
-}
-async function playVodMediaWithSources(item,sources,attempt,mySeq,iframeFallback){
-  if(mySeq!==vodSeq)return;
-  const source=sources[attempt];
   try{
-    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · GET "+source.toUpperCase();
     const direct=await resolveVodDirect(item,source);
+    const getSec=((performance.now()-started)/1000).toFixed(2);
     if(mySeq!==vodSeq)return;
+
+    sourceInfo.textContent=source.toUpperCase()+" · có link sau "+getSec+"s · đang mở video…";
+    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · "+source.toUpperCase()+" · link "+getSec+"s";
+
+    video.style.display="block";
+    iframe.style.display="none";
+
+    const onPlaying=()=>{
+      if(mySeq!==vodSeq)return;
+      const total=((performance.now()-started)/1000).toFixed(2);
+      sourceInfo.className="sourceinfo ok";
+      sourceInfo.textContent=source.toUpperCase()+" · PHÁT ĐƯỢC · "+total+"s (get "+getSec+"s)";
+      nowEl.textContent=(item.title||("Video "+item.id))+" · "+source.toUpperCase()+" · "+total+"s";
+    };
+    video.addEventListener("playing",onPlaying,{once:true});
+
     video.onerror=()=>{
       if(mySeq!==vodSeq)return;
+      const total=((performance.now()-started)/1000).toFixed(2);
+      sourceInfo.className="sourceinfo bad";
+      sourceInfo.textContent=source.toUpperCase()+" · có link nhưng VIDEO LỖI sau "+total+"s";
       if(iframeFallback)playVodIframe(item);
-      else statusEl.textContent="Media lỗi cả TikWM và TDown.";
     };
+
     video.src=direct;
     video.load();
-    video.play().catch(()=>{});
-    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · MEDIA "+source.toUpperCase();
+    video.play().catch(error=>{
+      if(mySeq!==vodSeq)return;
+      sourceInfo.textContent=source.toUpperCase()+" · link đã có, trình duyệt chờ thao tác phát";
+    });
   }catch(error){
+    if(mySeq!==vodSeq)return;
+    const total=((performance.now()-started)/1000).toFixed(2);
+    sourceInfo.className="sourceinfo bad";
+    sourceInfo.textContent=source.toUpperCase()+" · GET LINK LỖI sau "+total+"s · "+String(error?.message||error);
+    nowEl.textContent=(item.title||("Video "+item.id))+" · "+source.toUpperCase()+" · lỗi "+total+"s";
     if(iframeFallback)playVodIframe(item);
-    else statusEl.textContent="Không get được link Media: "+String(error?.message||error);
   }
 }
 function playVod(index){
@@ -309,7 +358,7 @@ function playVod(index){
   if(!item?.id)return;
   currentVodIndex=index;
   if(playerMode==="iframe"){playVodIframe(item);return}
-  playVodMedia(item,{iframeFallback:playerMode==="auto"});
+  playVodMedia(item,{iframeFallback:playerMode==="auto",source:selectedSource});
 }
 function setPlayerMode(mode){
   if(!["auto","media","iframe"].includes(mode))return;
@@ -320,6 +369,16 @@ function setPlayerMode(mode){
 vodsEl.addEventListener("click",e=>{
   const row=e.target.closest(".vod[data-i]");
   if(row)playVod(Number(row.dataset.i));
+});
+sources.addEventListener("click",e=>{
+  const btn=e.target.closest("[data-source]");
+  if(!btn)return;
+  selectedSource=btn.dataset.source;
+  sources.querySelectorAll("[data-source]").forEach(x=>x.classList.toggle("active",x.dataset.source===selectedSource));
+  playerMode="media";
+  modes.querySelectorAll("[data-mode]").forEach(x=>x.classList.toggle("active",x.dataset.mode==="media"));
+  if(currentVodIndex>=0)playVod(currentVodIndex);
+  else sourceInfo.textContent="Đã chọn "+selectedSource.toUpperCase()+" · chọn một video để thử.";
 });
 modes.addEventListener("click",e=>{
   const btn=e.target.closest("[data-mode]");
