@@ -42,6 +42,7 @@ jobs:
           node tests/integration-shape.test.cjs .
           node tests/backend-media-proxy.test.cjs
           node tests/tiktok-playback-contract.test.cjs
+          # Channel identity/profile contract shared by YouTube and TikTok.
           node tests/channel-library-contract.test.cjs
           python -m py_compile backend/ytdlp/server.py
           node --check src/media-core.js
