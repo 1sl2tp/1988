@@ -2415,7 +2415,6 @@ Deno.serve(async(req:Request)=>{
     const selectedByScope=new Map<string,any[]>();
     const generalBlockedIds=new Set<string>();
     const channelMeta=new Map<string,any>();
-    const storedSourceMeta=new Map<string,any>();
 
     for(const scope of SCOPES){
       blockedByScope.set(scope,new Set());
@@ -2433,25 +2432,45 @@ Deno.serve(async(req:Request)=>{
       if(row?.status==="blocked"){
         blockedByScope.get(scope)?.add(id);
       }else if(row?.status==="selected"){
-        selectedByScope.get(scope)?.push({
+        selectedByScope.get(scope)?.push({id});
+      }
+    }
+
+    // Identity is canonical only in yt1988_channel_directory. Source-state
+    // rows carry membership/status only, so an old avatar copy can never win.
+    const sourceIds=[...new Set(
+      SCOPES.flatMap((scope)=>selectedByScope.get(scope)||[])
+        .map((source:any)=>clean(source?.id,180))
+        .filter(Boolean)
+    )];
+    for(let start=0;start<sourceIds.length;start+=50){
+      const ids=sourceIds.slice(start,start+50);
+      const directoryRes=await fetch(
+        rest+"/yt1988_channel_directory?profile_key=eq."+encodeURIComponent(PROFILE)+
+        "&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")"+
+        "&select=channel_id,name,thumbnail_url",
+        {headers:authHeaders}
+      ).catch(()=>null);
+      if(!directoryRes||!directoryRes.ok)continue;
+      const directoryRows=await directoryRes.json().catch(()=>[]);
+      for(const directoryRow of Array.isArray(directoryRows)?directoryRows:[]){
+        const id=clean(directoryRow?.channel_id,180);
+        if(!id)continue;
+        channelMeta.set(id,{
           id,
-          name:clean(row?.name,180),
-          thumbnailUrl:clean(row?.thumbnail_url,1000)
+          name:validChannelDisplayName(directoryRow?.name)||"",
+          thumbnailUrl:normalizeAvatarUrl(directoryRow?.thumbnail_url||"")
         });
       }
-      const previousMeta=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
-      const storedName=validChannelDisplayName(row?.name)||"";
-      const storedThumb=normalizeAvatarUrl(clean(row?.thumbnail_url||"",1000));
-      const existingStored=storedSourceMeta.get(id)||{name:"",thumbnailUrl:""};
-      storedSourceMeta.set(id,{
-        name:validChannelDisplayName(existingStored.name)||storedName,
-        thumbnailUrl:normalizeAvatarUrl(existingStored.thumbnailUrl)||storedThumb
-      });
-      channelMeta.set(id,{
-        id,
-        name:validChannelDisplayName(previousMeta.name)||storedName,
-        thumbnailUrl:clean(previousMeta.thumbnailUrl||storedThumb||"",1000)
-      });
+    }
+    for(const scope of SCOPES){
+      selectedByScope.set(
+        scope,
+        (selectedByScope.get(scope)||[]).map((source:any)=>({
+          ...source,
+          ...(channelMeta.get(source.id)||{id:source.id,name:"",thumbnailUrl:""})
+        }))
+      );
     }
 
     // LIVE has special blacklist behavior in its discovery pipeline.
@@ -2959,7 +2978,7 @@ Deno.serve(async(req:Request)=>{
       const cacheRes=await fetch(
         rest+"/yt1988_channel_cache?profile_key=eq."+encodeURIComponent(PROFILE)+
         "&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")"+
-        "&select=channel_id,items,hash,newest_video_id,newest_uploaded_at,source_name,thumbnail_url,checked_at,last_success_at,last_error,retry_after,version",
+        "&select=channel_id,items,hash,newest_video_id,newest_uploaded_at,checked_at,last_success_at,last_error,retry_after,version",
         {headers:authHeaders}
       );
       if(!cacheRes.ok){
@@ -2984,8 +3003,6 @@ Deno.serve(async(req:Request)=>{
         cacheById.set(id,{
           channel_id:id,
           items:list,
-          source_name:clean(item?._sourceName||item?.uploaderName||item?.uploader||"",180),
-          thumbnail_url:"",
           checked_at:pkg?.updated_at||null,
           last_success_at:pkg?.updated_at||null,
           retry_after:null,
@@ -2997,8 +3014,6 @@ Deno.serve(async(req:Request)=>{
     for(const id of neededIds){
       const cached=cacheById.get(id);
       const source=channelMeta.get(id)||{id,name:""};
-      if(!source.name&&cached?.source_name)source.name=clean(cached.source_name,180);
-      if(!source.thumbnailUrl&&cached?.thumbnail_url)source.thumbnailUrl=clean(cached.thumbnail_url,1000);
       channelMeta.set(id,source);
 
       const successAt=Date.parse(String(cached?.last_success_at||cached?.checked_at||""));
@@ -3181,7 +3196,6 @@ Deno.serve(async(req:Request)=>{
           fresh[0]?._sourceName,
           fresh[0]?.uploaderName,
           fresh[0]?.uploader,
-          previous?.source_name
         ].map(validChannelDisplayName).find(Boolean)||"";
         if(sourceName&&!source.name){
           source.name=sourceName;
@@ -3207,8 +3221,6 @@ Deno.serve(async(req:Request)=>{
           hash:cacheHash,
           newest_video_id:newest?.id||"",
           newest_uploaded_at:newest?new Date(Date.now()-newest.age).toISOString():null,
-          source_name:sourceName,
-          thumbnail_url:normalizeAvatarUrl(source?.thumbnailUrl||previous?.thumbnail_url||""),
           checked_at:checkedAt,
           last_success_at:checkedAt,
           last_error:"",
@@ -3225,8 +3237,6 @@ Deno.serve(async(req:Request)=>{
           hash:clean(previous?.hash,100),
           newest_video_id:clean(previous?.newest_video_id,64),
           newest_uploaded_at:previous?.newest_uploaded_at||null,
-          source_name:clean(source?.name||previous?.source_name||"",180),
-          thumbnail_url:normalizeAvatarUrl(source?.thumbnailUrl||previous?.thumbnail_url||""),
           checked_at:checkedAt,
           last_success_at:previous?.last_success_at||null,
           last_error:message,
@@ -3472,8 +3482,6 @@ Deno.serve(async(req:Request)=>{
         hash:cacheHash,
         newest_video_id:newest?.id||clean(previous?.newest_video_id,64),
         newest_uploaded_at:newest?new Date(Date.now()-newest.age).toISOString():(previous?.newest_uploaded_at||null),
-        source_name:clean(source?.name||previous?.source_name||"",180),
-        thumbnail_url:normalizeAvatarUrl(source?.thumbnailUrl||previous?.thumbnail_url||""),
         checked_at:existing?.checked_at||previous?.checked_at||new Date().toISOString(),
         last_success_at:existing?.last_success_at||previous?.last_success_at||null,
         last_error:existing?.last_error||previous?.last_error||"",
@@ -3508,37 +3516,6 @@ Deno.serve(async(req:Request)=>{
         );
       }
     }
-
-    const sourceMetaUpdates=[...channelMeta.values()].filter((source:any)=>{
-      const id=clean(source?.id,180);
-      if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
-      const stored=storedSourceMeta.get(id)||{};
-      const name=validChannelDisplayName(source?.name);
-      const thumbnailUrl=normalizeAvatarUrl(source?.thumbnailUrl);
-      return (!!name&&name!==validChannelDisplayName(stored?.name))||
-        (!!thumbnailUrl&&thumbnailUrl!==normalizeAvatarUrl(stored?.thumbnailUrl));
-    });
-    await mapLimit(sourceMetaUpdates,4,async(source:any)=>{
-      const body:any={};
-      const stored=storedSourceMeta.get(clean(source?.id,180))||{};
-      const name=validChannelDisplayName(source?.name);
-      const thumbnailUrl=normalizeAvatarUrl(source?.thumbnailUrl);
-      if(name&&name!==validChannelDisplayName(stored?.name))body.name=name;
-      if(thumbnailUrl&&thumbnailUrl!==normalizeAvatarUrl(stored?.thumbnailUrl)){
-        body.thumbnail_url=thumbnailUrl;
-      }
-      if(!Object.keys(body).length)return true;
-      await fetch(
-        rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
-        "&channel_id=eq."+encodeURIComponent(source.id),
-        {
-          method:"PATCH",
-          headers:{...authHeaders,"prefer":"return=minimal"},
-          body:JSON.stringify(body)
-        }
-      ).catch(()=>{});
-      return true;
-    });
 
     for(let start=0;start<cacheWrites.length;start+=20){
       const chunk=cacheWrites.slice(start,start+20);

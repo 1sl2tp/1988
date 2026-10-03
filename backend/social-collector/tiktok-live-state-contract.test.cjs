@@ -216,3 +216,26 @@ assert.match(liveStatuses,/secUid:String\(videoRow\.secUid\|\|canonical\.sec_uid
   'LIVE status metadata must expose saved secUid to the edge checker');
 assert.match(liveStatuses,/latestVideoId:String\(videoRow\.latestVideoId\|\|videoRow\.videos\?\.\[0\]\?\.id\|\|''\)/,
   'LIVE status metadata must expose only the saved latest video ID, without scanning');
+
+
+const videoStoreLoadStart=server.indexOf('async function loadTikTokVideoStore()');
+const videoStoreLoadEnd=server.indexOf('function buildTikTokVideoStoredRows()',videoStoreLoadStart);
+const videoStoreLoad=server.slice(videoStoreLoadStart,videoStoreLoadEnd);
+assert.doesNotMatch(videoStoreLoad,/yt1988_tiktok_video_channels\?select=[^\n]*videos/,'video channel state must not store detailed video arrays');
+assert.match(videoStoreLoad,/yt1988_tiktok_videos\?select=video_id,handle/,'video store must rebuild from canonical video rows');
+
+const videoRowsStart=server.indexOf('function buildTikTokVideoStoredRows()');
+const videoRowsEnd=server.indexOf('async function persistTikTokVideoStore',videoRowsStart);
+const videoRowsBlock=server.slice(videoRowsStart,videoRowsEnd);
+assert.doesNotMatch(videoRowsBlock,/sec_uid:/,'secUid belongs to canonical TikTok channel identity');
+assert.doesNotMatch(videoRowsBlock,/^\s*videos\s*[:,]/m,'video channel state must not duplicate canonical videos');
+
+const canonicalSyncStart=server.indexOf('async function syncTikTokCanonicalLibrary');
+const canonicalSyncEnd=server.indexOf('function queueTikTokCanonicalSync',canonicalSyncStart);
+const canonicalSyncBlock=server.slice(canonicalSyncStart,canonicalSyncEnd);
+assert.doesNotMatch(canonicalSyncBlock,/next\.live(?:_|=)/,'canonical TikTok profile row must not duplicate transient LIVE state');
+
+const liveStoredRowsStart=server.indexOf('function buildTikTokStoredRows()');
+const liveStoredRowsEnd=server.indexOf('async function persistTikTokLiveStore',liveStoredRowsStart);
+const liveStoredRowsBlock=server.slice(liveStoredRowsStart,liveStoredRowsEnd);
+assert.doesNotMatch(liveStoredRowsBlock,/selected:true/,'LIVE row must not duplicate canonical selected membership');

@@ -86,12 +86,7 @@ function sourceScopeSignature(rows: any[], scope: string) {
       const id = cleanId(row?.channel_id);
       const status = String(row?.status || "");
       if (!id || (status !== "selected" && status !== "blocked")) return "";
-      return [
-        id,
-        status,
-        cleanText(row?.name, 180),
-        cleanText(row?.thumbnail_url, 1000)
-      ].join("|");
+      return [id, status].join("|");
     })
     .filter(Boolean)
     .sort()
@@ -274,7 +269,7 @@ Deno.serve(async (req) => {
 
     const res = await fetch(
       rest + "/yt1988_source_state?profile_key=eq." + encodeURIComponent(PROFILE) +
-      "&select=scope,channel_id,status,name,thumbnail_url,subscribers,version,updated_at" +
+      "&select=scope,channel_id,status,version,updated_at" +
       "&order=scope.asc,channel_id.asc",
       { headers: authHeaders }
     );
@@ -1109,7 +1104,6 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "bad_source_state" }, 400);
       }
 
-      const source = body?.source && typeof body.source === "object" ? body.source : {};
       const rpc = await fetch(rest + "/rpc/yt1988_set_source_state", {
         method: "POST",
         headers: authHeaders,
@@ -1118,9 +1112,11 @@ Deno.serve(async (req) => {
           p_scope: scope,
           p_channel_id: channelId,
           p_status: status,
-          p_name: cleanText(source?.name, 180),
-          p_thumbnail_url: cleanText(source?.thumbnailUrl, 1000),
-          p_subscribers: cleanText(source?.subscribers, 120),
+          // Compatibility args stay in the RPC signature during migration,
+          // but identity is canonical only in yt1988_channel_directory.
+          p_name: "",
+          p_thumbnail_url: "",
+          p_subscribers: "",
           p_version: version
         })
       });
@@ -1141,13 +1137,19 @@ Deno.serve(async (req) => {
       return json({ ok: true, source: saved, version });
     }
 
-    const state = body?.state;
-    if (!state || typeof state !== "object" || Array.isArray(state)) {
+    const rawState = body?.state;
+    if (!rawState || typeof rawState !== "object" || Array.isArray(rawState)) {
       return json({ ok: false, error: "bad_state" }, 400);
     }
 
+    // Legacy browsers may still POST identity mirrors. Never persist them.
+    // Channel name/avatar/profile live only in the canonical channel tables.
+    const state = {
+      ...rawState,
+      avatars: {},
+      customSources: []
+    };
     const version = Math.max(1, Number(body?.version || Date.now()));
-    const rows = stateRows(state);
 
     // Full profile saves are presentation-only. Source selection/blocking is
     // row-authoritative and changes only through set_source, so an older

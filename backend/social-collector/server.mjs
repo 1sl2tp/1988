@@ -1362,35 +1362,10 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
 }
 
 async function reconcileTikTokManagedMembership(){
-  const handles=[...tiktokLiveSelectedHandles];
-  const wanted=new Set(handles.map(h=>h.toLowerCase()));
-  try{
-    const r=await fetch(
-      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?select=handle,selected',
-      {headers:storeHeaders()}
-    );
-    if(r.ok){
-      const rows=await r.json();
-      const turnOff=(Array.isArray(rows)?rows:[])
-        .filter(row=>row?.selected===true&&!wanted.has(String(row?.handle||'').toLowerCase()))
-        .map(row=>String(row.handle||''))
-        .filter(Boolean);
-      for(const handle of turnOff){
-        await fetch(
-          SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?handle=eq.'+encodeURIComponent(handle),
-          {
-            method:'PATCH',
-            headers:storeHeaders({prefer:'return=minimal'}),
-            body:JSON.stringify({selected:false,updated_at:nowIso()})
-          }
-        ).catch(()=>{});
-      }
-    }
-  }catch(error){
-    console.warn('[tiktok-membership] reconcile failed',compactText(error?.message||error,160));
-  }
+  // Membership is canonical only in yt1988_tiktok_channels.selected.
+  // LIVE rows no longer carry a second selected flag.
+  return true;
 }
-
 async function loadTikTokLiveStore(){
   try{
     const [selectedRes,channelsRes,packageRes]=await Promise.all([
@@ -1501,7 +1476,6 @@ function buildTikTokStoredRows(){
       const playable=live;
       return {
         handle,
-        selected:true,
         // Keep TikTok's detected LIVE state internally. Public/UI LIVE is
         // derived separately and requires a validated FLV.
         live,
@@ -7035,14 +7009,18 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
 async function loadTikTokVideoStore(){
   try{
-    const [channelsRes,canonicalRes,packageRes]=await Promise.all([
+    const [channelsRes,canonicalRes,canonicalVideos,packageRes]=await Promise.all([
       fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_channels?select=handle,sec_uid,latest_video_id,videos,scan_status,scan_error,checked_at,updated_at',
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_channels?select=handle,latest_video_id,scan_status,scan_error,checked_at,updated_at',
         {headers:storeHeaders()}
       ),
       fetch(
         SUPABASE_URL+'/rest/v1/yt1988_tiktok_channels?selected=eq.true&select=handle,sec_uid',
         {headers:storeHeaders()}
+      ),
+      fetchTikTokCanonicalPages(
+        'yt1988_tiktok_videos?select=video_id,handle,title,create_time,duration,page_url,cover_source_url,width,height,play_count,digg_count,comment_count,share_count,collect_count&order=create_time.desc',
+        {maxRows:50000}
       ),
       fetch(
         SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_package?package_key=eq.latest&select=version,updated_at&limit=1',
@@ -7059,6 +7037,34 @@ async function loadTikTokVideoStore(){
       (Array.isArray(canonicalRows)?canonicalRows:[])
         .map(row=>[String(row?.handle||'').toLowerCase(),row])
     );
+    const videosByHandle=new Map();
+    for(const row of Array.isArray(canonicalVideos)?canonicalVideos:[]){
+      const handle=normalizeTikTokHandle(row?.handle||'');
+      if(!handle)continue;
+      const video=normalizeTikTokPostItem(handle,{
+        id:row?.video_id,
+        desc:row?.title||'',
+        createTime:row?.create_time||0,
+        duration:row?.duration||0,
+        cover:row?.cover_source_url||'',
+        width:row?.width||0,
+        height:row?.height||0,
+        stats:{
+          playCount:row?.play_count||0,
+          diggCount:row?.digg_count||0,
+          commentCount:row?.comment_count||0,
+          shareCount:row?.share_count||0,
+          collectCount:row?.collect_count||0
+        }
+      });
+      if(!video)continue;
+      const key=handle.toLowerCase();
+      if(!videosByHandle.has(key))videosByHandle.set(key,[]);
+      if(videosByHandle.get(key).length<TIKTOK_VIDEO_PER_CHANNEL){
+        videosByHandle.get(key).push(video);
+      }
+    }
+
     const packageRows=await packageRes.json();
     const storedMap=new Map(
       (Array.isArray(rows)?rows:[])
@@ -7067,13 +7073,14 @@ async function loadTikTokVideoStore(){
 
     tiktokVideoLibrary.clear();
     for(const handle of tiktokLiveSelectedHandles){
-      const stored=storedMap.get(handle.toLowerCase())||{};
-      const videos=Array.isArray(stored?.videos)?stored.videos:[];
-      const canonical=canonicalMap.get(handle.toLowerCase())||{};
+      const key=handle.toLowerCase();
+      const stored=storedMap.get(key)||{};
+      const videos=videosByHandle.get(key)||[];
+      const canonical=canonicalMap.get(key)||{};
       const status=String(stored?.scan_status||'');
-      tiktokVideoLibrary.set(handle.toLowerCase(),{
+      tiktokVideoLibrary.set(key,{
         handle,
-        secUid:String(stored?.sec_uid||canonical?.sec_uid||''),
+        secUid:String(canonical?.sec_uid||''),
         latestVideoId:String(stored?.latest_video_id||videos?.[0]?.id||''),
         videos:videos.slice(0,TIKTOK_VIDEO_PER_CHANNEL),
         checkedAt:Date.parse(stored?.checked_at||stored?.updated_at||0)||0,
@@ -7096,21 +7103,18 @@ async function loadTikTokVideoStore(){
     return false;
   }
 }
-
 function buildTikTokVideoStoredRows(){
   const now=nowIso();
   return [...tiktokLiveSelectedHandles]
     .map(handle=>{
       const row=tiktokVideoLibrary.get(handle.toLowerCase())||{
-        handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'unknown',error:''
+        handle,latestVideoId:'',videos:[],checkedAt:0,status:'unknown',error:''
       };
-      const videos=Array.isArray(row.videos)?row.videos.slice(0,TIKTOK_VIDEO_PER_CHANNEL):[];
+      const videos=Array.isArray(row.videos)?row.videos:[];
       return {
         handle,
-        sec_uid:String(row.secUid||''),
         latest_video_id:String(row.latestVideoId||videos?.[0]?.id||''),
-        videos,
-        scan_status:String(row.status|| (videos.length?'ready':'unknown')),
+        scan_status:String(row.status||(videos.length?'ready':'unknown')),
         scan_error:String(row.error||'').slice(0,300),
         checked_at:row.checkedAt?new Date(Number(row.checkedAt)).toISOString():null,
         updated_at:now
@@ -7118,7 +7122,6 @@ function buildTikTokVideoStoredRows(){
     })
     .sort((a,b)=>a.handle.localeCompare(b.handle));
 }
-
 async function persistTikTokVideoStore({force=false}={}){
   if(TIKTOK_UPDATES_PAUSED)return true;
   if(!force&&tiktokVideoPersistedVersion===tiktokVideoPackageVersion)return true;
@@ -7126,12 +7129,14 @@ async function persistTikTokVideoStore({force=false}={}){
 
   tiktokVideoStoreWritePromise=(async()=>{
     const rows=buildTikTokVideoStoredRows();
-    // Detailed video metadata already exists in yt1988_tiktok_video_channels
-    // and the canonical yt1988_tiktok_videos table. Keep this singleton package
-    // as a tiny version/health marker instead of duplicating the full library.
+    // Detailed videos live only in yt1988_tiktok_videos. The per-channel row
+    // stores scan state/latest-video pointer only.
     const payload={
       total:rows.length,
-      videoCount:rows.reduce((sum,row)=>sum+row.videos.length,0),
+      videoCount:[...tiktokLiveSelectedHandles].reduce(
+        (sum,handle)=>sum+(tiktokVideoLibrary.get(handle.toLowerCase())?.videos?.length||0),
+        0
+      ),
       ready:rows.filter(row=>row.scan_status==='ready').length,
       empty:rows.filter(row=>row.scan_status==='empty').length,
       unknown:rows.filter(row=>row.scan_status==='unknown').length
@@ -7742,15 +7747,6 @@ function canonicalChannelDefault(handle){
     video_count:0,
     profile_source:'',
     profile_checked_at:null,
-    live:false,
-    live_title:'',
-    live_cover_source_url:'',
-    live_cover_stored_url:'',
-    live_stream_type:'',
-    live_stream_url:'',
-    live_source_sig:'',
-    live_checked_at:null,
-    live_updated_at:null,
     first_seen_at:nowIso(),
     updated_at:nowIso()
   };
@@ -7929,11 +7925,18 @@ function buildTikTokCanonicalPackage(){
     .filter(row=>row.selected!==false&&(!selected.size||selected.has(String(row.handle||'').toLowerCase())))
     .map(row=>{
       const handle=String(row.handle||'');
+      const key=handle.toLowerCase();
       const avatarSource=String(row.avatar_source_url||'');
       const avatarStored=String(row.avatar_stored_url||'');
-      const liveCoverSource=String(row.live_cover_source_url||'');
-      const liveCoverStored=String(row.live_cover_stored_url||'');
-      const recent=(videosByHandle.get(handle.toLowerCase())||[])
+      const liveRow=tiktokLiveLibrary.get(key)||{};
+      const isLive=tiktokPublishedLiveNow(handle,Date.now(),liveRow);
+      const liveSource=isLive?currentTikTokLibrarySource(handle):null;
+      const liveType=String(liveSource?.type||'').toLowerCase();
+      const playable=Boolean(
+        isLive&&liveSource?.url&&liveType==='flv'&&tiktokLiveSourceUsable(liveSource)
+      );
+      const liveCover=String(liveRow.thumbnail||liveRow.cover||'');
+      const recent=(videosByHandle.get(key)||[])
         .slice(0,TIKTOK_LIBRARY_RECENT_VIDEOS)
         .map(canonicalPackageVideo);
       return {
@@ -7959,23 +7962,22 @@ function buildTikTokCanonicalPackage(){
           checkedAt:row.profile_checked_at||null
         },
         live:{
-          isLive:Boolean(row.live),
-          playable:Boolean(row.live&&row.live_stream_url&&row.live_source_sig),
-          title:String(row.live_title||''),
+          isLive,
+          playable,
+          title:String(liveRow.title||''),
           cover:{
-            url:liveCoverSource||liveCoverStored,
-            sourceUrl:liveCoverSource,
-            storedUrl:liveCoverStored
+            url:liveCover,
+            sourceUrl:liveCover,
+            storedUrl:''
           },
           stream:{
-            type:String(row.live_stream_type||''),
-            sourceSig:String(row.live_source_sig||''),
-            // Direct CDN only. Render media proxy is disabled.
-            url:row.live&&row.live_source_sig?String(row.live_stream_url||''):'',
+            type:playable?'flv':'',
+            sourceSig:playable?tiktokLibrarySourceSig(liveSource):'',
+            url:playable?String(liveSource.url||''):'',
             proxyUrl:''
           },
-          checkedAt:row.live_checked_at||null,
-          updatedAt:row.live_updated_at||null
+          checkedAt:liveRow.lastSeenAt?new Date(Number(liveRow.lastSeenAt)).toISOString():null,
+          updatedAt:liveRow.stateChangedAt?new Date(Number(liveRow.stateChangedAt)).toISOString():null
         },
         videos:recent
       };
@@ -7988,7 +7990,7 @@ function buildTikTokCanonicalPackage(){
     retention:{
       channels:'persistent-until-unselected',
       videos:'append-only-by-video-id',
-      liveStream:'replace-or-clear-only',
+      liveStream:'edge/transient-not-channel-profile',
       images:'current-reference-only-with-orphan-cleanup',
       videoPlayback:'resolved-on-demand-outside-ui-package'
     },
@@ -8025,6 +8027,7 @@ function buildTikTokCanonicalPackage(){
     videoCount:channels.reduce((sum,x)=>sum+x.videos.length,0)
   };
 }
+
 async function fetchTikTokCanonicalPages(path,{pageSize=1000,maxRows=50000}={}){
   const all=[];
   for(let offset=0;offset<maxRows;offset+=pageSize){
@@ -8405,46 +8408,6 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
       );
       if(!incomingWeak||!prevRich)next.profile_source=canonicalText(incomingSource,prevSource);
       next.profile_checked_at=nowIso();
-    }
-
-    const liveRow=tiktokLiveLibrary.get(key)||null;
-    if(liveRow){
-      const publishedLive=tiktokPublishedLiveNow(handle,Date.now(),liveRow);
-      const source=publishedLive?currentTikTokLibrarySource(handle):null;
-      const sourceType=String(source?.type||'').toLowerCase();
-      const sourceUsable=Boolean(
-        publishedLive&&
-        source?.url&&
-        sourceType==='flv'&&
-        tiktokLiveSourceUsable(source)
-      );
-      // Canonical LIVE uses the same final truth as the public list:
-      // current detection + verified live link.
-      next.live=publishedLive;
-      next.live_checked_at=liveRow.lastSeenAt?new Date(Number(liveRow.lastSeenAt)).toISOString():nowIso();
-      if(liveRow.title)next.live_title=String(liveRow.title);
-      const liveCover=String(liveRow.thumbnail||liveRow.cover||'').trim();
-      if(liveCover&&liveCover!==String(prev.live_cover_source_url||'')){
-        next.live_cover_source_url=liveCover;
-        next.live_cover_stored_url='';
-      }
-      if(sourceUsable){
-        const nextType=sourceType;
-        const nextUrl=String(source.url||'');
-        const nextSig=tiktokLibrarySourceSig(source);
-        const streamChanged=
-          nextType!==String(prev.live_stream_type||'')||
-          nextUrl!==String(prev.live_stream_url||'')||
-          nextSig!==String(prev.live_source_sig||'');
-        next.live_stream_type=nextType;
-        next.live_stream_url=nextUrl;
-        next.live_source_sig=nextSig;
-        if(streamChanged)next.live_updated_at=nowIso();
-      }else{
-        next.live_stream_type='';
-        next.live_stream_url='';
-        next.live_source_sig='';
-      }
     }
 
     const videoRow=tiktokVideoLibrary.get(key)||null;

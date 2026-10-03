@@ -30,5 +30,14 @@ assert.match(sources,/view:"lite"/);
 assert.match(sources,/view:"library"/);
 assert.match(worker,/STATE_URL\+"\?view=lite"/);
 assert.doesNotMatch(worker,/fetchJson\(STATE_URL,8000\)/);
+assert.doesNotMatch(state,/select=scope,channel_id,status,name,thumbnail_url/);
+assert.match(state,/avatars:\s*\{\}/);
+assert.match(state,/customSources:\s*\[\]/);
+
+const refresh=fs.readFileSync(path.join(root,'supabase','functions','yt1988-refresh','index.ts'),'utf8');
+assert.doesNotMatch(refresh,/source_name/);
+assert.doesNotMatch(refresh,/previous\?\.thumbnail_url/);
+assert.doesNotMatch(refresh,/yt1988_source_state[\s\S]{0,220}name,thumbnail_url/);
+assert.match(refresh,/yt1988_channel_directory[\s\S]{0,260}select=channel_id,name,thumbnail_url/);
 
 console.log('source-state contract ok');
