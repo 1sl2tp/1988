@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v48-original-title";
+const LIVE_PIPELINE_VERSION="live-v49-directory-avatar";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -571,6 +571,59 @@ function dedupeLiveRows(rows:any[]){
     out.push(row);
   }
   return out;
+}
+
+function applyLiveDirectoryIdentity(row:any,directory:any){
+  if(!row)return row;
+  const dirName=validChannelDisplayName(directory?.name||"");
+  const dirAvatar=normalizeAvatarUrl(clean(directory?.thumbnail_url||directory?.thumbnailUrl||"",1000));
+  const currentName=validChannelDisplayName(
+    row?._sourceName||row?.sourceName||row?.uploaderName||row?.uploader||""
+  );
+  const currentAvatar=normalizeAvatarUrl(clean(
+    row?._sourceThumbnailUrl||row?.sourceAvatar||row?.uploaderAvatar||"",
+    1000
+  ));
+  const sourceName=currentName||dirName;
+  const sourceAvatar=currentAvatar||dirAvatar;
+  return {
+    ...row,
+    sourceName,
+    uploaderName:sourceName,
+    uploader:sourceName,
+    _sourceName:sourceName,
+    sourceAvatar,
+    uploaderAvatar:sourceAvatar,
+    _sourceThumbnailUrl:sourceAvatar
+  };
+}
+
+async function enrichLiveRowsFromChannelDirectory(rest:string,headers:any,rows:any[]){
+  const list=Array.isArray(rows)?rows:[];
+  const ids=[...new Set(list.map((row:any)=>channelId(row)).filter(Boolean))];
+  if(!ids.length)return list;
+
+  const directory=new Map<string,any>();
+  for(let start=0;start<ids.length;start+=50){
+    const batch=ids.slice(start,start+50);
+    const res=await fetch(
+      rest+"/yt1988_channel_directory?profile_key=eq."+encodeURIComponent(PROFILE)+
+      "&channel_id=in.("+batch.map(encodeURIComponent).join(",")+")"+
+      "&select=channel_id,name,thumbnail_url",
+      {headers}
+    ).catch(()=>null);
+    if(!res||!res.ok)continue;
+    const data=await res.json().catch(()=>[]);
+    for(const row of Array.isArray(data)?data:[]){
+      const id=clean(row?.channel_id,180);
+      if(id)directory.set(id,row);
+    }
+  }
+
+  return list.map((row:any)=>{
+    const sid=channelId(row);
+    return applyLiveDirectoryIdentity(row,directory.get(sid));
+  });
 }
 
 const PACKAGE_DEDUPE_STOPWORDS=new Set(
@@ -2779,6 +2832,14 @@ Deno.serve(async(req:Request)=>{
         (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
       );
       }
+    }
+
+    if(scopes.includes("live")&&verifiedLiveRowsCache.length){
+      verifiedLiveRowsCache=await enrichLiveRowsFromChannelDirectory(
+        rest,
+        authHeaders,
+        verifiedLiveRowsCache
+      );
     }
 
     const nonLiveScopes=scopes.filter((scope)=>scope!=="live");
