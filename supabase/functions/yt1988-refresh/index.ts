@@ -2659,7 +2659,9 @@ Deno.serve(async(req:Request)=>{
           return true;
         }
 
-        const url=supabaseUrl+"/functions/v1/yt1988?action=channel&id="+encodeURIComponent(id);
+        const url=
+          supabaseUrl+"/functions/v1/yt1988?action=channel&id="+encodeURIComponent(id)+
+          (profileStale?"&profile=1":"");
         const result=await fetchJson(url,{
           "apikey":serviceKey,
           "authorization":"Bearer "+serviceKey
@@ -2709,7 +2711,7 @@ Deno.serve(async(req:Request)=>{
           handle:channelHandle,
           description:channelDescription,
           verified:data?.verified===true,
-          verified_known:typeof data?.verified==="boolean",
+          verified_known:data?.verifiedKnown===true||typeof data?.verified==="boolean",
           subscriber_count:subscriberCount,
           view_count:channelViewCount,
           video_count:channelVideoCount,
