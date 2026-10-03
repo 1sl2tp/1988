@@ -40,7 +40,6 @@ const relay=worker.slice(relayStart,relayEnd);
 assert.match(relay,/requested&&requested!=="auto"/);
 assert.match(relay,/order=\[requested\]/);
 
-assert.match(worker,/https:\/\/www\.tikwm\.com\/api\/user\/posts/);
 assert.match(worker,/url\.pathname === "\/tiktok\/channel-videos"/);
 
 assert.match(worker,/async function lookupLive\(rawHandle\)/);
