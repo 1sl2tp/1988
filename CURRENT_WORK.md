@@ -138,6 +138,11 @@ Production verify đã có:
   - Render health keepalive 12 phút/lần;
   - retention cleanup 1 lần/ngày;
   - không có package/LIVE discovery cron.
+- Final frontend contract/deploy run `37137967816`: **SUCCESS toàn bộ** — tests, build, Pages deploy và custom-domain verify đều PASS.
+- Runtime cuối:
+  - `yt1988 v6` ACTIVE;
+  - `yt1988-state v12` ACTIVE;
+  - PWA `v76`.
 
 Rule:
 - Search/channel API không được tạo background work theo số card trả về.
