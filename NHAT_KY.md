@@ -317,3 +317,26 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Data impact: không xóa canonical data/package; chỉ thay orchestration/scheduler.
 - Rollback frontend: `d6e465d991ae442c7a1c61103c92cf8ee4b6558d`.
 - Không rollback bằng cách bật lại cron LIVE.
+
+
+## 2026-10-03 — Khóa YouTube LIVE UI thành package-only tuyệt đối
+
+- Base: `d3c08aeab7fb757d55dec19330b4ca55e4f87672`.
+- Code commit: `9ba971aa6a08d2ae2342a817fd0c4361181c9693`.
+- Owner: frontend `index.html`.
+- Bằng chứng:
+  - package LIVE hash `ld9wih`, 27 item;
+  - Lệ Quyên ở vị trí 14;
+  - ChimSeDiNang AOE ở vị trí 27;
+  - UI chỉ render 18 card nên Chim Sẻ bị cắt dù package đúng.
+- Patch:
+  - LIVE render toàn bộ package;
+  - YouTube package identity dùng nguyên package fields;
+  - edge chỉ discovery/wake, không paint/hydrate YouTube card;
+  - YouTube edge snapshot không lưu/khôi phục vào client feed;
+  - PWA cache `v71`.
+- Test: frontend production contracts PASS.
+- Deploy: run `37127795634` SUCCESS; custom-domain verify PASS.
+- Data impact: không đổi Supabase/Cloudflare data, không sửa package builder.
+- Rollback: `d3c08aeab7fb757d55dec19330b4ca55e4f87672`.
+- Rule: package đúng mà UI thiếu → chỉ kiểm tra hash/cache/swap; không sửa discovery/backend identity.
