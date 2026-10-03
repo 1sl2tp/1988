@@ -121,8 +121,54 @@ function writeLiveCache(h,data){
   if(Number(data?.status)!==2||!(data?.streamUrl||data?.hlsUrl))return;
   try{sessionStorage.setItem(liveCacheKey(h),JSON.stringify({at:Date.now(),data}))}catch{}
 }
-function mediaUrl(h,id,source){
-  return EDGE+"/tiktok/video-stream?user="+encodeURIComponent(h)+"&id="+encodeURIComponent(id)+"&source="+encodeURIComponent(source)+"&try=1&t="+Date.now();
+const VOD_LINK_CACHE_MS=5*60_000;
+function vodPageUrl(item){
+  return item.pageUrl||("https://www.tiktok.com/@"+item.handle+"/video/"+item.id);
+}
+function vodLinkCacheKey(item,source){
+  return "1988-demo-vod-link-v1:"+source+":"+item.handle+":"+item.id;
+}
+function readVodLinkCache(item,source){
+  try{
+    const row=JSON.parse(sessionStorage.getItem(vodLinkCacheKey(item,source))||"null");
+    if(!row||Date.now()-Number(row.at||0)>VOD_LINK_CACHE_MS)return "";
+    return /^https?:\/\//i.test(String(row.url||""))?String(row.url):"";
+  }catch{return ""}
+}
+function writeVodLinkCache(item,source,url){
+  if(!/^https?:\/\//i.test(String(url||"")))return;
+  try{sessionStorage.setItem(vodLinkCacheKey(item,source),JSON.stringify({at:Date.now(),url:String(url)}))}catch{}
+}
+async function resolveVodDirect(item,source){
+  const cached=readVodLinkCache(item,source);
+  if(cached)return cached;
+  const pageUrl=vodPageUrl(item);
+
+  if(source==="tikwm"){
+    const api="https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl);
+    const data=await json(api,12000);
+    const body=data?.data||{};
+    let url=String(body.play||body.wmplay||body.hdplay||"").trim();
+    if(url.startsWith("//"))url="https:"+url;
+    else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
+    if(!/^https?:\/\//i.test(url))throw new Error("TikWM không trả MP4");
+    writeVodLinkCache(item,source,url);
+    return url;
+  }
+
+  const api="https://tdownv4.sl-bjs.workers.dev/?down="+encodeURIComponent(pageUrl);
+  const data=await json(api,12000);
+  let url=String(
+    data?.download_url||
+    data?.downloadUrl||
+    data?.video?.download_url||
+    data?.data?.download_url||
+    ""
+  ).trim();
+  if(url.startsWith("//"))url="https:"+url;
+  if(!/^https?:\/\//i.test(url))throw new Error("TDown không trả MP4");
+  writeVodLinkCache(item,source,url);
+  return url;
 }
 async function json(url,timeout=20000){
   const controller=new AbortController();
@@ -194,35 +240,69 @@ function playVodIframe(item){
   iframe.src=iframeUrl(item);
   nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · IFRAME";
 }
-function playVodMedia(item,{iframeFallback=false}={}){
+async function playVodMedia(item,{iframeFallback=false}={}){
   stop();
   const mySeq=vodSeq;
   const first=vodOpenCount++%2===0?"tikwm":"tdown";
   const second=first==="tikwm"?"tdown":"tikwm";
   const sources=[first,second];
   let attempt=0;
-  const open=()=>{
-    if(mySeq!==vodSeq)return;
+
+  while(attempt<sources.length&&mySeq===vodSeq){
     const source=sources[attempt];
-    video.style.display="block";
-    iframe.style.display="none";
-    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · MEDIA "+source.toUpperCase();
+    try{
+      nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · GET "+source.toUpperCase();
+      const direct=await resolveVodDirect(item,source);
+      if(mySeq!==vodSeq)return;
+
+      video.style.display="block";
+      iframe.style.display="none";
+      nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · MEDIA "+source.toUpperCase();
+      video.onerror=()=>{
+        if(mySeq!==vodSeq)return;
+        attempt++;
+        if(attempt<sources.length){
+          playVodMediaWithSources(item,sources,attempt,mySeq,iframeFallback);
+        }else if(iframeFallback){
+          playVodIframe(item);
+        }else{
+          statusEl.textContent="Media lỗi cả TikWM và TDown.";
+        }
+      };
+      video.src=direct;
+      video.load();
+      video.play().catch(()=>{});
+      return;
+    }catch(error){
+      attempt++;
+      if(attempt>=sources.length){
+        if(iframeFallback){playVodIframe(item);return}
+        statusEl.textContent="Không get được link Media: "+String(error?.message||error);
+        return;
+      }
+    }
+  }
+}
+async function playVodMediaWithSources(item,sources,attempt,mySeq,iframeFallback){
+  if(mySeq!==vodSeq)return;
+  const source=sources[attempt];
+  try{
+    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · GET "+source.toUpperCase();
+    const direct=await resolveVodDirect(item,source);
+    if(mySeq!==vodSeq)return;
     video.onerror=()=>{
       if(mySeq!==vodSeq)return;
-      attempt++;
-      if(attempt<sources.length){
-        open();
-      }else if(iframeFallback){
-        playVodIframe(item);
-      }else{
-        statusEl.textContent="Media lỗi cả TikWM và TDown.";
-      }
+      if(iframeFallback)playVodIframe(item);
+      else statusEl.textContent="Media lỗi cả TikWM và TDown.";
     };
-    video.src=mediaUrl(item.handle,item.id,source);
+    video.src=direct;
     video.load();
     video.play().catch(()=>{});
-  };
-  open();
+    nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · MEDIA "+source.toUpperCase();
+  }catch(error){
+    if(iframeFallback)playVodIframe(item);
+    else statusEl.textContent="Không get được link Media: "+String(error?.message||error);
+  }
 }
 function playVod(index){
   const item=videos[index];
