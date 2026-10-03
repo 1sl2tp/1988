@@ -215,9 +215,9 @@ async function enrichRowsWithVideoMeta(rows:any[]) {
   const ids=list.map(rowVideoId).filter(Boolean);
   const meta=await videoMetaMap(ids);
 
-  const missing=ids.filter(id=>!meta.has(id));
-  if(missing.length)void warmVideoMeta(missing);
-
+  // Search/channel results are direct user actions, not a reason to fan out
+  // background metadata resolvers for every card. Reuse cached aspect metadata
+  // when present; missing shape is learned only when that video is actually opened.
   if(!meta.size)return list;
 
   return list.map((row:any)=>{
