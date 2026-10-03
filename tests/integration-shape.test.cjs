@@ -70,7 +70,7 @@ if(simpleProduction){
   assert.match(html,/function oneLatestVideoPerChannel\(/);
   assert.match(html,/function preloadStartupLiveLists\(/);
   assert.match(html,/function syncPreparedScopeAfterWake\(/);
-  assert.match(html,/syncPreparedScopeAfterWake\(["']live["']\)/);
+  assert.match(html,/syncPreparedScopeAfterWake\(["']live["'],[\s\S]{0,180}\{wake:false\}/);
   assert.match(html,/const LIVE_BACKGROUND_REFRESH_MS=30_000/);
   assert.match(html,/const LIVE_PACKAGE_WAKE_MS=60_000/);
   assert.match(html,/function scheduleLiveBackgroundRefresh\(/);
