@@ -86,6 +86,37 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.20. MAIN frontend hiện tại: gỡ TikTok khỏi giao diện
+
+Thời gian: **2026-10-04**.
+
+Yêu cầu:
+- gỡ toàn bộ lối vào TikTok khỏi giao diện production hiện tại;
+- header không còn logo/nút TikTok;
+- không còn đường click/deep-link UI để mở TikTok workspace hoặc TikTok media;
+- backend/data/Cloudflare/Render TikTok **không xóa**, chỉ để dormant để có thể bật lại sau.
+
+Patch:
+- code commit `d8418db3976e0144c713aa9e4be3bd1c1966eca3`;
+- base trước patch: `831aff402cca179cce961cd97e67e3f1574f56e9`;
+- xóa markup `#platformTikTok` khỏi header;
+- khóa `TIKTOK_UI_ENABLED=false`;
+- `openPlatformNav("tiktok")`, `showTikTokWorkspace()` và TikTok `openMedia()` không còn mở TikTok từ MAIN;
+- PWA cache **v96** để client cũ nhận UI mới.
+
+Production verify:
+- Deploy 1988 Player run `37148473894`: **SUCCESS**;
+- frontend production contracts: **PASS**;
+- build/upload/deploy/custom-domain verify: **PASS**.
+
+Owner/impact:
+- **Frontend/UI only**;
+- YouTube không đổi;
+- Supabase/Render/Cloudflare TikTok không đổi và không xóa dữ liệu.
+
+Rollback:
+- revert `d8418db3976e0144c713aa9e4be3bd1c1966eca3` nếu cần bật lại lối vào TikTok UI.
+
 ### 3.19. TikTok VOD click source — TikWM/TDown alternating only
 - Production click path uses only two proven providers: TikWM and TDown.
 - Open 1 = TikWM, open 2 = TDown, then alternate.

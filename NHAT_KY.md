@@ -812,3 +812,18 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Deploy 1988 Player run `37146443871` SUCCESS; contracts/build/deploy/custom-domain PASS.
 - Backend/API/polling unchanged.
 - Rollback: `5aaf23edff697b4e878e7211ddc6ceaad94eb22c`.
+
+
+## 2026-10-04 — Gỡ TikTok khỏi giao diện MAIN
+
+- Branch: `main`.
+- Base trước sửa: `831aff402cca179cce961cd97e67e3f1574f56e9`.
+- Code commit: `d8418db3976e0144c713aa9e4be3bd1c1966eca3`.
+- Owner: frontend/UI.
+- Xóa logo/nút TikTok khỏi header production.
+- Khóa toàn bộ đường UI mở TikTok bằng `TIKTOK_UI_ENABLED=false`; TikTok workspace/media không thể được mở từ MAIN.
+- Backend TikTok, Cloudflare Worker, Render và canonical data giữ nguyên, không xóa.
+- PWA cache: `1988-simple-media-v96`.
+- Deploy 1988 Player run `37148473894`: SUCCESS.
+- Frontend contracts, build, deploy và custom-domain verify: PASS.
+- Rollback: revert code commit trên nếu cần khôi phục UI TikTok.
