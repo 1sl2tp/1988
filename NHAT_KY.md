@@ -525,3 +525,35 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - database hiện không phải bottleneck;
   - ưu tiên kiểm soát response bytes, Edge Function invocations và log volume;
   - direct user action không được tạo background work theo số card.
+
+
+## 2026-10-03 — Khóa TikTok LIVE demand-only ở source + deploy
+
+- Base trước sửa: `49892fd1bd086ae36d3f67a7e84ea44d067358d6`.
+- Owner: Cloudflare TikTok LIVE Worker/deploy; không sửa UI/Supabase/Render data.
+- Root cause:
+  - production rule đã yêu cầu LIVE schedule = 0;
+  - `cloudflare/tiktok-live-state/wrangler.toml` vẫn có cron `* * * * *`;
+  - Worker vẫn có `scheduled()`;
+  - một `wrangler deploy` sau này có thể bật lại cron đã xóa ở runtime.
+- Code commit: `0ebbc3e6725eead7510fb5fa7e1d5db34efd35d6`.
+- Patch:
+  - `wrangler.toml → crons = []`;
+  - bỏ `scheduled()`;
+  - thêm `demand-only-contract.test.cjs`;
+  - workflow deploy chạy demand-only contract;
+  - sau deploy PUT Cloudflare schedules về `[]` và GET verify zero schedules;
+  - cập nhật TikTok edge README: `/sweep` chỉ chạy theo demand khi TikTok LIVE visible; fingerprint tối đa 6 channel mỗi demand sweep, không còn định nghĩa “mỗi phút do cron”.
+- Test/deploy:
+  - GitHub Actions run `37138771030` SUCCESS;
+  - Test edge contracts PASS;
+  - Deploy Worker PASS;
+  - Enforce zero LIVE schedules PASS.
+- Production verify:
+  - Cloudflare schedules API trong deploy xác nhận schedule count = 0;
+  - direct probe tới workers.dev từ môi trường ChatGPT bị DNS block, không phải bằng chứng production fail.
+- Data/resource impact:
+  - không đổi DB/package/canonical data;
+  - giảm invocation khi không có người mở LIVE;
+  - không tạo scheduler/poller mới.
+- Rollback code: `49892fd1bd086ae36d3f67a7e84ea44d067358d6`; production scheduler rule vẫn phải giữ zero schedules.

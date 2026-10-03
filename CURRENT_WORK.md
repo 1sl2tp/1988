@@ -85,6 +85,50 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.7. Incident — TikTok LIVE cron source có thể bật lại sau deploy
+
+Thời gian: **2026-10-03**.
+
+Triệu chứng / sai lệch:
+- rule production đã khóa **TikTok LIVE demand-only / schedule count = 0**;
+- nhưng `cloudflare/tiktok-live-state/wrangler.toml` vẫn còn `crons = ["* * * * *"]`;
+- Worker vẫn export `scheduled()`;
+- workflow TikTok dùng `wrangler deploy` trực tiếp nên một deploy sau này có thể cài cron 1 phút trở lại dù trước đó đã dùng one-shot workflow để xóa schedules.
+
+Owner:
+- **Cloudflare TikTok LIVE Worker + deploy workflow**.
+- Không sửa Supabase/UI/Render data.
+
+Patch code chính:
+- commit `0ebbc3e6725eead7510fb5fa7e1d5db34efd35d6`;
+- `wrangler.toml`: `crons = []`;
+- bỏ `scheduled()` khỏi Worker;
+- thêm `demand-only-contract.test.cjs`;
+- deploy workflow chạy cả video-fingerprint + demand-only contracts;
+- sau deploy workflow chủ động PUT Worker schedules về `[]` và GET verify schedule count = 0;
+- `cloudflare/tiktok-live-state/README.md` đổi từ cron/minute sang demand-only: visible TikTok LIVE gọi bounded `/sweep`; hidden/closed không discovery.
+
+Production verify:
+- workflow **Deploy TikTok Live State Edge** run `37138771030`: **SUCCESS**;
+- step `Test edge contracts`: SUCCESS;
+- step `Deploy Worker`: SUCCESS;
+- step `Enforce zero LIVE schedules`: SUCCESS;
+- Cloudflare schedules API trong workflow xác nhận runtime schedule count = **0**.
+- Probe trực tiếp `workers.dev` từ môi trường ChatGPT bị DNS block, nên không dùng probe đó để kết luận runtime lỗi; bằng chứng deploy + Cloudflare schedules API là authoritative cho thay đổi scheduler này.
+
+Data impact:
+- không đổi Supabase rows/package/canonical data;
+- không thêm polling;
+- bỏ hẳn discovery tự chạy khi không có người mở LIVE.
+
+Rollback:
+- code runtime về `49892fd1bd086ae36d3f67a7e84ea44d067358d6` nếu cần, nhưng phải giữ schedule count = 0 theo production rule.
+
+Rule mới khóa:
+- source config, Worker export và deploy workflow phải cùng nói **demand-only**;
+- không được chỉ xóa cron ở dashboard rồi để source có thể bật lại ở deploy sau;
+- TikTok LIVE membership hiện canonical ở `yt1988_tiktok_channels.selected`, không dùng cùng schema scoped source-state của YouTube.
+
 ### 3.6. Kiến trúc host/data/action đã khóa — giảm invocation/Egress
 
 Thời gian: **2026-10-03**.
@@ -98,9 +142,9 @@ Contract:
 ```text
 GitHub = CODE
 Supabase = TRUTH + CURRENT PACKAGE
-Cloudflare = REALTIME + EDGE CACHE
-Render = HEAVY RESOLVER
-Browser = LOCAL CACHE + RENDER
+Cloudflare = REALTIME + EDGE CACHE + BOUNDED RESOLVER/RELAY
+Render = HEAVY TIKTOK SESSION/RESOLVER
+Browser = LOCAL CACHE + RENDER + DEMAND TRIGGER
 ```
 
 Chi tiết: `README_HOST_ARCHITECTURE.md`.
@@ -150,6 +194,7 @@ Rule:
 - Hash/version trước payload.
 - GitHub static channel/video fixture không được trở thành canonical production data.
 - DB size hiện không phải bottleneck; ưu tiên giảm response bytes + invocation + log.
+- TikTok LIVE: `yt1988_tiktok_channels.selected` là membership canonical; Cloudflare scan demand-only; Worker/deploy phải giữ schedules = 0.
 
 ### 3.5. Incident mới nhất — Egress tăng do full source-state bị tải lặp
 
