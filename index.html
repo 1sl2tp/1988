@@ -6719,6 +6719,7 @@ html.tiktok-ui.tiktok-watch .rows{
         youtubeEdgeLiveMetas=snapshot.metas;
         youtubeEdgeLiveReady=true;
         youtubeLiveLastCycleAt=Date.now();
+        liveDiscoveryLastAt=youtubeLiveLastCycleAt;
 
         // The previous LIVE array stays untouched until this full scan + snapshot
         // succeeds. Background warming therefore never clears the visible list
