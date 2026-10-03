@@ -3651,7 +3651,10 @@ html.tiktok-ui.tiktok-watch .rows{
   let feedRequest=0;
   let feedMode="package";
   const ACTIVE_SCOPE_KEY="yt1988-active-scope-v1";
-  let activePackageScope="live";
+  const STARTUP_SCOPE="latest";
+  let activePackageScope=STARTUP_SCOPE;
+  let startupLandingActive=true;
+  let startupLivePreloadPromise=null;
   let activePlatformNav="";
   let youtubePlatformRows=[];
   const TIKTOK_PLATFORM_ROWS=[
@@ -3659,10 +3662,9 @@ html.tiktok-ui.tiktok-watch .rows{
     {key:"video",label:"Video"},
     {key:"lists",label:"Danh sách"}
   ];
-  try{
-    const savedScope=String(localStorage.getItem(ACTIVE_SCOPE_KEY)||"").trim();
-    if(savedScope)activePackageScope=savedScope;
-  }catch{}
+  // A full app entry always starts from the lightweight video landing feed.
+  // Tab clicks still persist during the session, but a later reload does not
+  // resurrect LIVE and force the user to wait on realtime discovery.
   let searchPendingSeq=0;
   let channelFeedSourceId="";
   let channelFeedName="";
@@ -5470,6 +5472,29 @@ html.tiktok-ui.tiktok-watch .rows{
     return out;
   }
 
+  function oneLatestVideoPerChannel(metas=[]){
+    const out=[];
+    const seenChannels=new Set();
+    for(const meta of Array.isArray(metas)?metas:[]){
+      if(!meta?.id)continue;
+      const channelKey=
+        String(meta?.sourceId||"").trim()||
+        ("name:"+sourceIdentityNameKey(meta?.sourceName||""))||
+        ("video:"+String(meta.id));
+      if(seenChannels.has(channelKey))continue;
+      seenChannels.add(channelKey);
+      out.push(meta);
+    }
+    return out;
+  }
+
+  function startupVisibleMetas(scope,metas=[]){
+    const base=Array.isArray(metas)?metas:[];
+    return startupLandingActive&&scope===STARTUP_SCOPE
+      ?oneLatestVideoPerChannel(base)
+      :base;
+  }
+
   function hydrateCurrentMetaFromPackage(metas=[]){
     const id=String(current?.id||"").trim();
     if(!id)return false;
@@ -5638,9 +5663,9 @@ html.tiktok-ui.tiktok-watch .rows{
       return feedMetas;
     }
 
-    feedMetas=baseMetas;
+    feedMetas=startupVisibleMetas(scope,baseMetas);
     renderSampleContent();
-    return baseMetas;
+    return feedMetas;
   }
 
   let packageSyncRunning=false;
@@ -5650,7 +5675,7 @@ html.tiktok-ui.tiktok-watch .rows{
     const base=Array.isArray(metas)?metas:[];
     feedMetas=scope==="live"
       ?liveMetasForProvider(activeLiveProvider(),base)
-      :base;
+      :startupVisibleMetas(scope,base);
     renderSampleContent();
   }
 
@@ -6137,6 +6162,50 @@ html.tiktok-ui.tiktok-watch .rows{
         .map(normalizeYoutubeEdgeLiveItem)
         .filter(Boolean)
     };
+  }
+
+  async function preloadStartupLiveLists(){
+    if(startupLivePreloadPromise)return startupLivePreloadPromise;
+
+    // Reuse a recent client snapshot immediately, then refresh both providers
+    // in parallel. This is preload only: no YouTube scan and no feed repaint.
+    restoreClientLiveSnapshot();
+
+    startupLivePreloadPromise=(async()=>{
+      const youtubeTask=fetchYoutubeLiveSnapshot()
+        .then(snapshot=>{
+          youtubeEdgeLiveMetas=snapshot.metas;
+          youtubeEdgeLiveReady=true;
+          return true;
+        })
+        .catch(()=>false);
+
+      // The TikTok account rail needs profile/avatar metadata as well as the
+      // realtime LIVE list. Both requests run after the landing feed is visible.
+      const tiktokLibraryTask=loadTikTokLatestVideoFeed({silent:true})
+        .then(()=>true)
+        .catch(()=>false);
+      const tiktokLiveTask=refreshTikTokLiveFeed({paint:false,force:true})
+        .then(()=>true)
+        .catch(()=>false);
+
+      await Promise.allSettled([
+        youtubeTask,
+        tiktokLibraryTask,
+        tiktokLiveTask
+      ]);
+      saveClientLiveSnapshot();
+      return true;
+    })().finally(()=>{
+      startupLivePreloadPromise=null;
+    });
+    return startupLivePreloadPromise;
+  }
+
+  function scheduleStartupLivePreload(){
+    requestAnimationFrame(()=>{
+      setTimeout(()=>{ void preloadStartupLiveLists(); },0);
+    });
   }
 
   async function hydrateUnifiedLiveSnapshots({paint=true,provider=activeLiveProvider()}={}){
@@ -8408,18 +8477,17 @@ html.tiktok-ui.tiktok-watch .rows{
     const out=[];
     const seen=new Set();
     for(const channel of Array.isArray(payload?.channels)?payload.channels:[]){
-      const videos=(Array.isArray(channel?.videos)?channel.videos:[])
+      const newest=(Array.isArray(channel?.videos)?channel.videos:[])
         .filter(video=>/^[0-9]{8,}$/.test(String(video?.id||"").trim()))
         .sort((a,b)=>
           Number(b?.createTime||0)-Number(a?.createTime||0)||
           String(b?.id||"").localeCompare(String(a?.id||""))
-        );
-      for(const video of videos){
-        const meta=normalizeTikTokChannelVideo(channel,video);
-        if(!meta||seen.has(meta.id))continue;
-        seen.add(meta.id);
-        out.push(meta);
-      }
+        )[0];
+      if(!newest)continue;
+      const meta=normalizeTikTokChannelVideo(channel,newest);
+      if(!meta||seen.has(meta.id))continue;
+      seen.add(meta.id);
+      out.push(meta);
     }
     return out.sort((a,b)=>
       Number(b?.uploaded||0)-Number(a?.uploaded||0)||
@@ -8883,6 +8951,7 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function openPlatformNav(platform=""){
+    startupLandingActive=false;
     platform=String(platform||"").toLowerCase();
     if(!["youtube","tiktok"].includes(platform))platform="";
 
@@ -9012,9 +9081,9 @@ html.tiktok-ui.tiktok-watch .rows{
     sourceNameChips.innerHTML="";
 
     const fallbackRows=[
-      {key:"live",label:"Live"},
       {key:"latest",label:"Ngày"},
-      {key:"week",label:"Tuần"}
+      {key:"week",label:"Tuần"},
+      {key:"live",label:"Live"}
     ];
     const sourceTabsKey="yt1988-source-tabs-v1";
     let storedRows=[];
@@ -9028,31 +9097,15 @@ html.tiktok-ui.tiktok-watch .rows{
     // Paint remembered tabs immediately; network state can refresh them later.
     renderExistingSourceNames(storedRows.length?storedRows:fallbackRows);
 
-    // A reload restores the last active top-level tab as a feed/menu only.
-    // It must not force Live and must not reopen a media item.
+    // First app entry is always video-first: paint the latest package from
+    // IndexedDB immediately and keep one newest video per channel. LIVE lists
+    // are preloaded only after that paint, so realtime network never blocks home.
     const firstPackagePromise=(async()=>{
-      const scope=String(activePackageScope||"live");
-      if(scope==="live"){
-        await restoreStoredPackage("live");
-        restoreClientLiveSnapshot();
-      }else{
-        await restoreStoredPackage(scope);
-      }
-      const painted=await showPackageScope(
-        scope,
-        {hydrateLive:scope!=="live"}
-      );
-
-      // LIVE is provider-owned now. Do not start a mixed reload cycle while
-      // neither TikTok nor YouTube is selected in the platform header.
-      if(scope==="live"&&liveDemandActive()){
-        liveDiscoveryLastAt=Date.now();
-        void refreshUnifiedLiveInBackground({
-          force:true,
-          reason:"reload",
-          provider:activeLiveProvider()
-        });
-      }
+      const scope=STARTUP_SCOPE;
+      activePackageScope=scope;
+      await restoreStoredPackage(scope);
+      const painted=await showPackageScope(scope,{hydrateLive:false});
+      scheduleStartupLivePreload();
       return painted;
     })();
 
@@ -9083,7 +9136,7 @@ html.tiktok-ui.tiktok-watch .rows{
     })();
 
     const manifestPromise=loadPackageManifest().then(async manifest=>{
-      const scope=manifest?.[activePackageScope]?activePackageScope:(manifest?.live?"live":"");
+      const scope=manifest?.[activePackageScope]?activePackageScope:(manifest?.latest?"latest":"");
       if(scope)await syncPreparedPackages([scope]);
       return manifest;
     });
@@ -10748,6 +10801,7 @@ html.tiktok-ui.tiktok-watch .rows{
 
     const chip=event.target.closest(".source-chip[data-source-tab]");
     if(!chip)return;
+    startupLandingActive=false;
 
     sourceNameChips.querySelectorAll(".source-chip[data-source-tab]").forEach(x=>x.classList.remove("active"));
     chip.classList.add("active");
