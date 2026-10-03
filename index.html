@@ -1161,10 +1161,20 @@ main{
 }
 .native-media-core > #tiktokMediaVideo,
 .player[data-media-type="media"] .native-media-core > #tiktokMediaVideo{
+  position:absolute!important;
+  inset:0!important;
   display:block!important;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
   visibility:visible!important;
   opacity:1!important;
   pointer-events:auto!important;
+  object-fit:contain!important;
+  object-position:center center!important;
+  background:#000!important;
+  border:0!important;
 }
 .player[data-media-type="media"] 
 .tiktok-live-controls{
@@ -4072,6 +4082,21 @@ button.tiktok-watch-action-item{cursor:pointer}
     width:100%!important;
     max-width:none!important;
   }
+}
+
+/* TikTok VOD geometry guard: native video is always contained and centered.
+   The stage may change from portrait to landscape after loadedmetadata, but the
+   video element itself never uses intrinsic pixels as layout size and never crops. */
+html.tiktok-ui.tiktok-watch .native-media-core{
+  display:grid!important;
+  place-items:center!important;
+}
+html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  object-position:50% 50%!important;
+  margin:auto!important;
 }
 </style>
 </head>
