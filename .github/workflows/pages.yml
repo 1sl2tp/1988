@@ -44,6 +44,7 @@ jobs:
           node tests/integration-shape.test.cjs .
           node tests/tiktok-playback-contract.test.cjs
           node tests/channel-library-contract.test.cjs
+          node tests/host-architecture-contract.test.cjs
           node --check src/media-core.js
           node --check src/app.js
           node --check src/yt-local.js
