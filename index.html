@@ -6620,7 +6620,7 @@ html.tiktok-ui.tiktok-watch .rows{
         .map(meta=>[String(meta.sourceId).trim(),meta])
     );
 
-    return youtubeEdgeLiveMetas
+    const next=youtubeEdgeLiveMetas
       .map(edge=>{
         const edgeSourceId=String(edge?.sourceId||"").trim();
         const fallbackMeta=
