@@ -86,6 +86,26 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.35. TikTok demo — video độc lập LIVE, dùng TikTok native secUid → post list
+
+Thời gian: **2026-10-04**.
+
+- Yêu cầu: kênh đang LIVE hay không LIVE đều phải trả video của chính kênh.
+- LIVE vẫn dùng stateless `/lookup?user=<handle>`.
+- Video là nhánh độc lập:
+  1. handle → TikTok `/api/user/detail/?aid=1988&uniqueId=<handle>` để lấy `secUid`;
+  2. fallback đọc `secUid` từ profile HTML hydration nếu cần;
+  3. gọi TikTok `/api/post/item_list/?aid=1988&count=5&cursor=0&from_page=user&secUid=...`;
+  4. trả 5 video mới nhất.
+- Demo chạy LIVE lookup và latest-five **song song**; LIVE offline/lỗi không chặn video.
+- Không Render.
+- Không TikWM `user/posts`.
+- Click card video mở link TikTok gốc; chưa trộn VOD resolver vào bước tìm video.
+- Commit runtime frontend+Worker: `14f9efdbee44f0985bc12ea669e0aa3d5dbac2ff`.
+- Contract cleanup: `0435c639d2362c6e1d71f2e146612082cdde542f`.
+- Player run `37159484268`: **SUCCESS**.
+- Edge run `37159554843`: **SUCCESS**; edge contract PASS, Worker deploy PASS, zero LIVE schedules PASS.
+
 ### 3.34. TikTok LIVE demo — pasted link uses stateless /lookup
 
 Thời gian: **2026-10-04**.

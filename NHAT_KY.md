@@ -1,3 +1,12 @@
+## 2026-10-04 — Video TikTok độc lập trạng thái LIVE
+
+- LIVE dùng `/lookup` riêng.
+- Video dùng TikTok native: handle → secUid → `api/post/item_list` → 5 video mới nhất.
+- LIVE offline/lỗi vẫn tiếp tục lấy video.
+- Không Render, không TikWM user/posts.
+- Runtime `14f9efdbee44f0985bc12ea669e0aa3d5dbac2ff`.
+- Player `37159484268` SUCCESS; Edge `37159554843` SUCCESS.
+
 ## 2026-10-04 — Dán link LIVE dùng stateless /lookup
 
 - Tách thao tác thủ công khỏi `/refresh` có snapshot/KV.
