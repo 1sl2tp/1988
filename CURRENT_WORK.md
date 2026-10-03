@@ -86,6 +86,23 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.32. TikTok demo — latest 5 qua Edge metadata, không browser-CORS, không Render
+
+Thời gian: **2026-10-04**.
+
+- Lỗi: browser gọi trực tiếp TikWM `/api/user/posts` có thể bị CORS/chặn, làm cột **5 video gần nhất** báo lỗi dù LIVE vẫn chạy riêng.
+- Sửa:
+  - thêm Cloudflare endpoint `/tiktok/channel-videos?user=<handle>&count=5`;
+  - Worker gọi TikWM `/api/user/posts` server-side và chỉ trả JSON metadata nhỏ;
+  - frontend lấy 5 video qua Edge metadata endpoint;
+  - media bytes vẫn không đi qua Worker;
+  - VOD vẫn phát trực tiếp bằng TikWM HD / BHWA;
+  - LIVE vẫn giữ `/refresh` → TikTok live API như rule cũ;
+  - không dùng Render.
+- Commit runtime: `46d6b8c82bcab169ff9333967bc002dab5940bed`.
+- Deploy TikTok Live State Edge run `37158846184`: **SUCCESS**.
+- Deploy 1988 Player run `37158846154`: **SUCCESS**; frontend contracts, deploy và custom-domain verify PASS.
+
 ### 3.31. TikTok LIVE demo — manual check must replace stale LIVE cache
 
 Thời gian: **2026-10-04**.

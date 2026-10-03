@@ -1,3 +1,11 @@
+## 2026-10-04 — Sửa latest 5 TikTok khỏi browser CORS
+
+- Browser không gọi trực tiếp TikWM user/posts nữa.
+- Thêm Edge `/tiktok/channel-videos` để lấy 5 video metadata từ TikWM.
+- Không proxy media; VOD vẫn TikWM HD/BHWA trực tiếp; LIVE vẫn `/refresh`; không Render.
+- Commit `46d6b8c82bcab169ff9333967bc002dab5940bed`.
+- Edge run `37158846184` SUCCESS; Player run `37158846154` SUCCESS.
+
 ## 2026-10-04 — Sửa stale LIVE cache khi bấm Kiểm tra
 
 - Manual check xoá cache LIVE cũ trước khi lấy link mới.
