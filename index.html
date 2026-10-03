@@ -11363,9 +11363,6 @@ html.viewer-active.one-col body{
     // grey YouTube "..." thumbnail with source "1988".
     const cards=Array.isArray(feedMetas)?feedMetas:[];
 
-    const activeInlineId=inlineVideoId;
-    const wasFloating=!!pip && !!activeInlineId;
-
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
     const renderLimit=
@@ -11385,11 +11382,7 @@ html.viewer-active.one-col body{
       rows.querySelectorAll(".row[data-video-id]").forEach(row=>{
         row.classList.toggle("selected",String(row.dataset.videoId||"")===currentId);
       });
-      if(activeInlineId){
-        const activeCard=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
-        if(activeCard)attachPlayerToCard(activeCard,{floating:wasFloating});
-        else if(!isTwoColumn())showPlayerAsPip();
-      }
+      // Focused viewer stays in MAIN media-col across feed rerenders.
       observeRowThumbQuality(rows);
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
@@ -11406,24 +11399,7 @@ html.viewer-active.one-col body{
     observeRowThumbQuality(rows);
     applyRenderedCardTints(rows);
 
-    if(activeInlineId){
-      const card=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
-      if(card){
-        attachPlayerToCard(card,{floating:wasFloating});
-      }else if(!isTwoColumn()){
-        showPlayerAsPip();
-      }
-    }else if(!isTwoColumn()){
-      const routedId=routeVideoId();
-      const currentId=String(current?.id||"").trim();
-      if(routedId&&currentId&&routedId===currentId){
-        const card=rows.querySelector('.row[data-video-id="'+currentId+'"]');
-        if(card){
-          inlineVideoId=currentId;
-          attachPlayerToCard(card,{floating:false});
-        }
-      }
-    }
+    // Feed rerender must never move the active media out of the focused viewer.
 
     primeVisibleLivePreviews();
     observeFeedMasonryRows();
