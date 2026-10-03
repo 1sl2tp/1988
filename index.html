@@ -6502,12 +6502,21 @@ html.tiktok-ui.tiktok-watch .rows{
     if(!scope)return [];
 
     if(packageCache.has(scope)){
-      return packageCache.get(scope)||[];
+      const cached=packageCache.get(scope)||[];
+      if(cached.length||scope!=="live")return cached;
+
+      // Recovery rule for LIVE: an old bad refresh could have persisted an
+      // empty committed package in IndexedDB. LIVE is cheap to re-read, so an
+      // empty local copy must re-check the current server package before paint.
+      // This is still package-only I/O; the browser does no discovery/filtering.
+      return getPackage(scope,{force:true});
     }
 
     const stored=await restoreStoredPackage(scope);
     if(packageCache.has(scope)){
-      return packageCache.get(scope)||stored||[];
+      const cached=packageCache.get(scope)||stored||[];
+      if(cached.length||scope!=="live")return cached;
+      return getPackage(scope,{force:true});
     }
 
     // First install/private window may have no IndexedDB copy yet. Fetch only
