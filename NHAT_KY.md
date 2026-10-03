@@ -763,3 +763,16 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Không thêm cron/timer/polling nền.
 - PWA v89.
 - Deploy run `37145155222` SUCCESS; contracts/build/deploy/custom-domain PASS.
+
+
+## 2026-10-04 — TikTok VOD native geometry — contain + center
+
+- Base: `9eca8ad3717573370d730ccb21d00611f9545376`.
+- Commit: `2c883a42e297b43f0e69b2f9f7d9c664594a0f29`.
+- Lỗi: VOD ngang vẫn bị zoom/crop sau khi preview ẩn.
+- Nguyên nhân: native `#tiktokMediaVideo` chưa khóa width/height/object-fit, khác với LIVE player.
+- Fix: absolute inset 0, 100% x 100%, `object-fit:contain`, center-center; native core center.
+- PWA v90.
+- Deploy run `37145430565` SUCCESS; contracts/build/deploy/custom-domain PASS.
+- Không đổi backend/data/network/polling.
+- Rollback: `9eca8ad3717573370d730ccb21d00611f9545376`.
