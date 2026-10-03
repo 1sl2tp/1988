@@ -2837,8 +2837,5 @@ export default {
     if (url.pathname === "/refresh") return refreshOne(env, url.searchParams.get("user") || "");
     if (url.pathname === "/sweep") return json({ ok: true, ...(await sweep(env)) });
     return json({ ok: false, error: "not_found" }, 404);
-  },
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(sweep(env).catch((error) => console.error("tiktok sweep failed", error)));
   }
 };
