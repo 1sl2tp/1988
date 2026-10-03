@@ -47,9 +47,17 @@
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
           <button type="button" data-source="tikwm_hd" class="active">TikWM HD</button>
           <button type="button" data-source="tikwm_std">TikWM Standard</button>
-          <button type="button" data-source="bhwa_get">Bhwa (có thể logo)</button>
+          <button type="button" data-source="bhwa_get">Bhwa</button>
+          <button type="button" data-source="native">Native</button>
+          <button type="button" data-source="direct">Direct</button>
+          <button type="button" data-source="tdown">TDown</button>
+          <button type="button" data-source="musicaldown">MusicalDown</button>
+          <button type="button" data-source="tikdown">TikDown</button>
+          <button type="button" data-source="ttdownloader">TTDownloader</button>
+          <button type="button" data-source="tiklydown">TiklyDown</button>
+          <button type="button" data-source="douyinwtf">DouyinWTF</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">TikWM = nguồn sạch chính. Bhwa chỉ fallback vì một số video vẫn có watermark bake sẵn.</div>
+        <div class="sourceinfo" id="sourceInfo">Bấm từng nguồn để thử media. TikWM/BHWA lấy direct ở trình duyệt; các nguồn còn lại thử qua Cloud Worker.</div>
         <div class="sourceinfo" id="candidateInfo"></div>
         <div class="player">
           <video id="video" playsinline controls></video>
@@ -207,8 +215,10 @@ async function fetchBhwaParse(item,{force=false}={}){
   renderBhwaCandidates(rows);
   return result;
 }
+const EDGE_VOD_SOURCES=new Set(["native","direct","tdown","musicaldown","tikdown","ttdownloader","tiklydown","douyinwtf"]);
+function isEdgeVodSource(source){return EDGE_VOD_SOURCES.has(String(source||""))}
 async function resolveVodDirect(item,source,{force=false}={}){
-  const cached=!force?readVodLinkCache(item,source):"";
+  const cached=!force&&!isEdgeVodSource(source)?readVodLinkCache(item,source):"";
   if(cached)return {url:cached,cached:true};
   const pageUrl=vodPageUrl(item);
   let url="";
@@ -226,12 +236,19 @@ async function resolveVodDirect(item,source,{force=false}={}){
   }else if(source==="bhwa_get"){
     const parsed=await fetchBhwaParse(item,{force});
     url=String(parsed.rows[0]?.url||"");
+  }else if(isEdgeVodSource(source)){
+    const endpoint=new URL(EDGE+"/tiktok/video-stream");
+    endpoint.searchParams.set("user",item.handle);
+    endpoint.searchParams.set("id",item.id);
+    endpoint.searchParams.set("source",source);
+    endpoint.searchParams.set("try","demo-"+Date.now());
+    url=endpoint.toString();
   }else{
-    throw new Error("Nguồn không hỗ trợ direct media");
+    throw new Error("Nguồn không hỗ trợ media");
   }
 
   if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
-  writeVodLinkCache(item,source,url);
+  if(!isEdgeVodSource(source))writeVodLinkCache(item,source,url);
   return {url,cached:false};
 }
 async function json(url,timeout=20000,options={}){
