@@ -1002,16 +1002,32 @@ async function fetchJson(url:string,headers:any={},timeout=7000){
 
 async function freshCloudLiveSnapshot(){
   let snapshot=await fetchJson(YOUTUBE_LIVE_EDGE_NOW_URL,{},4500).catch(()=>null);
+  const items=Array.isArray(snapshot?.items)?snapshot.items:[];
   const age=Date.now()-Number(snapshot?.checkedAt||0);
-  if(
-    snapshot&&
-    Number(snapshot?.checkedAt)>0&&
-    age>=0&&
-    age<=LIVE_EDGE_FRESH_MS
-  )return snapshot;
 
-  // First app open (or a stale edge snapshot) asks Cloudflare to perform the
-  // detection work. Supabase still owns filtering/metadata/package publication.
+  // A previously confirmed non-empty snapshot is always a valid package
+  // fallback. Never throw it away merely because the next Cloud scan has not
+  // finished yet; otherwise a refresh can overwrite a healthy LIVE package
+  // with [] and every client immediately goes blank.
+  if(items.length){
+    if(
+      !Number(snapshot?.checkedAt)||
+      age<0||
+      age>LIVE_EDGE_FRESH_MS
+    ){
+      // Advance one bounded Cloud scan step. The current package still uses the
+      // last complete snapshot; a later refresh swaps in the newly completed one.
+      await fetchJson(
+        YOUTUBE_LIVE_EDGE_API+"/youtube/live-scan?t="+Date.now(),
+        {},
+        12000
+      ).catch(()=>null);
+    }
+    return snapshot;
+  }
+
+  // Only a genuinely empty/first-ever snapshot needs a complete synchronous
+  // bootstrap scan.
   let step=await fetchJson(
     YOUTUBE_LIVE_EDGE_API+"/youtube/live-scan?start=1&t="+Date.now(),
     {},
@@ -2376,10 +2392,7 @@ Deno.serve(async(req:Request)=>{
         const edge=await freshCloudLiveSnapshot();
         const checkedAt=Number(edge?.checkedAt)||0;
         const edgeItems=Array.isArray(edge?.items)?edge.items:[];
-        edgeLiveFresh=
-          checkedAt>0&&
-          Date.now()-checkedAt>=0&&
-          Date.now()-checkedAt<=LIVE_EDGE_FRESH_MS;
+        edgeLiveFresh=edgeItems.length>0;
 
         if(edgeLiveFresh){
           const edgeRows=(await mapLimit(edgeItems.slice(0,48),6,async(item:any)=>{
@@ -2411,8 +2424,7 @@ Deno.serve(async(req:Request)=>{
               normalizeLiveText(title)==="dang truc tiep"||
               titleIsSource||
               !sourceName||
-              !sourceAvatar||
-              views<=0
+              !sourceAvatar
             ){
               const exact=await youtubeSearchVideoMetadata(
                 supabaseUrl,
@@ -3440,7 +3452,7 @@ Deno.serve(async(req:Request)=>{
       raw=(meta.kind==="live"?dedupeRows(raw):dedupePackageRows(raw))
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
-      if(scope!=="live"&&selected.length&&raw.length===0&&Array.isArray(current?.items)&&current.items.length){
+      if(raw.length===0&&Array.isArray(current?.items)&&current.items.length){
         const previousItems=Array.isArray(current.items)?current.items:[];
         degradedNotes.push(scope+":empty_candidate_kept_previous");
         await queuePendingRefresh(rest,authHeaders,[scope]);
