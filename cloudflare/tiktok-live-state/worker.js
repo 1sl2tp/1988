@@ -2049,11 +2049,23 @@ async function relayTikTokVideo(request) {
   if (!handle || !id) return json({ ok: false, error: "invalid_tiktok_video" }, 400);
 
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  let preferred = String(url.searchParams.get("source") || "").toLowerCase();
-  if(!preferred||preferred==="auto"){
+  const requested = String(url.searchParams.get("source") || "").toLowerCase();
+  let preferred = "";
+  let order = [];
+
+  if(requested&&requested!=="auto"){
+    const allowed=
+      requested==="native"||
+      requested==="direct"||
+      VOD_RESOLVER_POOL.includes(requested);
+    if(!allowed)return json({ok:false,error:"invalid_vod_source",source:requested},400);
+    // Explicit means strict: the browser already chose this provider for this
+    // attempt. Never hide a multi-provider resolver loop behind one video.src.
+    order=[requested];
+  }else{
     preferred=await readVodWarmPreference(handle,id);
+    order=vodSourceOrder(preferred,id);
   }
-  const order = vodSourceOrder(preferred,id);
   let lastStatus = 0;
   let lastError = "";
   const failures=[];

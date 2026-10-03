@@ -9242,6 +9242,9 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   }
 
   function stopTikTokVideoPlayback(){
+    clearTimeout(tiktokVodFailoverTimer);
+    tiktokVodFailoverTimer=0;
+    tiktokVodPlaybackSeq+=1;
     if(tiktokMediaVideo){
       try{
         tiktokMediaVideo.pause();
@@ -9478,7 +9481,23 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
 
   const tiktokVodWarmAt=new Map();
   const tiktokVodWarmSources=new Map();
+  const TIKTOK_VOD_CLICK_SOURCES=["tikwm","tdown","musicaldown","tikdown","ttdownloader"];
+  const TIKTOK_VOD_FAILOVER_TIMEOUT_MS=3200;
+  let tiktokVodSourceCursor=0;
+  let tiktokVodPlaybackSeq=0;
+  let tiktokVodFailoverTimer=0;
   let tiktokVodWarmObserver=null;
+
+  function tiktokVodSourcesForClick(){
+    const total=TIKTOK_VOD_CLICK_SOURCES.length;
+    if(!total)return [];
+    const start=((tiktokVodSourceCursor%total)+total)%total;
+    tiktokVodSourceCursor=(start+1)%total;
+    return [
+      ...TIKTOK_VOD_CLICK_SOURCES.slice(start),
+      ...TIKTOK_VOD_CLICK_SOURCES.slice(0,start)
+    ];
+  }
 
   function tiktokVodWarmKey(meta={}){
     const id=String(meta?.id||"").trim();
@@ -9577,12 +9596,12 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       if(preview)tiktokMediaPreview.src=preview;
     }
 
-    const endpoint=new URL(TIKTOK_LIVE_API+"/tiktok/video-stream");
-    endpoint.searchParams.set("user",handle);
-    endpoint.searchParams.set("id",id);
-    endpoint.searchParams.set("source","auto");
-
     const video=tiktokMediaVideo;
+    const sourceOrder=tiktokVodSourcesForClick();
+    const playbackSeq=++tiktokVodPlaybackSeq;
+    let sourceIndex=0;
+    let attemptSeq=0;
+
     video.hidden=false;
     video.controls=true;
     video.autoplay=true;
@@ -9592,47 +9611,106 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     video.setAttribute("webkit-playsinline","");
     video.preload="auto";
 
-    video.onloadedmetadata=()=>{
-      if(String(current?.id||"")!==id)return;
-      const detected=
-        Number(video.videoWidth)>0&&Number(video.videoHeight)>0
-          ?Number(video.videoWidth)/Number(video.videoHeight)
-          :0;
-      if(detected>0){
-        commitCurrentAspect(id,detected,{relayout:true,provider:"tiktok"});
-      }
-    };
-    video.oncanplay=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-vod-loading");
-    };
-    video.onplaying=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-vod-loading");
-      player.classList.add("tiktok-playing","tiktok-media-playing");
-      if(tiktokMediaPreview)tiktokMediaPreview.hidden=true;
-    };
     video.onpause=()=>{
-      if(String(current?.id||"")!==id)return;
+      if(playbackSeq!==tiktokVodPlaybackSeq||String(current?.id||"")!==id)return;
       player.classList.remove("tiktok-playing");
     };
     video.onended=()=>{
-      if(String(current?.id||"")!==id)return;
+      if(playbackSeq!==tiktokVodPlaybackSeq||String(current?.id||"")!==id)return;
+      clearTimeout(tiktokVodFailoverTimer);
+      tiktokVodFailoverTimer=0;
       player.classList.remove("tiktok-playing","tiktok-media-playing");
       queueMicrotask(()=>moveTikTokWatch(1)||playNextFeedVideo());
     };
-    video.onerror=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing","tiktok-media-playing","tiktok-vod-loading");
-      console.warn("tiktok_native_video_error",id);
+
+    const openNextSource=(reason="initial")=>{
+      if(playbackSeq!==tiktokVodPlaybackSeq||String(current?.id||"")!==id)return false;
+      clearTimeout(tiktokVodFailoverTimer);
+      tiktokVodFailoverTimer=0;
+
+      const source=String(sourceOrder[sourceIndex++]||"");
+      if(!source){
+        player.classList.remove("tiktok-playing","tiktok-media-playing","tiktok-vod-loading");
+        console.warn("tiktok_vod_sources_exhausted",id,reason);
+        return false;
+      }
+
+      const localAttempt=++attemptSeq;
+      const endpoint=new URL(TIKTOK_LIVE_API+"/tiktok/video-stream");
+      endpoint.searchParams.set("user",handle);
+      endpoint.searchParams.set("id",id);
+      endpoint.searchParams.set("source",source);
+      endpoint.searchParams.set("try",String(playbackSeq)+"-"+String(sourceIndex));
+
+      video.onloadedmetadata=()=>{
+        if(
+          playbackSeq!==tiktokVodPlaybackSeq||
+          localAttempt!==attemptSeq||
+          String(current?.id||"")!==id
+        )return;
+        clearTimeout(tiktokVodFailoverTimer);
+        tiktokVodFailoverTimer=0;
+        const detected=
+          Number(video.videoWidth)>0&&Number(video.videoHeight)>0
+            ?Number(video.videoWidth)/Number(video.videoHeight)
+            :0;
+        if(detected>0){
+          commitCurrentAspect(id,detected,{relayout:true,provider:"tiktok"});
+        }
+      };
+      video.oncanplay=()=>{
+        if(
+          playbackSeq!==tiktokVodPlaybackSeq||
+          localAttempt!==attemptSeq||
+          String(current?.id||"")!==id
+        )return;
+        clearTimeout(tiktokVodFailoverTimer);
+        tiktokVodFailoverTimer=0;
+        player.classList.remove("tiktok-vod-loading");
+      };
+      video.onplaying=()=>{
+        if(
+          playbackSeq!==tiktokVodPlaybackSeq||
+          localAttempt!==attemptSeq||
+          String(current?.id||"")!==id
+        )return;
+        clearTimeout(tiktokVodFailoverTimer);
+        tiktokVodFailoverTimer=0;
+        player.classList.remove("tiktok-vod-loading");
+        player.classList.add("tiktok-playing","tiktok-media-playing");
+        if(tiktokMediaPreview)tiktokMediaPreview.hidden=true;
+      };
+      video.onerror=()=>{
+        if(
+          playbackSeq!==tiktokVodPlaybackSeq||
+          localAttempt!==attemptSeq||
+          String(current?.id||"")!==id
+        )return;
+        clearTimeout(tiktokVodFailoverTimer);
+        tiktokVodFailoverTimer=0;
+        openNextSource(source+"_error");
+      };
+
+      video.src=endpoint.toString();
+      video.load();
+      const attempt=video.play();
+      if(attempt&&typeof attempt.catch==="function"){
+        attempt.catch(()=>{});
+      }
+
+      tiktokVodFailoverTimer=setTimeout(()=>{
+        if(
+          playbackSeq!==tiktokVodPlaybackSeq||
+          localAttempt!==attemptSeq||
+          String(current?.id||"")!==id||
+          video.readyState>=2
+        )return;
+        openNextSource(source+"_startup_timeout");
+      },TIKTOK_VOD_FAILOVER_TIMEOUT_MS);
+      return true;
     };
 
-    video.src=endpoint.toString();
-    video.load();
-    const attempt=video.play();
-    if(attempt&&typeof attempt.catch==="function"){
-      attempt.catch(()=>{});
-    }
+    openNextSource();
 
     renderCurrentInfo();
     schedulePip();

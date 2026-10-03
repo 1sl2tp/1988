@@ -22,11 +22,16 @@ assert.ok(warmStart>=0&&warmEnd>warmStart);
 const warm=worker.slice(warmStart,warmEnd);
 assert.match(warm,/vodWithTimeout\([\s\S]*resolveVodSourceByName/);
 
-// Click path must bound resolver and media-open latency, then continue to the next provider.
+// Explicit click source is strict: browser controls failover one provider at a time.
+// Only source=auto may use the worker-side provider chain for compatibility.
 const relayStart=worker.indexOf('async function relayTikTokVideo');
 const relayEnd=worker.indexOf('async function refreshOne',relayStart);
 assert.ok(relayStart>=0&&relayEnd>relayStart);
 const relay=worker.slice(relayStart,relayEnd);
+assert.match(relay,/const requested = String\(url\.searchParams\.get\("source"\)/);
+assert.match(relay,/requested&&requested!=="auto"/);
+assert.match(relay,/order=\[requested\]/);
+assert.match(relay,/preferred=await readVodWarmPreference\(handle,id\);[\s\S]{0,120}order=vodSourceOrder\(preferred,id\)/);
 assert.match(relay,/vodWithTimeout\([\s\S]*sourceName\+"_resolve"/);
 assert.match(relay,/continue;/);
 assert.match(worker,/VOD_MEDIA_OPEN_TIMEOUT_MS,"media_open"/);
