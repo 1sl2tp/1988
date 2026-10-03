@@ -411,7 +411,7 @@ async function youtubeWebChannelProfile(id: string) {
     const headerJson = JSON.stringify(header);
     const verifiedKnown = Object.keys(header).length > 0;
     const verified = verifiedKnown
-      ? /BADGE_STYLE_TYPE_VERIFIED|CHECK_CIRCLE_THICK/.test(headerJson)
+      ? /BADGE_STYLE_TYPE_VERIFIED|CHECK_CIRCLE_THICK|CHECK_CIRCLE_FILLED/.test(headerJson)
       : undefined;
 
     const profile = {
