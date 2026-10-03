@@ -336,6 +336,28 @@ Cùng một `error_code + endpoint + channel/source` nên rate-limit log theo c�
 | Đỏ | 400–450 MB | chặn writer gây phình |
 | Khẩn | > 450 MB | freeze writer không thiết yếu |
 
+### 5.5. Canonical channel identity — không nhân bản avatar/name
+
+YouTube:
+- canonical identity chỉ ở `yt1988_channel_directory(profile_key, channel_id)`;
+- `yt1988_source_state` chỉ giữ membership/status;
+- `yt1988_channel_cache` chỉ giữ cache video/fingerprint/timing;
+- cấm thêm lại `name/avatar/subscribers` vào source-state/cache làm fallback truth.
+
+TikTok:
+- canonical identity chỉ ở `yt1988_tiktok_channels(id UUID)`;
+- `handle` là unique routing alias, không phải relational primary key;
+- `user_id/sec_uid` là unique external identities;
+- LIVE/video-channel/video phải reference `channel_id`;
+- LIVE state không copy `selected/profile/avatar`;
+- video-channel state không copy `sec_uid/videos[]`.
+
+Ngoại lệ duy nhất:
+- prepared package được phép denormalize name/avatar/profile để UI render không cần join/download library theo card;
+- package là read snapshot, không bao giờ là nguồn ghi ngược canonical.
+
+Expired signed media URL là cache tạm: hết hạn phải clear, không giữ vô hạn.
+
 ## 6. Quy tắc scheduler / cron
 
 1. Một chức năng chỉ có **một owner scheduler**.

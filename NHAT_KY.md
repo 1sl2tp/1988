@@ -557,3 +557,41 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - giảm invocation khi không có người mở LIVE;
   - không tạo scheduler/poller mới.
 - Rollback code: `49892fd1bd086ae36d3f67a7e84ea44d067358d6`; production scheduler rule vẫn phải giữ zero schedules.
+
+
+## 2026-10-04 — Chuẩn hóa channel identity + dọn duplicate Supabase
+
+- Base code: `52bf19190c7b8898c4c36d91680a9c5dd9014a41`.
+- Code-first commit: `219c16b5760c06b1776fb7c65d83d2d779c9c666`.
+- Audit phát hiện identity bị copy ở source-state/cache/user-state và TikTok dùng handle làm PK dù 173/173 user_id + sec_uid đều unique.
+- Runtime trước DDL:
+  - social collector image build run `37139967878` SUCCESS;
+  - `yt1988-state v13` ACTIVE;
+  - `yt1988-refresh v29` ACTIVE;
+  - Render deploy `dep-db0jihmgekts73a0231g` LIVE, digest `d397dd7…`.
+- Supabase migrations:
+  - `20261003172108 normalize_youtube_channel_identity`;
+  - `20261003172252 normalize_tiktok_channel_identity`;
+  - `20261003172431 harden_normalized_identity_access`.
+- YouTube:
+  - source_state/cache identity mirrors removed;
+  - 7 cache-only IDs backfilled into directory before FK;
+  - source_state + cache FK to directory;
+  - 592 legacy avatars + 592 customSources cleared;
+  - user_state JSON ~168 KB → ~23.7 KB.
+- TikTok:
+  - canonical channel PK moved handle → stable UUID `id`;
+  - handle remains unique routing alias; user_id/sec_uid unique;
+  - LIVE/video-channel/video rows all bind `channel_id` FK;
+  - 4 stale orphan LIVE rows removed;
+  - `live.selected`, `video_channels.sec_uid/videos`, canonical `live_*`, empty `live_selected` table removed;
+  - 105 expired signed MP4 URLs cleared.
+- Verify:
+  - canonical channels 173 / distinct IDs 173 / user_id 173 / sec_uid 173;
+  - LIVE rows 173, null channel_id 0;
+  - video-channel rows 173, null channel_id 0;
+  - videos 1,766, null channel_id 0;
+  - compatibility upsert test PASS + ROLLBACK.
+- Package name/avatar snapshots intentionally retained as read products; never canonical.
+- Advisor: new FK index issue fixed; source-state RPCs changed to SECURITY INVOKER + service_role-only EXECUTE.
+- Rollback: code `219c16b5` is schema-compatible target. Destructive column cleanup should be reversed only via explicit restore migration, not by reverting frontend code alone.

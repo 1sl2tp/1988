@@ -15,12 +15,14 @@
 ## 2. Canonical data model
 
 ### Channel
-One row per identity:
-`platform + channelId/handle + name + avatar + profile URL + stats + checkedAt`.
+One canonical row per identity.
 
-- YouTube: `yt1988_channel_directory`.
-- TikTok: `yt1988_tiktok_channels`.
-- Other tables reference channel identity by ID; do not duplicate full profile unless a prepared product needs display fields.
+- YouTube canonical: `yt1988_channel_directory(profile_key, channel_id)`. `channel_id` is the relationship key.
+- TikTok canonical: `yt1988_tiktok_channels(id)`, where `id` is an internal stable UUID primary key.
+  - `handle` remains a unique routing alias for TikTok URLs/API calls.
+  - `user_id` and `sec_uid` are unique external identities, not child-table primary keys.
+- Child/state/cache tables reference canonical identity by ID/FK.
+- Name/avatar/profile must not be copied into source-state or cache rows. The only allowed duplication is a prepared package/read snapshot.
 
 ### Source / membership state
 
@@ -34,18 +36,29 @@ YouTube LIVE effective membership:
 union(selected all scopes) - union(blocked all scopes)
 ```
 
-**TikTok** does not use the YouTube scoped-state contract for membership. Current canonical selected membership is `yt1988_tiktok_channels.selected`.
+**TikTok** does not use the YouTube scoped-state contract for membership. Canonical selected membership is `yt1988_tiktok_channels.selected`.
 
 Do not force TikTok membership into `yt1988_source_state` just to make the schemas look identical.
 
+Identity invariants:
+- `yt1988_source_state` contains only `profile_key + scope + channel_id + status + version + updated_at`.
+- `yt1988_channel_cache` caches video/feed state by `channel_id`; it does not own channel name/avatar.
+- legacy `yt1988_user_state.avatars/customSources` must remain empty.
+- TikTok `yt1988_tiktok_live_channels`, `yt1988_tiktok_video_channels`, and `yt1988_tiktok_videos` carry `channel_id → yt1988_tiktok_channels.id` FKs.
+
 ### Video metadata
 Keep only metadata needed for package/player/cache. No video/audio binary.
+
+- YouTube video/feed cache is keyed to canonical YouTube `channel_id`.
+- TikTok canonical video row is `yt1988_tiktok_videos(video_id)` plus `channel_id` FK.
+- `yt1988_tiktok_video_channels` stores scan state/latest-video pointer only; it must not duplicate a `videos[]` JSON library or `sec_uid`.
 
 ### LIVE state
 Transient. Cloudflare owns current realtime detection/snapshot. Ended rows disappear from the current snapshot; no unbounded history.
 
 - YouTube LIVE snapshot is an input to Supabase package build.
-- TikTok LIVE snapshot is read from Cloudflare edge by the TikTok LIVE UI.
+- TikTok durable transient state uses `yt1988_tiktok_live_channels(channel_id)`; it does not duplicate canonical `selected` or profile/avatar fields.
+- TikTok realtime snapshot is read from Cloudflare edge by the TikTok LIVE UI.
 
 ### Prepared products
 
@@ -54,6 +67,8 @@ Transient. Cloudflare owns current realtime detection/snapshot. Ended rows disap
 `scope + hash + version + generatedAt + items[]`.
 
 UI never rebuilds YouTube package membership.
+
+Prepared packages are intentionally denormalized read products: they may include channel name/avatar so the UI can render without a per-card library join. Package identity is a snapshot copied **from canonical tables** and must never be written back as canonical truth.
 
 **TikTok LIVE** is not a Supabase YouTube-style package. It is a bounded Cloudflare snapshot/KV product refreshed only by demand.
 
@@ -179,6 +194,8 @@ Direct user action may call API. It must not fan out hidden background resolver 
 - `libraryHash` changes only on canonical channel/profile library changes, not selected/blocked-only edits.
 - YouTube package hash changes only after a complete package is ready.
 - TikTok KV writes only on material LIVE/fingerprint state changes.
+- Channel/avatar changes update the canonical channel row once; the next prepared package copies the new snapshot.
+- Temporary signed TikTok MP4 URLs are cache only and must be cleared after expiry.
 - Upstream failure keeps last-known-good.
 
 ## 7. Scheduler / deploy invariants
@@ -209,7 +226,9 @@ Therefore:
 - no full scan for one source edit;
 - no package/history append loops;
 - no per-item production logs;
-- no TikTok resolver/media work unless a visible/user action needs it.
+- no TikTok resolver/media work unless a visible/user action needs it;
+- no avatar/name mirror in source-state/channel-cache;
+- no TikTok profile/LIVE/video-library duplication across canonical/state tables.
 
 ## 10. One-line architecture
 

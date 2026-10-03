@@ -6,7 +6,7 @@
 >
 > **Không được sửa production chỉ dựa vào trí nhớ hội thoại.**
 
-Cập nhật gần nhất: **2026-10-03**
+Cập nhật gần nhất: **2026-10-04**
 
 ## 1. Trình tự bắt buộc trước mọi sửa chữa
 
@@ -84,6 +84,64 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 4. so `sourceId`;
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
+
+### 3.8. Chuẩn hóa channel identity + dọn duplicate Supabase
+
+Thời gian: **2026-10-04**.
+
+Audit production trước sửa:
+- YouTube `yt1988_source_state`: 723+ rows; 677 name copy, 677 avatar copy; 2 name mismatch và 60 avatar mismatch so với canonical directory.
+- `yt1988_channel_cache`: 267+ rows; 264 avatar copy; 48 avatar mismatch; 7 cache-only channel chưa có directory row.
+- `yt1988_user_state`: 592 `avatars` + 592 `customSources`, JSON khoảng 168 KB.
+- TikTok: 173 canonical channel; cả 173 có unique `user_id` và `sec_uid`, nhưng PK vẫn là mutable `handle`.
+- TikTok LIVE: 177 rows, gồm 4 OFF/UNKNOWN orphan cũ.
+- TikTok video-channel: 173 rows và ~746 KB `videos[]` JSON lặp với 1,766 canonical video rows.
+- toàn bộ `yt1988_*` trước sửa không có FK.
+
+Owner:
+- Supabase canonical schema + `yt1988-state/yt1988-refresh`.
+- Render social collector phải tương thích trước khi drop cột TikTok.
+
+Code-first:
+- commit `219c16b5760c06b1776fb7c65d83d2d779c9c666`.
+- GitHub Actions social collector run `37139967878`: SUCCESS.
+- Supabase: `yt1988-state v13` ACTIVE; `yt1988-refresh v29` ACTIVE.
+- Render deploy `dep-db0jihmgekts73a0231g`: LIVE, image digest `sha256:d397dd7aa26112e14d05739bdc628d70212898cde258a50be4e30f348c680bb8`.
+
+Production migrations:
+- `20261003172108 normalize_youtube_channel_identity`.
+- `20261003172252 normalize_tiktok_channel_identity`.
+- `20261003172431 harden_normalized_identity_access`.
+
+Sau sửa:
+- YouTube `yt1988_channel_directory(profile_key,channel_id)` = identity canonical.
+- `yt1988_source_state` chỉ còn membership/status; không name/avatar/subscribers.
+- `yt1988_channel_cache` không còn source_name/thumbnail_url.
+- source-state + channel-cache có FK về channel-directory; orphan = 0.
+- legacy `user_state.avatars/customSources` = 0; user-state payload còn khoảng 23.7 KB.
+- TikTok `yt1988_tiktok_channels.id UUID` = PK stable; `handle` unique alias; `user_id/sec_uid` unique external IDs.
+- LIVE + video-channel PK = `channel_id`; all 1,766 videos có `channel_id` FK; null/orphan = 0.
+- bỏ duplicate `live_channels.selected`, `video_channels.sec_uid/videos`, canonical `channels.live_*`, và table `yt1988_tiktok_live_selected`.
+- 4 stale orphan LIVE rows đã xóa; LIVE state rows 177 → 173.
+- 105 expired MP4 signed URL đã clear.
+- compatibility upsert transaction test: PASS + ROLLBACK; trigger `handle → channel_id` bind đúng.
+
+Package exception:
+- YouTube/TikTok prepared package vẫn được phép chứa name/avatar/profile snapshot để UI render nhanh.
+- Package chỉ là read snapshot; **không được ghi ngược làm canonical identity**.
+
+Security/performance follow-up:
+- thêm covering index `yt1988_source_state(profile_key,channel_id)`.
+- 2 RPC source-state đã chuyển SECURITY INVOKER và chỉ grant EXECUTE cho service_role.
+- advisor không còn cảnh báo unindexed FK mới; các SECURITY DEFINER warning còn lại là legacy functions ngoài phạm vi incident này và phải audit riêng trước khi thay.
+
+Rule khóa:
+```text
+YouTube: channel_id -> yt1988_channel_directory -> ONE name/avatar truth
+TikTok: stable UUID id -> yt1988_tiktok_channels -> ONE profile/avatar truth
+State/cache = IDs + state only
+Package = denormalized read snapshot only
+```
 
 ### 3.7. Incident — TikTok LIVE cron source có thể bật lại sau deploy
 
