@@ -5761,7 +5761,7 @@ html.tiktok-ui.tiktok-watch .rows{
   function appHintCandidate(target){
     if(!(target instanceof Element))return null;
     return target.closest(
-      '[data-hint],button,[role="button"],a,.row-title,.row-source'
+      '[data-hint],[aria-label],[title],button,[role="button"],a,.row-title,.row-source'
     );
   }
 
@@ -5771,7 +5771,11 @@ html.tiktok-ui.tiktok-watch .rows{
     if(explicit)return explicit;
     const aria=String(target.getAttribute?.("aria-label")||"").trim();
     if(aria)return aria;
-    const nativeTitle=String(target.getAttribute?.("title")||"").trim();
+    const nativeTitle=String(
+      target.getAttribute?.("title")||
+      target.getAttribute?.("data-native-title")||
+      ""
+    ).trim();
     if(nativeTitle)return nativeTitle;
     if(target.matches?.(".row-title,.row-source")){
       return String(target.textContent||"").replace(/\s+/g," ").trim();
@@ -5808,6 +5812,14 @@ html.tiktok-ui.tiktok-watch .rows{
   function showAppHint(target,{delay=380}={}){
     const text=appHintText(target);
     if(!text)return hideAppHint();
+
+    // Avoid a second native browser title bubble underneath the app hint.
+    const nativeTitle=String(target.getAttribute?.("title")||"").trim();
+    if(nativeTitle&&!target.getAttribute("data-native-title")){
+      target.setAttribute("data-native-title",nativeTitle);
+      target.removeAttribute("title");
+    }
+
     clearTimeout(appHintTimer);
     appHintTarget=target;
     appHintTimer=setTimeout(()=>{
@@ -10026,7 +10038,7 @@ html.tiktok-ui.tiktok-watch .rows{
           (thumb?'<img src="'+escapeHtml(thumb)+'" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async">':"")+
         '</div>'+
         '<div class="row-details"><div class="row-copy">'+
-          '<div class="row-title">'+escapeHtml(meta?.title||"")+'</div>'+
+          '<div class="row-title" data-hint="'+escapeHtml(meta?.title||"")+'">'+escapeHtml(meta?.title||"")+'</div>'+
           '<div class="row-meta">'+escapeHtml(facts)+'</div>'+
         '</div></div>'+
       '</article>'
