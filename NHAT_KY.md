@@ -1,3 +1,11 @@
+## 2026-10-04 — Sửa stale LIVE cache khi bấm Kiểm tra
+
+- Manual check xoá cache LIVE cũ trước khi lấy link mới.
+- Check mới lỗi/offline thì F5 không được phục hồi link cũ.
+- Có stream mới thì tự phát LIVE ngay.
+- Commit `170bb972784475d54ab7758eba0c7b51a92314ca`.
+- Player run `37158680465`: SUCCESS.
+
 ## 2026-10-04 — TikTok demo no Render, LIVE + latest 5 song song
 
 - Bỏ Render khỏi luồng demo.

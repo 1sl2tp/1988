@@ -86,6 +86,21 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.31. TikTok LIVE demo — manual check must replace stale LIVE cache
+
+Thời gian: **2026-10-04**.
+
+- Lỗi: bấm **Kiểm tra** dùng `force` nhưng không xoá cache LIVE cũ. Nếu lần check mới lỗi, F5 lại đọc cache cũ nên hiển thị link LIVE cũ.
+- Sửa:
+  - thêm `removeLiveCache(handle)`;
+  - bấm **Kiểm tra** xoá cache LIVE cũ trước khi gọi Cloudflare `/refresh`;
+  - nếu kết quả mới không playable hoặc request lỗi thì không giữ cache cũ;
+  - nếu kết quả mới có stream playable thì ghi cache mới và **tự phát LIVE ngay trong Player**.
+- Không đổi cách tìm LIVE; vẫn Cloudflare/TikTok API đã chốt.
+- Không dùng Render.
+- Commit runtime: `170bb972784475d54ab7758eba0c7b51a92314ca`.
+- Deploy 1988 Player run `37158680465`: **SUCCESS**, frontend contracts/deploy/custom-domain verify PASS.
+
 ### 3.30. TikTok demo — no Render, LIVE song song + 5 video TikWM, phát TikWM/BHWA
 
 Thời gian: **2026-10-04**.
