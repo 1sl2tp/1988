@@ -165,3 +165,21 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - DNS hiện resolve qua GitHub Pages và site đang phục vụ bản production mới.
 - Không thay đổi database/API runtime.
 
+## 2026-10-03 — Đồng bộ lại tài liệu vận hành sau khi GitHub Pages phục hồi
+
+- Branch nguồn: `main`.
+- Production hiện tại:
+  - frontend: GitHub Pages;
+  - custom domain: `https://yt.taphoa.xyz/`;
+  - DNS: Mắt Bão → GitHub Pages;
+  - TikTok realtime/VOD: Cloudflare Worker;
+  - TikTok library/metadata: Render;
+  - data/state/package: Supabase.
+- Google Sheet **1988 - Vận hành kết nối bảo trì** đã sửa các tab:
+  - `01 Ket noi`: bỏ mô tả Cloudflare/Render Static Site là host production; ghi GitHub Pages + DNS hiện tại.
+  - `02 Web va the`: bỏ link demo TikTok đã xóa; cập nhật startup production đã PASS.
+  - `05 TikTok`: thay VOD demo rotation bằng VOD resolver pool production trong Worker.
+  - `07 Sua Deploy`: bỏ TikTok demo; ghi đúng pipeline GitHub Pages với `environment: github-pages`.
+  - `Nhat ky sua chua`: thêm dòng đồng bộ tài liệu.
+- Không thay đổi runtime/data trong lần đồng bộ tài liệu này.
+
