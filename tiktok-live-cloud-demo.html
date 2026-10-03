@@ -96,6 +96,20 @@ function parseHandle(raw){
   const h=raw.replace(/^@/,"").split(/[?#/]/)[0];
   return /^[A-Za-z0-9._]{2,32}$/.test(h)?h:"";
 }
+async function resolveHandleFromInput(raw){
+  const direct=parseHandle(raw);
+  if(direct)return direct;
+  raw=String(raw||"").trim();
+  if(!/^https?:\/\//i.test(raw))return "";
+  try{
+    const data=await json("https://www.tikwm.com/api/?url="+encodeURIComponent(raw),12000);
+    const author=data?.data?.author||data?.data?.user||{};
+    const h=String(author?.unique_id||author?.uniqueId||author?.username||"").replace(/^@/,"").trim();
+    return /^[A-Za-z0-9._]{2,32}$/.test(h)?h:"";
+  }catch{
+    return "";
+  }
+}
 function normalizeProfileVideos(rows,h){
   return (Array.isArray(rows)?rows:[])
     .map(row=>({
@@ -352,6 +366,12 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
       if(mySeq!==vodSeq)return;
       const total=((performance.now()-started)/1000).toFixed(2);
       removeVodLinkCache(item,source);
+      if(autoFallback&&source==="tikwm_hd"){
+        sourceInfo.className="sourceinfo";
+        sourceInfo.textContent="TikWM có link nhưng phát lỗi · chuyển BHWA…";
+        playVodMedia(item,{iframeFallback,source:"bhwa_get",force:true,autoFallback:false});
+        return;
+      }
       if(source==="bhwa_get"&&!retried){
         sourceInfo.className="sourceinfo";
         sourceInfo.textContent="BHWA_GET · link cũ chết sau "+total+"s · tự get lại 1 lần…";
@@ -446,9 +466,10 @@ modes.addEventListener("click",e=>{
   if(btn)setPlayerMode(btn.dataset.mode);
 });
 async function inspect(raw,{force=false}={}){
-  const h=parseHandle(raw);
+  statusEl.textContent="Đang nhận diện link TikTok…";
+  const h=await resolveHandleFromInput(raw);
   if(!h){
-    statusEl.textContent="Link/handle TikTok không hợp lệ. Dán link có dạng tiktok.com/@tenkenh/...";
+    statusEl.textContent="Không nhận ra kênh TikTok từ link này.";
     return;
   }
   handle=h;
