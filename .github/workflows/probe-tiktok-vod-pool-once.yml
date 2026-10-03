@@ -16,10 +16,11 @@ jobs:
         shell: bash
         run: |
           set -u
-          PROFILE='https://www.tiktok.com/@tu.thuong_lay_minh_1'
-          echo "=== BHWA PROFILE ==="
-          curl -sS --max-time 20 -D /tmp/h             "https://downloader-api.bhwa233.com/api/parse?url=$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["PROFILE"], safe=""))' PROFILE="$PROFILE")"             -H 'User-Agent: Mozilla/5.0'             -o /tmp/body || true
+          ENC=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("https://www.tiktok.com/@tu.thuong_lay_minh_1", safe=""))')
+          URL="https://downloader-api.bhwa233.com/api/parse?url=${ENC}"
+          echo "$URL"
+          curl -sS --max-time 20 -D /tmp/h "$URL"             -H 'User-Agent: Mozilla/5.0'             -o /tmp/body || true
           cat /tmp/h
           echo
-          head -c 16000 /tmp/body
+          cat /tmp/body
           echo
