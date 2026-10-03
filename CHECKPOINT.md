@@ -1,61 +1,52 @@
 # CHECKPOINT — MAIN 1988
 
-Ngày chốt: **2026-09-29**
+Cập nhật vận hành: **2026-10-03**
 
-## Mốc hiện tại
+## Last-known-good gần nhất
 
 - Repo: `1sl2tp/1988`
-- Production: `main`
-- Commit nền checkpoint: `15bc1ac91bd57e71aef6bffc9305968902413d62`
-- Backup branch: `backup-2026-09-29-0137-stable`
-- Domain: `yt.taphoa.xyz`
-- Hosting: GitHub Pages
-- Backend: Supabase
-- Service worker: `1988-simple-media-v34`
+- Production branch: `main`
+- Frontend host: GitHub Pages
+- Domain: `https://yt.taphoa.xyz/`
+- Frontend code đã verify trước FAST-REPAIR update: `14bf92577768f311cf2b55331668de8511ac73ca`
+- Pages run: `37114271928` — SUCCESS
+- Supabase Edge Functions đã verify:
+  - `yt1988 v5`
+  - `yt1988-state v7`
+  - `yt1988-refresh v17`
+- Unified channel library contract đã probe production:
+  - POPS Kids: subscriber/views/videoCount/avatar/handle/verified đúng;
+  - TikTok verified profile trả cùng schema.
 
-## Kiến trúc chốt
+## Rollback nhanh
 
-- Một Rail media core chung cho MAIN 1 cột / PiP / MAIN 2 cột.
-- Feed/package do server chuẩn bị; browser chỉ sync bằng manifest hash và đọc RAM/IndexedDB.
-- Package là canonical card data.
-- Piped nằm ở backend cho search/metadata; deep-link dùng `video_meta` nhanh, không chờ stream.
-- Source selected/blocked theo scope ở server.
-- Search local/cache trước, global backend sau.
-- Download hiện chỉ dùng `yt1988-getlink → GenDownload`.
-- Runtime `yt1988 v32` và `yt1988-getlink v2` đã sync source vào repo trong checkpoint này.
+### Frontend regression
 
-## Tài liệu chi tiết
-
-Xem:
-
-`docs/PROJECT_CHECKPOINT_2026-09-29.md`
-
-Tài liệu này ghi đầy đủ:
-- mục đích dự án;
-- video/player;
-- card;
-- Piped;
-- package/hash sync;
-- 1 cột / 2 cột;
-- search;
-- nguồn data;
-- download;
-- phần đang tốt/chưa tốt;
-- rủi ro;
-- hướng phát triển tiếp theo.
-
-## Rollback
-
-Nếu bản sau bị hỏng:
+Ưu tiên quay về **last-known-good gần nhất**, không nhảy ngay về checkpoint 29/9:
 
 ```text
-backup-2026-09-29-0137-stable
+14bf92577768f311cf2b55331668de8511ac73ca
 ```
 
-Commit gốc:
+Sau rollback: verify `yt.taphoa.xyz` trước, rồi mới điều tra bản lỗi.
 
-```text
-15bc1ac91bd57e71aef6bffc9305968902413d62
-```
+### Supabase regression
 
-Không ghép lại nhiều commit cũ nếu không cần thiết.
+Rollback đúng Edge Function/schema bị ảnh hưởng; không rollback UI nếu UI không phải owner.
+
+### Cloudflare/Render regression
+
+Rollback đúng Worker/service bị ảnh hưởng; không deploy lại toàn bộ web.
+
+## Checkpoint lịch sử 2026-09-29
+
+- Commit nền: `15bc1ac91bd57e71aef6bffc9305968902413d62`
+- Backup branch lịch sử: `backup-2026-09-29-0137-stable`
+- Chỉ dùng checkpoint lịch sử khi rollback gần nhất không đủ.
+
+## Nguyên tắc
+
+- Production hỏng: rollback trước, điều tra sau.
+- Một incident chỉ có một owner/deploy chính.
+- Không ghép nhiều commit cũ nếu không cần.
+- Xem `README_MAINTENANCE.md` mục FAST REPAIR trước mọi sửa chữa.

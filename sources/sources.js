@@ -124,10 +124,60 @@ function sourceLabels(){
   return Object.fromEntries(state.scopes.map(x=>[x.key,x.label]));
 }
 
+function channelLibraryYoutubeRow(row={}){
+  if(String(row?.platform||"").toLowerCase()!=="youtube")return null;
+  const id=clean(row?.id||"");
+  if(!validId(id))return null;
+
+  const stats=row?.stats&&typeof row.stats==="object"?row.stats:{};
+  const avatar=clean(
+    row?.avatar?.url||
+    row?.avatar?.storedUrl||
+    row?.avatar?.sourceUrl||
+    ""
+  );
+  const subscriberCount=Math.max(0,Number(stats?.subscribers)||0);
+  const subscriberText=clean(
+    stats?.subscriberText||
+    (subscriberCount>0?String(Math.round(subscriberCount)):"")
+  );
+
+  return {
+    id,
+    name:clean(row?.name||id),
+    thumbnailUrl:avatar,
+    subscribers:subscriberText,
+    handle:clean(row?.handle||""),
+    description:clean(row?.description||""),
+    profileUrl:clean(row?.profileUrl||""),
+    verified:row?.verified===true,
+    verification:row?.verification&&typeof row.verification==="object"
+      ?row.verification
+      :{known:false,verified:null,badge:""},
+    stats
+  };
+}
+
 function metaMap(){
   const out=new Map();
+
+  // Canonical identity first: the same yt1988-state.channelLibrary used by MAIN.
+  for(const row of state.remote?.channelLibrary||[]){
+    const normalized=channelLibraryYoutubeRow(row);
+    if(normalized)out.set(normalized.id,normalized);
+  }
+
+  // Legacy/custom source rows are fallback-only. Never let stale duplicated
+  // name/avatar/subscriber data overwrite the canonical channel library.
   for(const row of state.remote?.customSources||[]){
-    if(validId(row?.id))out.set(row.id,row);
+    const id=clean(row?.id||"");
+    if(!validId(id))continue;
+    const canonical=out.get(id);
+    if(canonical){
+      out.set(id,{...row,...canonical,id});
+    }else{
+      out.set(id,row);
+    }
   }
   return out;
 }

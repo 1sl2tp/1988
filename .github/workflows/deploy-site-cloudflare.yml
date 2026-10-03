@@ -1,26 +1,14 @@
-name: Deploy 1988 Site to Cloudflare
+name: STANDBY - Deploy 1988 Site to Cloudflare manually
 
-concurrency:
-  group: deploy-1988-site-cloudflare-main
-  cancel-in-progress: true
-
+# NOT PRODUCTION. GitHub Pages is the production frontend host.
+# Keep this workflow manual-only so normal repairs do not waste a second
+# deployment or create ambiguity about which host is serving yt.taphoa.xyz.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "index.html"
-      - "sw.js"
-      - "manifest.webmanifest"
-      - "CNAME"
-      - ".nojekyll"
-      - "apple-touch-icon.png"
-      - "silent.wav"
-      - "icons/**"
-      - "src/**"
-      - "sources/**"
-      - "cloudflare/site/**"
-      - ".github/workflows/deploy-site-cloudflare.yml"
+
+concurrency:
+  group: deploy-1988-site-cloudflare-standby
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -40,6 +28,7 @@ jobs:
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
           node tests/tiktok-playback-contract.test.cjs
+          node tests/channel-library-contract.test.cjs
 
       - name: Build production site artifact
         run: |
@@ -48,7 +37,7 @@ jobs:
           cp index.html manifest.webmanifest sw.js CNAME .nojekyll apple-touch-icon.png silent.wav _site/
           cp -R icons src sources _site/
 
-      - name: Deploy Cloudflare site
+      - name: Deploy Cloudflare standby site
         working-directory: cloudflare/site
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

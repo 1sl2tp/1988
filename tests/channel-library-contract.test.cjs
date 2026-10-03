@@ -2,6 +2,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 
 const html=fs.readFileSync('index.html','utf8');
+const sourceManager=fs.readFileSync('sources/sources.js','utf8');
 const state=fs.readFileSync('supabase/functions/yt1988-state/index.ts','utf8');
 const refresh=fs.readFileSync('supabase/functions/yt1988-refresh/index.ts','utf8');
 const ytApi=fs.readFileSync('supabase/functions/yt1988/index.ts','utf8');
@@ -53,6 +54,19 @@ assert.match(html,/function primeUnifiedChannelLibrary\(/);
 assert.match(html,/primeUnifiedChannelLibrary\(remote\)/);
 assert.match(html,/channelLibraryEntry\("youtube",sourceId\)/);
 assert.match(html,/channelLibraryEntry\("tiktok",handle\)/);
+
+// Source manager must consume the same canonical identity library.
+assert.match(sourceManager,/state\.remote\?\.channelLibrary/);
+assert.match(sourceManager,/function channelLibraryYoutubeRow\(/);
+const sourceMetaStart=sourceManager.indexOf('function metaMap');
+const sourceMetaEnd=sourceManager.indexOf('function directScopeSet',sourceMetaStart);
+assert.ok(sourceMetaStart>=0&&sourceMetaEnd>sourceMetaStart,'source manager metaMap missing');
+const sourceMetaBlock=sourceManager.slice(sourceMetaStart,sourceMetaEnd);
+assert.ok(
+  sourceMetaBlock.indexOf('channelLibrary')>=0&&
+  sourceMetaBlock.indexOf('channelLibrary')<sourceMetaBlock.indexOf('customSources'),
+  'source manager must prefer channelLibrary before customSources'
+);
 
 // Schema source must mirror the live database fields.
 for(const field of [

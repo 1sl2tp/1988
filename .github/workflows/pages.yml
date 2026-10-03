@@ -10,6 +10,7 @@ on:
       - "docs/**"
       - "tests/**"
       - "scripts/**"
+      - "**/*.md"
 
 permissions:
   contents: read
@@ -18,7 +19,7 @@ permissions:
 
 concurrency:
   group: pages-main-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -35,23 +36,17 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Test media core
+      - name: Test frontend production contracts
         run: |
           node --test tests/feed-refresh.test.cjs
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
-          node tests/backend-media-proxy.test.cjs
           node tests/tiktok-playback-contract.test.cjs
-          # Channel identity/profile contract shared by YouTube and TikTok (including verified badge).
           node tests/channel-library-contract.test.cjs
-          python -m py_compile backend/ytdlp/server.py
           node --check src/media-core.js
           node --check src/app.js
           node --check src/yt-local.js
-          node --check backend/social-collector/server.mjs
-          node --check backend/social-collector/tiktok-login-runtime.mjs
-          node --check backend/tiktok-browser/server.mjs
-          node --check backend/tiktok-browser/social-hub.mjs
+          node --check sources/sources.js
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
