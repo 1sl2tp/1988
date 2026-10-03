@@ -197,10 +197,10 @@ assert.match(
   /async function schedulerTick\(\)\{[\s\S]{0,120}if\(!AUTO_COLLECT\|\|!LEGACY_TIKTOK_FEED_COLLECT\)return;/,
   'legacy browser feed collector must not run unless explicitly enabled'
 );
-assert.match(
+assert.doesNotMatch(
   server,
   /if\(AUTO_COLLECT&&LEGACY_TIKTOK_FEED_COLLECT\)\{[\s\S]{0,260}schedulerTick/,
-  'browser prewarm/scheduler must be gated behind the legacy collector flag'
+  'production startup must not schedule the legacy browser collector at all'
 );
 
 const statusesRouteStart=server.indexOf("if(url.pathname==='/tiktok/live-statuses'");
