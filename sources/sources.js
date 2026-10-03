@@ -353,7 +353,9 @@ function stateFetch(method="GET",body,{timeout=9000,view=""}={}){
     body:body?JSON.stringify(body):undefined
   }).then(async r=>{
     if(!r.ok)throw new Error("state_"+r.status);
-    return r.json();
+    const payload=await r.json();
+    if(method==="POST")void writeSourceCache("manifest",{});
+    return payload;
   }).finally(()=>clearTimeout(timer));
 }
 
@@ -1069,7 +1071,13 @@ async function savePresentationState(){
   try{
     const result=await stateFetch("POST",{state:next,version:Date.now()});
     if(result?.ok){
-      state.remote=next;
+      state.remote={
+        ...next,
+        channelLibrary:Array.isArray(state.remote?.channelLibrary)
+          ?state.remote.channelLibrary
+          :[],
+        channelLibraryVersion:state.remote?.channelLibraryVersion||""
+      };
       return true;
     }
   }catch(error){
