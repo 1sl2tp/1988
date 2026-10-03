@@ -56,6 +56,17 @@ test('LIVE fills a missing avatar from canonical channel directory without chang
  assert.equal(row.title,original);
  assert.equal(row._displayTitle,original);
 });
+test('LIVE exact-title repair only triggers for blank title or channel-name title',()=>{
+ assert.equal(s.liveTitleNeedsExact({
+  title:'Báo Tiền Phong News',
+  sourceName:'Báo Tiền Phong News'
+ }),true);
+ assert.equal(s.liveTitleNeedsExact({
+  title:'🔴Trực Tiếp: Tin tức an ninh trật tự nóng',
+  sourceName:'Báo Tiền Phong News'
+ }),false);
+});
+
 
 
 test('server rejects English titles without confusing Vietnamese the with English the',()=>{
