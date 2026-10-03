@@ -46,17 +46,13 @@ assert.match(worker,/async function lookupLive\(rawHandle\)/);
 assert.match(worker,/url\.pathname === "\/lookup"/);
 assert.match(worker,/const state=await checkTikTok\(handle\)/);
 
-assert.match(worker,/async function resolveTikTokSecUid\(rawHandle\)/);
-assert.match(worker,/https:\/\/www\.tiktok\.com\/api\/user\/detail\//);
-assert.match(worker,/https:\/\/www\.tiktok\.com\/api\/post\/item_list\//);
-assert.match(worker,/async function fetchTikTokLatestFive\(rawHandle,count=5\)/);
-assert.match(worker,/source:"tiktok-post-item-list"/);
-
-assert.ok(worker.includes('async function fetchTikTokProfileVideoLinks(rawHandle,count=5)'));
-assert.ok(worker.includes('source:"tiktok-profile-html"'));
-assert.ok(worker.includes('function tikTokHydrationPayloads(html)'));
-assert.ok(worker.includes('__UNIVERSAL_DATA_FOR_REHYDRATION__'));
-assert.ok(worker.includes('SIGI_STATE'));
-assert.ok(worker.includes('function tikTokRowsFromPayload(payload,rawHandle,max=30)'));
-assert.ok(worker.includes('const hydrated=[...byId.values()]'));
+assert.ok(worker.includes('function tikwmUserVideos(body,rawHandle,count=5)'));
+assert.ok(worker.includes('async function fetchTikTokLatestFive(rawHandle,count=5)'));
+assert.ok(worker.includes('https://www.tikwm.com/api/user/posts'));
+assert.ok(worker.includes('endpoint.searchParams.set("web","1")'));
+assert.ok(worker.includes('endpoint.searchParams.set("hd","1")'));
+assert.ok(worker.includes('referer:"https://www.tikwm.com/"'));
+assert.ok(worker.includes('form.set("unique_id","@"+handle)'));
+assert.ok(worker.includes('source:"tikwm-user-posts-get"'));
+assert.ok(worker.includes('source:"tikwm-user-posts-post"'));
 console.log('tiktok VOD direct-url + failover contract ok');

@@ -466,43 +466,88 @@ async function fetchTikTokProfileVideoLinks(rawHandle,count=5){
   }
 }
 
+function tikwmUserVideos(body,rawHandle,count=5){
+  const handle=normalizeHandle(rawHandle);
+  const wanted=Math.max(1,Math.min(5,Number(count)||5));
+  const data=body?.data||{};
+  const rows=
+    (Array.isArray(data?.videos)&&data.videos)||
+    (Array.isArray(data?.items)&&data.items)||
+    (Array.isArray(body?.videos)&&body.videos)||
+    [];
+  return rows
+    .map(row=>{
+      const id=normalizeVideoId(row?.video_id||row?.aweme_id||row?.id||"");
+      if(!id)return null;
+      return {
+        id,
+        handle,
+        title:String(row?.title||row?.desc||row?.description||"").slice(0,300),
+        thumbnail:String(row?.cover||row?.origin_cover||row?.ai_dynamic_cover||""),
+        createTime:Number(row?.create_time||row?.createTime||0),
+        pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id
+      };
+    })
+    .filter(Boolean)
+    .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
+    .slice(0,wanted);
+}
+
 async function fetchTikTokLatestFive(rawHandle,count=5){
   const handle=normalizeHandle(rawHandle);
   if(!handle)return json({ok:false,error:"invalid_tiktok_handle"},400);
   const wanted=Math.max(1,Math.min(5,Number(count)||5));
-  const secUid=await resolveTikTokSecUid(handle);
-  let nativeError=secUid?"":"missing_secuid";
-  if(secUid){
-    try{
-      const endpoint=new URL("https://www.tiktok.com/api/post/item_list/");
-      endpoint.searchParams.set("aid","1988");
-      endpoint.searchParams.set("count",String(wanted));
-      endpoint.searchParams.set("cursor","0");
-      endpoint.searchParams.set("from_page","user");
-      endpoint.searchParams.set("secUid",secUid);
-      const r=await fetch(endpoint,{headers:{
-        "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
-        accept:"application/json,text/plain,*/*",
-        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
-        referer:"https://www.tiktok.com/@"+handle
-      },redirect:"follow"});
-      if(r.ok){
-        const body=await r.json().catch(()=>null);
-        const items=(Array.isArray(body?.itemList)&&body.itemList)||(Array.isArray(body?.item_list)&&body.item_list)||(Array.isArray(body?.data?.itemList)&&body.data.itemList)||(Array.isArray(body?.data?.item_list)&&body.data.item_list)||(Array.isArray(body?.items)&&body.items)||[];
-        const videos=items.map(row=>{
-          const id=normalizeVideoId(row?.id||row?.video_id||row?.aweme_id||"");
-          if(!id)return null;
-          const video=row?.video||{};
-          return {id,handle,title:String(row?.desc||row?.description||row?.title||"").slice(0,300),thumbnail:firstTikTokUrl(video?.cover||video?.originCover||video?.dynamicCover||video?.cover?.urlList||video?.originCover?.urlList),createTime:Number(row?.createTime||row?.create_time||0),pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id};
-        }).filter(Boolean).sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0)).slice(0,wanted);
-        if(videos.length)return json({ok:true,handle,secUid,videos,source:"tiktok-post-item-list",checkedAt:Date.now()});
-        nativeError="no_items";
-      }else nativeError="tiktok_posts_http_"+r.status;
-    }catch(error){nativeError="tiktok_posts_fetch_"+String(error?.message||error||"error")}
-  }
-  const fallback=await fetchTikTokProfileVideoLinks(handle,wanted);
-  if(fallback.length)return json({ok:true,handle,secUid,videos:fallback,source:"tiktok-profile-html",fallbackFrom:nativeError,checkedAt:Date.now()});
-  return json({ok:false,handle,secUid,videos:[],error:nativeError||"no_videos"},502);
+  const headers={
+    "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+    accept:"application/json,text/plain,*/*",
+    "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+    referer:"https://www.tikwm.com/"
+  };
+
+  // GitHub implementations commonly use this GET shape.
+  try{
+    const endpoint=new URL("https://www.tikwm.com/api/user/posts");
+    endpoint.searchParams.set("unique_id",handle);
+    endpoint.searchParams.set("count",String(wanted));
+    endpoint.searchParams.set("cursor","0");
+    endpoint.searchParams.set("web","1");
+    endpoint.searchParams.set("hd","1");
+    const r=await fetch(endpoint,{method:"GET",headers,redirect:"follow"});
+    if(r.ok){
+      const body=await r.json().catch(()=>null);
+      const videos=tikwmUserVideos(body,handle,wanted);
+      if(videos.length){
+        return json({ok:true,handle,videos,source:"tikwm-user-posts-get",checkedAt:Date.now()});
+      }
+    }
+  }catch{}
+
+  // Several maintained scrapers use POST form with @handle.
+  try{
+    const form=new URLSearchParams();
+    form.set("unique_id","@"+handle);
+    form.set("count",String(wanted));
+    form.set("cursor","0");
+    const r=await fetch("https://www.tikwm.com/api/user/posts",{
+      method:"POST",
+      headers:{
+        ...headers,
+        "content-type":"application/x-www-form-urlencoded;charset=UTF-8",
+        origin:"https://www.tikwm.com"
+      },
+      body:form.toString(),
+      redirect:"follow"
+    });
+    if(r.ok){
+      const body=await r.json().catch(()=>null);
+      const videos=tikwmUserVideos(body,handle,wanted);
+      if(videos.length){
+        return json({ok:true,handle,videos,source:"tikwm-user-posts-post",checkedAt:Date.now()});
+      }
+    }
+  }catch{}
+
+  return json({ok:false,handle,videos:[],error:"tikwm_user_posts_no_videos"},502);
 }
 
 async function checkTikTok(handle) {
