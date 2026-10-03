@@ -6547,8 +6547,25 @@ html.tiktok-ui.tiktok-watch .rows{
 
       // YouTube LIVE and TikTok LIVE are separate feeds now. Never merge one
       // provider into the other and never wait for the other provider.
-      feedMetas=metas;
-      renderSampleContent();
+      //
+      // Normally startup warming has already filled this array. If the user is
+      // unusually fast and taps Live before the first snapshot finishes, keep
+      // the existing cards on screen until that in-flight warm completes rather
+      // than flashing a completely blank page.
+      if(metas.length){
+        feedMetas=metas;
+        renderSampleContent();
+      }else if(!startupLivePreloadPromise){
+        feedMetas=[];
+        renderSampleContent();
+      }
+
+      if(!metas.length&&startupLivePreloadPromise){
+        void startupLivePreloadPromise.finally(()=>{
+          if(!liveDemandActive(provider))return;
+          paintUnifiedLiveFromEdge(provider);
+        });
+      }
 
       if(provider==="tiktok"){
         primeTikTokPlaybackNeighborhood();
@@ -6733,8 +6750,10 @@ html.tiktok-ui.tiktok-watch .rows{
 
   function activeLiveProvider(){
     if(activePlatformNav==="tiktok")return "tiktok";
-    if(activePlatformNav==="youtube")return "youtube";
-    return "";
+    // The normal 1988 landing/source tabs are the YouTube surface. Requiring
+    // the YouTube logo to be clicked first made the Live chip resolve to an
+    // empty provider and paint a blank feed on first entry.
+    return "youtube";
   }
 
   function liveMetasForProvider(provider=activeLiveProvider(),youtubeFallback=[]){
@@ -10484,7 +10503,11 @@ html.tiktok-ui.tiktok-watch .rows{
       activePackageScope=scope;
       await restoreStoredPackage(scope);
       const painted=await showPackageScope(scope,{hydrateLive:false});
-      scheduleStartupLivePreload();
+
+      // As soon as the first latest-video paint is committed, warm LIVE now.
+      // Do not wait for another frame/timer: LIVE is the next likely tab and
+      // must already be in RAM by the time the user taps it.
+      void preloadStartupLiveLists();
       return painted;
     })();
 
