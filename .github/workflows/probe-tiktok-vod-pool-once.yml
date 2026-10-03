@@ -1,4 +1,4 @@
-name: Probe BHWA TikTok Profile
+name: Probe TikTok Channel ID to BHWA
 on:
   push:
     branches: [main]
@@ -12,14 +12,30 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe BHWA profile parse
+      - name: Probe live owner id then BHWA profile
         shell: bash
         run: |
           set -u
-          ENC=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("https://www.tiktok.com/@tu.thuong_lay_minh_1", safe=""))')
+          H='tu.thuong_lay_minh_1'
+          LIVE="https://www.tiktok.com/api-live/user/room?aid=1988&sourceType=54&uniqueId=${H}"
+          curl -sS --max-time 20 "$LIVE"             -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36'             -H "Referer: https://www.tiktok.com/@${H}/live"             -o /tmp/live.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/live.json'))
+          room=((d.get('data') or {}).get('liveRoom') or {})
+          owner=room.get('ownerInfo') or (d.get('data') or {}).get('user') or {}
+          print('STATUS', room.get('status'))
+          print('OWNER_ID', owner.get('id'))
+          print('SEC_UID', owner.get('secUid') or owner.get('sec_uid'))
+          print('UNIQUE_ID', owner.get('uniqueId') or owner.get('unique_id'))
+          open('/tmp/channel_id','w').write(str(owner.get('id') or ''))
+          PY
+          CID=$(cat /tmp/channel_id)
+          echo "CID=${CID}"
+          ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("tiktokuser:"+sys.argv[1], safe=""))' "$CID")
           URL="https://downloader-api.bhwa233.com/api/parse?url=${ENC}"
           echo "$URL"
-          curl -sS --max-time 20 -D /tmp/h "$URL"             -H 'User-Agent: Mozilla/5.0'             -o /tmp/body || true
+          curl -sS --max-time 30 -D /tmp/h "$URL" -H 'User-Agent: Mozilla/5.0' -o /tmp/body || true
           cat /tmp/h
           echo
           cat /tmp/body
