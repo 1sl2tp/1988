@@ -116,3 +116,19 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Production deploy: **CHƯA HOÀN TẤT** — GitHub Pages hiện `has_pages=false`; `Configure Pages` fail do `Resource not accessible by integration`.
 - Rollback logic: quay về `3b83281e7bb91d8cc245a8315726e06224e6bf26`.
 
+## 2026-10-03 — Toàn bộ GitHub 1sl2tp chuyển Private + Cloudflare site standby
+
+- GitHub account/repositories kiểm tra: `taphoaxyz`, `getlink`, `chat`, `1988`, `infrastructure` đều đang `private`.
+- Repo `1sl2tp/1988` hiện `visibility=private`, `has_pages=false`; GitHub Pages không còn là host đáng tin cậy cho production khi repo private.
+- Tạo static Worker riêng `1988-site` để chuẩn bị tách hosting khỏi GitHub Pages.
+- Commits:
+  - `f807637c2a31cf10be9348099fda56452f31d3b9` — static Worker entry.
+  - `b816fdc3976995a952f7d6888d931dfa38cd0792` — Cloudflare site config.
+  - `f6d2be9181dd961a8abfe6ebd8881888932b5e70` — GitHub Actions deploy Cloudflare site.
+  - `2cabcc278479d9ae11fa3e9e1d73f740fef90098` — bỏ route custom domain khỏi config vì token hiện tại không sở hữu zone `taphoa.xyz`.
+- Cloudflare workflow run `37110948291`: PASS.
+- Worker standby: `https://1988-site.taphoa-4ab8161d.workers.dev`.
+- Việc nối `yt.taphoa.xyz` sang Worker mới **chưa hoàn tất** vì zone `taphoa.xyz` thuộc Cloudflare account/token khác.
+- Không thay đổi DB hoặc dữ liệu người dùng.
+- Rollback source: revert các commit Cloudflare site nếu không dùng.
+
