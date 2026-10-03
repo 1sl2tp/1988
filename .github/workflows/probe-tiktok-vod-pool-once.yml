@@ -1,4 +1,4 @@
-name: Probe TikTok RSS Bridge Paths
+name: Probe TikWM Single Video Exact
 on:
   push:
     branches: [main]
@@ -12,40 +12,35 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe RSS-Bridge direct JSON and rss2json
+      - name: Probe exact TikWM resolver and redirect
         shell: bash
         run: |
           set -u
           H='tu.thuong_lay_minh_1'
-          BASE='https://rss-bridge.org/bridge01/'
-          JSON_URL="${BASE}?action=display&bridge=TikTokBridge&context=By%20user&username=%40${H}&format=Json"
-          ATOM_URL="${BASE}?action=display&bridge=TikTokBridge&context=By%20user&username=%40${H}&format=Atom"
-
-          echo '=== METHOD 1: RSS-BRIDGE JSON DIRECT ==='
-          curl -sS --max-time 30 -D /tmp/rb-json-h "$JSON_URL"             -H 'Origin: https://yt.taphoa.xyz'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/rb-json-body || true
-          cat /tmp/rb-json-h
-          echo
-          head -c 10000 /tmp/rb-json-body
-          echo
-
-          echo '=== METHOD 1B: ALTERNATE PUBLIC INSTANCE JSON ==='
-          ALT="https://wtf.roflcopter.fr/rss-bridge/?action=display&bridge=TikTokBridge&context=By%20user&username=%40${H}&format=Json"
-          curl -sS --max-time 30 -D /tmp/rb-alt-h "$ALT"             -H 'Origin: https://yt.taphoa.xyz'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/rb-alt-body || true
-          cat /tmp/rb-alt-h
-          echo
-          head -c 10000 /tmp/rb-alt-body
-          echo
-
-          echo '=== METHOD 2: RSS-BRIDGE ATOM -> RSS2JSON ==='
+          ID='7680871454702882069'
+          PAGE="https://www.tiktok.com/@${H}/video/${ID}"
           ENC=$(python3 - <<'PY'
 import urllib.parse
-u='https://rss-bridge.org/bridge01/?action=display&bridge=TikTokBridge&context=By%20user&username=%40tu.thuong_lay_minh_1&format=Atom'
-print(urllib.parse.quote(u,safe=''))
+print(urllib.parse.quote('https://www.tiktok.com/@tu.thuong_lay_minh_1/video/7680871454702882069', safe=''))
 PY
 )
-          R2J="https://api.rss2json.com/v1/api.json?rss_url=${ENC}"
-          curl -sS --max-time 30 -D /tmp/r2j-h "$R2J"             -H 'Origin: https://yt.taphoa.xyz'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/r2j-body || true
-          cat /tmp/r2j-h
+          API="https://www.tikwm.com/api/?url=${ENC}"
+          EDGE="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-direct?user=${H}&id=${ID}"
+
+          echo '=== TIKWM API ==='
+          curl -sS --max-time 20 -D /tmp/tikwm.h "$API"             -H 'Referer: https://www.tikwm.com/'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/tikwm.body || true
+          cat /tmp/tikwm.h
           echo
-          head -c 12000 /tmp/r2j-body
+          head -c 12000 /tmp/tikwm.body
           echo
+
+          echo '=== EDGE 302 ==='
+          curl -sS --max-time 20 -D /tmp/edge.h "$EDGE" -o /tmp/edge.body || true
+          cat /tmp/edge.h
+          echo
+          cat /tmp/edge.body
+          echo
+
+          echo '=== EDGE FOLLOW ==='
+          curl -sS -L --max-time 20 -D /tmp/follow.h "$EDGE" -o /dev/null || true
+          cat /tmp/follow.h
