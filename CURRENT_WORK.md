@@ -1293,3 +1293,14 @@ Next probe:
 - Link lưu tới khi media thực sự lỗi; link chết mới xóa/get lại đúng 1 lần.
 - Mục tiêu là lấy media no-watermark/no-player-overlay. Backend Bhwa public UI mô tả TikTok download no-watermark; việc một candidate cụ thể có watermark bake vào pixels vẫn phải xác nhận bằng phát thực tế.
 - TikTok LIVE không đổi.
+
+
+### 3.28. TikTok demo — TikTok PlayAddr thử trực tiếp + hạ Bhwa xuống fallback
+- Ảnh test production xác nhận Bhwa Direct có thể trả video có watermark TikTok bake trong pixels.
+- Không còn mô tả Bhwa là nguồn no-watermark đáng tin cậy.
+- Upstream `bhwa233/galaxy-downloader` từng thêm mô tả TikTok no-watermark rồi commit `a7f507b...` bỏ mô tả đó; issue #31 cũng ghi nhận trường hợp TikTok tải có watermark.
+- TikWM HD/Standard vẫn là nguồn sạch chính và tuyệt đối không dùng `wmplay`.
+- Thêm nguồn thử `TikTok PlayAddr`: browser gọi trực tiếp `https://www.tiktok.com/node/share/video/<id>`, lấy `itemStruct.video.playAddr` hoặc bitrate `PlayAddr.UrlList`.
+- Không Cloud/Render cho VOD PlayAddr. Nếu TikTok chặn CORS/endpoint thì chỉ báo lỗi nguồn này.
+- Bhwa giữ làm fallback và UI ghi rõ `có thể logo/watermark`.
+- LIVE không đổi.

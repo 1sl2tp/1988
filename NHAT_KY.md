@@ -871,3 +871,9 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Bhwa dùng /api/parse như TikWM: get direct URL rồi phát thẳng.
 - Ưu tiên originDownloadVideoUrl, tránh wrapper player/download nếu có direct CDN.
 - TikWM giữ no-watermark path hdplay/play, không wmplay.
+
+
+## 2026-10-04 — TikTok PlayAddr browser-direct
+- Bhwa được hạ xuống fallback vì ảnh test xác nhận watermark.
+- Thêm TikTok PlayAddr trực tiếp từ node/share/video/<id>, lấy playAddr/bitrate PlayAddr nếu browser đọc được.
+- Không dùng Cloud/Render cho VOD source mới; CORS/block thì fail tại browser.
