@@ -12,11 +12,12 @@ Web tổng hợp YouTube/TikTok theo hướng mobile-first.
 
 ## Kiến trúc production
 
-- Frontend: GitHub Pages tại `https://yt.taphoa.xyz/`.
-- Data/state/package: Supabase.
-- TikTok profile/library/session: Render `1988-tiktok-session`.
-- TikTok LIVE/VOD edge và YouTube LIVE realtime: Cloudflare Workers.
-- PWA: manifest + service worker + icon iOS/Android.
+- Frontend/code delivery: GitHub Pages tại `https://yt.taphoa.xyz/`.
+- Canonical data/state/current package: Supabase.
+- Realtime detection/edge cache: Cloudflare Workers.
+- TikTok heavy resolver/session: Render `1988-tiktok-session`.
+- Browser: IndexedDB/RAM cache + render.
+- Contract đầy đủ: [README_HOST_ARCHITECTURE.md](./README_HOST_ARCHITECTURE.md).
 
 ## Thư viện kênh chuẩn dùng chung
 
@@ -24,8 +25,11 @@ UI không tự ghép identity riêng ở từng màn hình.
 
 - YouTube canonical: `yt1988_channel_directory`.
 - TikTok canonical: `yt1988_tiktok_channels`.
-- API chung: `yt1988-state → state.channelLibrary`.
-- MAIN và `sources/` phải ưu tiên cùng thư viện này.
+- API đọc:
+  - MAIN/Cloudflare: `yt1988-state?view=manifest|lite`;
+  - `/sources/`: `view=library` + IndexedDB cache.
+- MAIN **không** tải full channel library.
+- `src/channel-library.js` chỉ là legacy generated seed, không phải production truth.
 - Contract chung:
   - `key`, `platform`, `id`, `userId`, `handle`;
   - `name`, `description`, `profileUrl`;
