@@ -15,9 +15,10 @@ Cập nhật gần nhất: **2026-10-03**
 1. `CURRENT_WORK.md` — trạng thái gần nhất và việc đang làm.
 2. `README_MAINTENANCE.md` — FAST REPAIR / owner / rollback / deploy.
 3. `README_NO_WAIT_WORKFLOW.md` — không đứng chờ, không retry mù, không tạo job/deploy trùng.
-4. Nếu đụng package, polling, API, cache, log, media, Supabase traffic: đọc thêm `README_RESOURCE_GUARDRAILS.md`.
-5. Nếu cần rollback: đọc `CHECKPOINT.md`.
-6. Chỉ sau đó mới probe source of truth và viết patch.
+4. Nếu đụng host/data/action ownership: đọc thêm `README_HOST_ARCHITECTURE.md`.
+5. Nếu đụng package, polling, API, cache, log, media, Supabase traffic: đọc thêm `README_RESOURCE_GUARDRAILS.md`.
+6. Nếu cần rollback: đọc `CHECKPOINT.md`.
+7. Chỉ sau đó mới probe source of truth và viết patch.
 
 Nếu chưa đọc đủ các file bắt buộc thì **không sửa**.
 
@@ -83,6 +84,67 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 4. so `sourceId`;
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
+
+### 3.6. Kiến trúc host/data/action đã khóa — giảm invocation/Egress
+
+Thời gian: **2026-10-03**.
+
+Mục tiêu:
+- không để cùng một dữ liệu có nhiều owner;
+- không để một user action sinh nhiều job/wake;
+- giảm Edge Function invocation/log trước khi chạm giới hạn host.
+
+Contract:
+```text
+GitHub = CODE
+Supabase = TRUTH + CURRENT PACKAGE
+Cloudflare = REALTIME + EDGE CACHE
+Render = HEAVY RESOLVER
+Browser = LOCAL CACHE + RENDER
+```
+
+Chi tiết: `README_HOST_ARCHITECTURE.md`.
+
+Các thay đổi production:
+- MAIN non-LIVE:
+  - latest chỉ wake package tối đa 1 lần/5 phút;
+  - week tối đa 1 lần/30 phút;
+  - content/hashtag tối đa 1 lần/15 phút;
+  - focus/visibility vẫn được check manifest nhưng không reset cadence.
+- `yt1988 v6`:
+  - search/channel result chỉ reuse `yt1988_video_meta` đã cache;
+  - **không còn background fan-out `yt1988-video-meta?resolve=1` cho mọi card thiếu aspect**;
+  - aspect thiếu chỉ resolve khi video thật sự được mở.
+- YouTube LIVE:
+  - Cloudflare scan là realtime owner;
+  - Worker snapshot changed → Worker wake LIVE package;
+  - recurring browser scan/focus/source edit chỉ đợi hash, không tạo thêm package wake;
+  - chỉ `tab-open` được phép một catch-up wake để chữa package stale.
+- `yt1988-state v12`:
+  - non-LIVE source edit refresh đúng scope đó;
+  - LIVE membership chỉ qua targeted Cloudflare source-sync;
+  - Cloudflare snapshot changed mới wake LIVE package;
+  - bỏ race `refresh LIVE stale snapshot → targeted sync → refresh LIVE lần 2`.
+- PWA cache: `v76`.
+- `src/channel-library.js` chứa 744 channelId nhưng đã xác nhận là **legacy generated seed**; production `index.html` và `/sources/` không load file này.
+
+Production verify đã có:
+- Search probe `bao tien phong` sau `yt1988 v6`: HTTP 200; sau request không phát sinh server-side video-meta warm call.
+- Source edit probe request 577:
+  - HTTP 200;
+  - Cloudflare đọc `state-lite` ~16 KB;
+  - không có `yt1988-refresh` trực tiếp từ source edit trong cửa sổ verify.
+- Supabase cron chỉ còn:
+  - Render health keepalive 12 phút/lần;
+  - retention cleanup 1 lần/ngày;
+  - không có package/LIVE discovery cron.
+
+Rule:
+- Search/channel API không được tạo background work theo số card trả về.
+- Một LIVE event chỉ có một wake owner.
+- Hash/version trước payload.
+- GitHub static channel/video fixture không được trở thành canonical production data.
+- DB size hiện không phải bottleneck; ưu tiên giảm response bytes + invocation + log.
 
 ### 3.5. Incident mới nhất — Egress tăng do full source-state bị tải lặp
 
