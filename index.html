@@ -2213,6 +2213,35 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   align-items:start;
   padding:var(--card-meta-gap) 0 0;
 }
+
+/* YouTube gets denser as the grid grows. Keep the thumbnail geometry 16:9,
+   but slightly tighten metadata rather than shrinking cards into 5+ columns. */
+html[data-feed-cols="3"] .row-details,
+html[data-feed-cols="4"] .row-details{
+  grid-template-columns:36px minmax(0,1fr) 32px;
+  column-gap:10px;
+}
+html[data-feed-cols="3"] .row-avatar-shell,
+html[data-feed-cols="3"] .row-avatar,
+html[data-feed-cols="4"] .row-avatar-shell,
+html[data-feed-cols="4"] .row-avatar{
+  width:36px;
+  height:36px;
+}
+html[data-feed-cols="3"] .row-avatar.placeholder,
+html[data-feed-cols="4"] .row-avatar.placeholder{
+  font-size:12px;
+  line-height:36px;
+}
+html[data-feed-cols="3"] .row-meta,
+html[data-feed-cols="4"] .row-meta{
+  font-size:13px;
+  line-height:18px;
+}
+html[data-feed-cols="4"] .row-title{
+  font-size:15px;
+  line-height:21px;
+}
 .row-avatar-shell{
   position:relative;
   width:40px;
@@ -3855,6 +3884,25 @@ html.tiktok-ui.tiktok-watch .rows{
     if((changed||force)&&currentMeta)applyHeaderTint(currentMeta);
   }
 
+  const FEED_LAYOUT_BY_COLS={
+    1:{gapX:0,gapY:38,metaGap:12},
+    2:{gapX:16,gapY:38,metaGap:12},
+    3:{gapX:16,gapY:34,metaGap:10},
+    4:{gapX:16,gapY:30,metaGap:10}
+  };
+
+  function setFeedColumnCount(value){
+    const cols=Math.max(1,Math.min(4,Math.round(Number(value)||1)));
+    const p=FEED_LAYOUT_BY_COLS[cols]||FEED_LAYOUT_BY_COLS[4];
+    root.style.setProperty("--feed-cols",String(cols));
+    root.style.setProperty("--card-gap-x",p.gapX+"px");
+    root.style.setProperty("--card-gap-y",p.gapY+"px");
+    root.style.setProperty("--card-meta-gap",p.metaGap+"px");
+    root.dataset.feedCols=String(cols);
+    syncChromeAmbientForLayout();
+    return cols;
+  }
+
   function applyTheme(value,{persist=true,retint=true}={}){
     const theme=normalizedTheme(value);
     root.dataset.theme=theme;
@@ -4957,14 +5005,18 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function chooseCardColumns(feedW,gap){
-    // YouTube source family: normal rich cards roughly 270..500px,
-    // skeleton flex-basis around 310px. Pick a count near 310 without
-    // allowing cards to drift outside the 270..500 band.
-    const MIN=270;
-    const TARGET=310;
-    const MAX=500;
+    // Match YouTube's 1→4 column density instead of squeezing toward 5+ cards.
+    // The reference layouts keep cards fairly generous: ~390px is the target,
+    // ~300px is the lower bound, and a sparse row may stretch toward ~560px.
+    const MIN=300;
+    const TARGET=390;
+    const MAX=560;
+    const HARD_MAX=4;
 
-    const maxCols=Math.max(1,Math.floor((feedW+gap)/(MIN+gap)));
+    const maxCols=Math.min(
+      HARD_MAX,
+      Math.max(1,Math.floor((feedW+gap)/(MIN+gap)))
+    );
     const minCols=Math.max(1,Math.ceil((feedW+gap)/(MAX+gap)));
     const targetCols=Math.max(1,Math.round((feedW+gap)/(TARGET+gap)));
 
@@ -5069,28 +5121,23 @@ html.tiktok-ui.tiktok-watch .rows{
 
     const pageW=viewportW;
     const pageEdge=viewportW<480?12:24;
-    const cardGap=32;
+    const cardGap=16;
     const mediaGap=16;
     root.style.setProperty("--feed-edge-gap",pageEdge+"px");
-    root.style.setProperty("--card-gap-x",cardGap+"px");
-    root.style.setProperty("--card-gap-y","40px");
-    root.style.setProperty("--card-meta-gap","12px");
     root.style.setProperty("--layout-gap",mediaGap+"px");
-    root.style.setProperty("--card-target-w","310px");
+    root.style.setProperty("--card-target-w","390px");
 
     if(!isTwoColumn()){
       const feedW=Math.max(1,viewportW-(pageEdge*2));
       // Mobile + the smallest mini-web width are always one vertical list.
       // Only wider one-column layouts may split into multiple card columns.
       const cols=viewportW<=720?1:chooseCardColumns(feedW,cardGap);
-      root.style.setProperty("--feed-cols",String(cols));
-      syncChromeAmbientForLayout();
+      setFeedColumnCount(cols);
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
       const hasSelectedMedia=hasCurrentMedia();
       if(!hasSelectedMedia){
-        root.style.setProperty("--feed-cols",String(chooseCardColumns(contentW,cardGap)));
-        syncChromeAmbientForLayout();
+        setFeedColumnCount(chooseCardColumns(contentW,cardGap));
         return;
       }
 
@@ -5108,8 +5155,7 @@ html.tiktok-ui.tiktok-watch .rows{
       const cols=chooseCardColumns(feedW,cardGap);
 
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
-      root.style.setProperty("--feed-cols",String(cols));
-      syncChromeAmbientForLayout();
+      setFeedColumnCount(cols);
     }
   }
   function dataRow(payload){
