@@ -3442,9 +3442,9 @@ html.viewer-active.one-col body{
     display:block!important;
     width:100%!important;
     max-width:none!important;
-    /* Mobile header/subnav are fixed. Reserve their measured height so the
-       focused viewer starts below chrome instead of losing its top edge. */
-    padding:var(--top-boundary) 0 0!important;
+    /* 657–999px keeps the header in document/sticky flow, so do not reserve
+       another top-boundary here or the viewer gets a duplicate black gap. */
+    padding:0!important;
     margin:0!important;
   }
   html.viewer-active.one-col .media-col{
@@ -3501,6 +3501,13 @@ html.viewer-active.one-col body{
   }
   html.media-empty.one-col .media-col{
     display:none!important;
+  }
+}
+/* Only the <=656px breakpoint uses fixed top chrome. Reserve its measured
+   height here; wider one-column layouts already flow below the sticky header. */
+@media(max-width:656px){
+  html.viewer-active.one-col main{
+    padding:var(--top-boundary) 0 0!important;
   }
 }
 @media(min-width:1000px){
