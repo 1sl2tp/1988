@@ -6335,6 +6335,101 @@ html.tiktok-ui.tiktok-watch .rows{
     }
   }
 
+  function normalizeLiveClientText(value=""){
+    return String(value||"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase()
+      .replace(/đ/g,"d")
+      .replace(/[^a-z0-9]+/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+  }
+
+  function clientLiveBlockedKeywords(){
+    const labels=
+      sourceStateRemote?.sourceLabels&&
+      typeof sourceStateRemote.sourceLabels==="object"&&
+      !Array.isArray(sourceStateRemote.sourceLabels)
+        ?sourceStateRemote.sourceLabels
+        :{};
+    return String(labels?.__live_keywords||"")
+      .split(/[\r\n,;|]+/u)
+      .map(value=>String(value||"").trim())
+      .filter(Boolean);
+  }
+
+  function clientLiveKeywordBlocked(meta={}){
+    const keywords=clientLiveBlockedKeywords();
+    if(!keywords.length)return false;
+    const haystack=normalizeLiveClientText(
+      String(meta?.title||"")+" "+String(meta?.sourceName||"")
+    );
+    return keywords.some(keyword=>{
+      const needle=normalizeLiveClientText(keyword);
+      return !!needle&&haystack.includes(needle);
+    });
+  }
+
+  function youtubeLiveSourceSelected(sourceId=""){
+    sourceId=validSourceId(sourceId);
+    if(!sourceId)return false;
+    const selected=[
+      ...(Array.isArray(sourceStateRemote?.selected)?sourceStateRemote.selected:[]),
+      ...Object.values(
+        sourceStateRemote?.scopedSelected&&typeof sourceStateRemote.scopedSelected==="object"
+          ?sourceStateRemote.scopedSelected
+          :{}
+      ).flatMap(value=>Array.isArray(value)?value:[])
+    ].map(String);
+    return selected.includes(sourceId);
+  }
+
+  function liveGenericTitleSegment(value=""){
+    const n=normalizeLiveClientText(value);
+    return /^(?:live|live stream|livestream|truc tiep|dang truc tiep|item|video)$/.test(n);
+  }
+
+  function liveTitleSourceMatch(value="",sourceName=""){
+    const a=normalizeLiveClientText(value);
+    let b=normalizeLiveClientText(sourceName);
+    if(!a||!b)return false;
+    if(a===b)return true;
+    b=b.replace(/\b(?:official|official channel|channel|news|television|media)\b/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+    return !!b&&a===b;
+  }
+
+  function cleanYoutubeLiveDisplayTitle(value="",sourceName=""){
+    const original=String(value||"").replace(/\s+/g," ").trim();
+    if(!original)return "";
+
+    let title=original.replace(
+      /^(?:[^A-Za-zÀ-ỹ0-9]*)(?:(?:trực\s*tiếp)|(?:live\s*stream)|livestream|live)\b(?:[^A-Za-zÀ-ỹ0-9]*)/iu,
+      ""
+    ).trim();
+
+    const parts=title
+      .split(/\s*[|•·]\s*|\s+[-–—]\s+|\s*:\s*/u)
+      .map(part=>String(part||"").replace(/\s+/g," ").trim())
+      .filter(Boolean);
+
+    if(parts.length>1){
+      const kept=parts.filter(part=>
+        !liveGenericTitleSegment(part)&&
+        !liveTitleSourceMatch(part,sourceName)
+      );
+      if(kept.length)title=kept.join(" | ");
+    }
+
+    if(
+      liveGenericTitleSegment(title)||
+      liveTitleSourceMatch(title,sourceName)
+    )return "";
+    return title;
+  }
+
   function normalizeYoutubeEdgeLiveItem(item={}){
     const id=String(item?.videoId||item?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
@@ -6383,7 +6478,10 @@ html.tiktok-ui.tiktok-watch .rows{
     const normalized={
       id,
       provider:"youtube",
-      title:String(item?.title||item?.videoTitle||"").trim(),
+      title:cleanYoutubeLiveDisplayTitle(
+        String(item?.title||item?.videoTitle||"").trim(),
+        sourceName
+      )||"Đang trực tiếp",
       sourceName,
       sourceId,
       sourceAvatar,
@@ -6494,7 +6592,24 @@ html.tiktok-ui.tiktok-watch .rows{
 
   function currentYoutubeLiveMetas(fallback=[]){
     const base=Array.isArray(fallback)?fallback:[];
-    if(!youtubeEdgeLiveReady)return base;
+
+    const finalize=(items=[])=>items
+      .map(meta=>{
+        const sourceName=String(meta?.sourceName||"").trim();
+        const cleaned=cleanYoutubeLiveDisplayTitle(meta?.title||"",sourceName);
+        return {
+          ...meta,
+          title:cleaned||"Đang trực tiếp"
+        };
+      })
+      .filter(meta=>!youtubeLiveSourceBlocked(meta?.sourceId))
+      .filter(meta=>!clientLiveKeywordBlocked(meta))
+      .sort((a,b)=>
+        Number(youtubeLiveSourceSelected(b?.sourceId))-
+        Number(youtubeLiveSourceSelected(a?.sourceId))
+      );
+
+    if(!youtubeEdgeLiveReady)return finalize(base);
 
     // Old LIVE package/source rows remain the metadata dictionary only.
     // Cloudflare decides the membership (which videoIds are LIVE now).
@@ -6519,6 +6634,10 @@ html.tiktok-ui.tiktok-watch .rows{
 
         // Do not spread the sparse edge object over the package row: empty
         // sourceName/avatar/views used to erase the complete YouTube card.
+        const fallbackLiveViewsLabel=
+          /(?:đang xem|watching)/i.test(String(fallbackMeta?.viewsLabel||""))
+            ?String(fallbackMeta.viewsLabel).trim()
+            :"";
         const merged={
           ...fallbackMeta,
           id:String(edge?.id||fallbackMeta?.id||"").trim(),
@@ -6560,7 +6679,7 @@ html.tiktok-ui.tiktok-watch .rows{
           ),
           viewsLabel:String(
             edge?.viewsLabel||
-            fallbackMeta?.viewsLabel||
+            fallbackLiveViewsLabel||
             ""
           ).trim(),
           publishedLabel:"Đang trực tiếp",
@@ -6583,15 +6702,20 @@ html.tiktok-ui.tiktok-watch .rows{
         merged.sourceId=String(identity?.sourceId||merged.sourceId||"").trim();
         merged.sourceName=String(identity?.sourceName||merged.sourceName||"").trim();
         merged.sourceAvatar=String(identity?.sourceAvatar||merged.sourceAvatar||"").trim();
+        merged.title=
+          cleanYoutubeLiveDisplayTitle(merged.title,merged.sourceName)||
+          "Đang trực tiếp";
 
         if(!merged.viewsLabel&&merged.viewerCount){
           merged.viewsLabel=compactLiveViewerCount(merged.viewerCount);
         }
         return merged;
-      })
-      // Blocking remains a UI/source rule; moving LIVE detection to Cloudflare
-      // must not make a previously blocked channel reappear.
-      .filter(meta=>!youtubeLiveSourceBlocked(meta?.sourceId));
+      });
+
+    // Client repeats the canonical filters as a safety net. That way a stale
+    // edge snapshot cannot re-introduce a blocked channel/keyword while the
+    // next Cloudflare scan is still pending.
+    return finalize(next);
   }
 
   async function fetchYoutubeLiveSnapshot({signal=null}={}){
