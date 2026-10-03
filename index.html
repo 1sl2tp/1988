@@ -3757,6 +3757,65 @@ html.tiktok-ui.tiktok-watch .rows{
   let channelFeedRequest=0;
   const channelFeedBackStack=[];
   let sourceStateRemote={};
+  const SOURCE_STATE_LITE_CACHE_KEY="yt1988-source-state-lite-v1";
+  const SOURCE_STATE_MANIFEST_CACHE_KEY="yt1988-source-state-manifest-v1";
+
+  function readCachedSourceLite(){
+    try{
+      const cached=JSON.parse(localStorage.getItem(SOURCE_STATE_LITE_CACHE_KEY)||"null");
+      if(cached?.state&&typeof cached.state==="object")return cached;
+    }catch{}
+    return null;
+  }
+
+  function writeCachedSourceLite(state,hash=""){
+    try{
+      localStorage.setItem(
+        SOURCE_STATE_LITE_CACHE_KEY,
+        JSON.stringify({hash:String(hash||""),state,at:Date.now()})
+      );
+    }catch{}
+  }
+
+  function writeCachedSourceManifest(manifest={}){
+    try{
+      localStorage.setItem(
+        SOURCE_STATE_MANIFEST_CACHE_KEY,
+        JSON.stringify({
+          stateHash:String(manifest?.stateHash||""),
+          libraryHash:String(manifest?.libraryHash||""),
+          at:Date.now()
+        })
+      );
+    }catch{}
+  }
+
+  async function loadSourceStateLite(){
+    const cached=readCachedSourceLite();
+    const manifestResponse=await fetch(
+      SOURCE_STATE_URL+"?view=manifest",
+      {cache:"no-store"}
+    );
+    if(!manifestResponse.ok)throw new Error("source_manifest_"+manifestResponse.status);
+    const manifest=await manifestResponse.json();
+    const stateHash=String(manifest?.stateHash||"").trim();
+    writeCachedSourceManifest(manifest);
+
+    if(cached?.state&&stateHash&&String(cached.hash||"")===stateHash){
+      return {state:cached.state,manifest,fromCache:true};
+    }
+
+    const response=await fetch(
+      SOURCE_STATE_URL+"?view=lite",
+      {cache:"no-store"}
+    );
+    if(!response.ok)throw new Error("source_state_lite_"+response.status);
+    const payload=await response.json();
+    const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
+    writeCachedSourceLite(remote,stateHash||payload?.stateHash||"");
+    return {state:remote,manifest,fromCache:false};
+  }
+
   let openRowMenuMeta=null;
   let openRowMenuAnchor=null;
   const AUTOPLAY_NEXT_KEY="yt1988-autoplay-next-v1";
@@ -10519,33 +10578,35 @@ html.tiktok-ui.tiktok-watch .rows{
     })();
 
     const statePromise=(async()=>{
+      const cached=readCachedSourceLite();
+      if(cached?.state){
+        sourceStateRemote=cached.state;
+        primeChannelDirectoryFromState(cached.state);
+        const cachedRows=existingSourceTabNames(cached.state);
+        if(cachedRows.length){
+          renderExistingSourceNames(cachedRows);
+          try{localStorage.setItem(sourceTabsKey,JSON.stringify(cachedRows))}catch{}
+        }
+      }
+
       try{
-        const response=await fetch(SOURCE_STATE_URL,{cache:"no-store"});
-        if(!response.ok)throw new Error("source_state_"+response.status);
-        const payload=await response.json();
-        const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
+        const loaded=await loadSourceStateLite();
+        const remote=loaded.state||{};
+        const changed=remote!==sourceStateRemote;
         sourceStateRemote=remote;
-        sourceIdentityCache.clear();
-        primeUnifiedChannelLibrary(remote);
         primeChannelDirectoryFromState(remote);
 
-        // The feed may have painted from IndexedDB before source-state arrived.
-        // Force one repaint so newly available channel avatars replace letter
-        // placeholders instead of being skipped by the visual-signature cache.
-        const feedRows=document.getElementById("rows");
-        if(feedRows)feedRows.dataset.renderSignature="";
-        if(feedMode==="package"&&activePackageScope==="live"){
-          paintSyncedPackage("live",packageCache.get("live")||[]);
-        }else if(feedMetas.length){
-          renderSampleContent();
-        }
-        if(currentMeta)renderCurrentInfo();
+        // MAIN never downloads channelLibrary. Package/search/video metadata own
+        // card identity; lite state only owns source controls/tab labels.
+        if(changed&&currentMeta)renderCurrentInfo();
 
         const rows=existingSourceTabNames(remote);
         try{localStorage.setItem(sourceTabsKey,JSON.stringify(rows))}catch{}
         return rows;
       }catch(_){
-        return storedRows;
+        return cached?.state
+          ?existingSourceTabNames(cached.state)
+          :storedRows;
       }
     })();
 
