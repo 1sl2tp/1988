@@ -662,7 +662,7 @@ async function loadCycle(env){
   try{return JSON.parse(await env.YOUTUBE_LIVE.get(CYCLE_KEY)||"{}")}catch{return {}}
 }
 async function startCycle(env){
-  const state=await fetchJson(STATE_URL,8000);
+  const state=await fetchJson(STATE_URL+"?view=lite",8000);
   const base=stateTargets(state);
   const discovered=await discoverSearchCandidates(base.blocked,base.liveKeywords);
 
@@ -829,7 +829,7 @@ async function syncSourceChannel(env,channelId){
   const id=validChannelId(channelId);
   if(!id)return {ok:false,edge:true,error:"invalid_channel"};
 
-  const state=await fetchJson(STATE_URL,8000);
+  const state=await fetchJson(STATE_URL+"?view=lite",8000);
   const base=stateTargets(state);
   const previous=await loadSnapshot(env);
   const previousItems=Array.isArray(previous?.items)?previous.items:[];
