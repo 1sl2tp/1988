@@ -6,6 +6,7 @@ alter table public.yt1988_channel_directory
   add column if not exists handle text not null default '',
   add column if not exists description text not null default '',
   add column if not exists verified boolean not null default false,
+  add column if not exists verified_known boolean not null default false,
   add column if not exists subscriber_count bigint not null default 0,
   add column if not exists view_count bigint not null default 0,
   add column if not exists video_count bigint not null default 0,
@@ -41,6 +42,7 @@ begin
       left(regexp_replace(coalesce(x.handle,''), '\s+', ' ', 'g'), 120) as handle,
       left(regexp_replace(coalesce(x.description,''), '\s+', ' ', 'g'), 2000) as description,
       coalesce(x.verified,false) as verified,
+      coalesce(x.verified_known,false) as verified_known,
       greatest(coalesce(x.subscriber_count,0),0)::bigint as subscriber_count,
       greatest(coalesce(x.view_count,0),0)::bigint as view_count,
       greatest(coalesce(x.video_count,0),0)::bigint as video_count,
@@ -69,13 +71,13 @@ begin
   saved as (
     insert into public.yt1988_channel_directory as d (
       profile_key, channel_id, name, thumbnail_url, subscribers, handle,
-      description, verified, subscriber_count, view_count, video_count,
+      description, verified, verified_known, subscriber_count, view_count, video_count,
       profile_url, profile_checked_at, source,
       first_seen_at, last_seen_at, updated_at
     )
     select
       p_profile_key, i.channel_id, i.name, i.thumbnail_url, i.subscribers,
-      i.handle, i.description, i.verified, i.subscriber_count, i.view_count,
+      i.handle, i.description, i.verified, i.verified_known, i.subscriber_count, i.view_count,
       i.video_count, i.profile_url, i.profile_checked_at, i.source,
       now(), now(), now()
     from incoming i
@@ -90,7 +92,8 @@ begin
       subscribers = case when excluded.subscribers <> '' then excluded.subscribers else d.subscribers end,
       handle = case when excluded.handle <> '' then excluded.handle else d.handle end,
       description = case when excluded.description <> '' then excluded.description else d.description end,
-      verified = case when excluded.profile_checked_at is not null then excluded.verified else d.verified end,
+      verified = case when excluded.verified_known then excluded.verified else d.verified end,
+      verified_known = case when excluded.verified_known then true else d.verified_known end,
       subscriber_count = case when excluded.subscriber_count > 0 then excluded.subscriber_count else d.subscriber_count end,
       view_count = case when excluded.view_count > 0 then excluded.view_count else d.view_count end,
       video_count = case when excluded.video_count > 0 then excluded.video_count else d.video_count end,
@@ -111,7 +114,8 @@ begin
           (excluded.description <> '' and excluded.description is distinct from d.description) or
           (excluded.profile_url <> '' and excluded.profile_url is distinct from d.profile_url) or
           (excluded.profile_checked_at is not null and excluded.profile_checked_at is distinct from d.profile_checked_at) or
-          (excluded.profile_checked_at is not null and excluded.verified is distinct from d.verified) or
+          (excluded.verified_known and excluded.verified is distinct from d.verified) or
+          (excluded.verified_known and d.verified_known is not true) or
           (excluded.subscriber_count > 0 and excluded.subscriber_count is distinct from d.subscriber_count) or
           (excluded.view_count > 0 and excluded.view_count is distinct from d.view_count) or
           (excluded.video_count > 0 and excluded.video_count is distinct from d.video_count)
