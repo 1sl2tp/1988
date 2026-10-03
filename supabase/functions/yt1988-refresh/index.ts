@@ -3638,19 +3638,26 @@ Deno.serve(async(req:Request)=>{
 
       if(raw.length===0&&Array.isArray(current?.items)&&current.items.length){
         const previousItems=Array.isArray(current.items)?current.items:[];
-        if(scope!=="live"){
+        if(scope==="live"){
+          // Discovery is uncertain, so preserve membership exactly. Canonical
+          // channel identity is safe to repair from the directory while using
+          // the last-known-good LIVE package.
+          raw=await enrichLiveRowsFromChannelDirectory(
+            rest,
+            authHeaders,
+            previousItems
+          );
+        }else{
           degradedNotes.push(scope+":empty_candidate_kept_previous");
           await queuePendingRefresh(rest,authHeaders,[scope]);
+          results.push({
+            scope,
+            changed:false,
+            reason:"empty_candidate_kept_previous",
+            items:previousItems.length
+          });
+          continue;
         }
-        results.push({
-          scope,
-          changed:false,
-          reason:scope==="live"
-            ?"live_verify_empty_kept_previous"
-            :"empty_candidate_kept_previous",
-          items:previousItems.length
-        });
-        continue;
       }
 
       // Rotation/shape is server data too. Merge only metadata that the player
