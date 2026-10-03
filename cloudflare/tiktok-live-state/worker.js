@@ -273,15 +273,51 @@ async function checkTikTok(handle) {
     const room = data?.data?.liveRoom || null;
     const status = Number(room?.status);
     const roomId = String(room?.id || room?.roomId || room?.room_id || "");
-    if (status === 2) return { known: true, status: 2, roomId, source: "tiktok-user-room" };
-    if (status === 4) return { known: true, status: 4, roomId, source: "tiktok-user-room" };
+
+    if (status === 2) {
+      const media=collectLiveMedia(room);
+      const flv=[...(media?.flv||[])].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
+      const hls=[...(media?.hls||[])].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
+      const streamUrl=String(flv[0]||"");
+      const hlsUrl=String(hls[0]||"");
+      const sourceName=
+        liveSourceName(room,handle)||
+        liveSourceName(data?.data?.user||{},handle)||
+        ("@"+handle);
+      const preview=liveCoverFromRoom(room);
+      return {
+        known:true,
+        status:2,
+        roomId,
+        source:"tiktok-user-room",
+        live:true,
+        playable:Boolean(streamUrl||hlsUrl),
+        streamUrl,
+        hlsUrl,
+        streamType:streamUrl?"flv":(hlsUrl?"hls":""),
+        title:liveTitleFromRoom(room,handle,sourceName)||"Đang trực tiếp",
+        sourceName,
+        preview,
+        cover:preview,
+        avatar:
+          liveAvatarFromRoom(room)||
+          liveAvatarFromRoom(data?.data?.user||{})||
+          "",
+        viewerCount:
+          liveViewerCountFromRoom(room)||
+          liveViewerCountFromRoom(data?.data?.liveRoomStats||{})||
+          liveViewerCountFromRoom(data?.data?.live_room_stats||{})||
+          0
+      };
+    }
+    if (status === 4) return { known: true, status: 4, roomId, source: "tiktok-user-room", live:false };
     if (!room && !roomId) {
       const code = Number(data?.statusCode);
       const message = String(data?.message || "").toLowerCase();
       if (code === 10001 || message.includes("service unavailable")) {
         return { known: false, status: null, roomId: "", source: "service-unavailable" };
       }
-      return { known: true, status: 4, roomId: "", source: "tiktok-user-room-empty" };
+      return { known: true, status: 4, roomId: "", source: "tiktok-user-room-empty", live:false };
     }
     return { known: false, status: Number.isFinite(status) ? status : null, roomId, source: "no-status" };
   } catch {
