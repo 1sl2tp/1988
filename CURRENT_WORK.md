@@ -85,6 +85,14 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+
+### 3.19. TikTok VOD click source — TikWM/TDown alternating only
+- Production click path uses only two proven providers: TikWM and TDown.
+- Open 1 = TikWM, open 2 = TDown, then alternate.
+- Each open starts one provider only; the other is attempted only after an actual media error.
+- No MusicalDown/TikDown/TTDownloader in the normal click rotation.
+- No VOD warm/preload/startup timer added; LIVE path unchanged.
+
 ### 3.18. YouTube/TikTok hard media-branch isolation + LIVE zero semantics
 
 Thời gian: **2026-10-04**.

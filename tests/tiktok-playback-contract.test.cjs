@@ -12,7 +12,7 @@ assert.doesNotMatch(html,/https:\/\/www\.tiktok\.com\/player\/v1\//,'production 
 
 // Production VOD goes through the edge resolver, not a demo page or Render byte proxy.
 assert.match(html,/TIKTOK_LIVE_API\+"\/tiktok\/video-stream"/,'TikTok production VOD edge route missing');
-assert.match(html,/const TIKTOK_VOD_CLICK_SOURCES=\["tikwm","tdown","musicaldown","tikdown","ttdownloader"\]/,'TikTok VOD click source rotation missing');
+assert.match(html,/const TIKTOK_VOD_CLICK_SOURCES=\["tikwm","tdown"\]/,'TikTok VOD click must alternate only TikWM and TDown');
 assert.match(html,/function tiktokVodSourcesForClick\(\)/,'TikTok VOD click source selector missing');
 assert.match(html,/endpoint\.searchParams\.set\("source",source\)/,'production VOD must attach one explicit source per attempt');
 assert.doesNotMatch(html,/endpoint\.searchParams\.set\("source","auto"\)/,'production VOD click must not hide a provider chain behind source=auto');
