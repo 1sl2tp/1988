@@ -52,4 +52,6 @@ assert.match(worker,/https:\/\/www\.tiktok\.com\/api\/post\/item_list\//);
 assert.match(worker,/async function fetchTikTokLatestFive\(rawHandle,count=5\)/);
 assert.match(worker,/source:"tiktok-post-item-list"/);
 
+assert.match(worker,/async function fetchTikTokProfileVideoLinks\\(rawHandle,count=5\\)/);
+assert.match(worker,/source:"tiktok-profile-html"/);
 console.log('tiktok VOD direct-url + failover contract ok');

@@ -338,80 +338,77 @@ async function resolveTikTokSecUid(rawHandle){
   }
 }
 
+async function fetchTikTokProfileVideoLinks(rawHandle,count=5){
+  const handle=normalizeHandle(rawHandle);
+  if(!handle)return [];
+  try{
+    const r=await fetch("https://www.tiktok.com/@"+encodeURIComponent(handle),{
+      headers:{
+        "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        accept:"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5"
+      },
+      redirect:"follow"
+    });
+    if(!r.ok)return [];
+    let html=await r.text();
+    html=html.replace(/\\u002F/gi,"/").replace(/\\\//g,"/").replace(/&quot;/gi,'"').replace(/&#34;/g,'"');
+    const ids=new Set();
+    const safe=handle.replace(/[.*+?^$()|[\]\\]/g,"\\$&");
+    const patterns=[new RegExp("/@"+safe+"/video/(\\d{8,})","gi"),/\/video\/(\d{8,})/gi];
+    for(const re of patterns){
+      let m;
+      while((m=re.exec(html))){
+        const id=normalizeVideoId(m[1]||"");
+        if(id)ids.add(id);
+        if(ids.size>=80)break;
+      }
+      if(ids.size>=80)break;
+    }
+    return [...ids]
+      .sort((a,b)=>{try{const aa=BigInt(a),bb=BigInt(b);return aa===bb?0:(aa>bb?-1:1)}catch{return String(b).localeCompare(String(a))}})
+      .slice(0,Math.max(1,Math.min(5,Number(count)||5)))
+      .map(id=>({id,handle,title:"",thumbnail:"",createTime:0,pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id}));
+  }catch{return []}
+}
+
 async function fetchTikTokLatestFive(rawHandle,count=5){
   const handle=normalizeHandle(rawHandle);
   if(!handle)return json({ok:false,error:"invalid_tiktok_handle"},400);
-
+  const wanted=Math.max(1,Math.min(5,Number(count)||5));
   const secUid=await resolveTikTokSecUid(handle);
-  if(!secUid)return json({ok:false,handle,error:"missing_secuid"},502);
-
-  const endpoint=new URL("https://www.tiktok.com/api/post/item_list/");
-  endpoint.searchParams.set("aid","1988");
-  endpoint.searchParams.set("count",String(Math.max(1,Math.min(5,Number(count)||5))));
-  endpoint.searchParams.set("cursor","0");
-  endpoint.searchParams.set("from_page","user");
-  endpoint.searchParams.set("secUid",secUid);
-
-  try{
-    const r=await fetch(endpoint,{
-      headers:{
+  let nativeError=secUid?"":"missing_secuid";
+  if(secUid){
+    try{
+      const endpoint=new URL("https://www.tiktok.com/api/post/item_list/");
+      endpoint.searchParams.set("aid","1988");
+      endpoint.searchParams.set("count",String(wanted));
+      endpoint.searchParams.set("cursor","0");
+      endpoint.searchParams.set("from_page","user");
+      endpoint.searchParams.set("secUid",secUid);
+      const r=await fetch(endpoint,{headers:{
         "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
         accept:"application/json,text/plain,*/*",
         "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
         referer:"https://www.tiktok.com/@"+handle
-      },
-      redirect:"follow"
-    });
-    if(!r.ok)return json({ok:false,handle,error:"tiktok_posts_http_"+r.status},502);
-
-    const body=await r.json().catch(()=>null);
-    const items=
-      (Array.isArray(body?.itemList)&&body.itemList)||
-      (Array.isArray(body?.item_list)&&body.item_list)||
-      (Array.isArray(body?.data?.itemList)&&body.data.itemList)||
-      (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
-      (Array.isArray(body?.items)&&body.items)||
-      [];
-
-    const videos=items
-      .map(row=>{
-        const id=normalizeVideoId(row?.id||row?.video_id||row?.aweme_id||"");
-        if(!id)return null;
-        const video=row?.video||{};
-        return {
-          id,
-          handle,
-          title:String(row?.desc||row?.description||row?.title||"").slice(0,300),
-          thumbnail:firstTikTokUrl(
-            video?.cover||
-            video?.originCover||
-            video?.dynamicCover||
-            video?.cover?.urlList||
-            video?.originCover?.urlList
-          ),
-          createTime:Number(row?.createTime||row?.create_time||0),
-          pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id
-        };
-      })
-      .filter(Boolean)
-      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
-      .slice(0,5);
-
-    return json({
-      ok:true,
-      handle,
-      secUid,
-      videos,
-      source:"tiktok-post-item-list",
-      checkedAt:Date.now()
-    });
-  }catch(error){
-    return json({
-      ok:false,
-      handle,
-      error:"tiktok_posts_fetch_"+String(error?.message||error||"error")
-    },502);
+      },redirect:"follow"});
+      if(r.ok){
+        const body=await r.json().catch(()=>null);
+        const items=(Array.isArray(body?.itemList)&&body.itemList)||(Array.isArray(body?.item_list)&&body.item_list)||(Array.isArray(body?.data?.itemList)&&body.data.itemList)||(Array.isArray(body?.data?.item_list)&&body.data.item_list)||(Array.isArray(body?.items)&&body.items)||[];
+        const videos=items.map(row=>{
+          const id=normalizeVideoId(row?.id||row?.video_id||row?.aweme_id||"");
+          if(!id)return null;
+          const video=row?.video||{};
+          return {id,handle,title:String(row?.desc||row?.description||row?.title||"").slice(0,300),thumbnail:firstTikTokUrl(video?.cover||video?.originCover||video?.dynamicCover||video?.cover?.urlList||video?.originCover?.urlList),createTime:Number(row?.createTime||row?.create_time||0),pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id};
+        }).filter(Boolean).sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0)).slice(0,wanted);
+        if(videos.length)return json({ok:true,handle,secUid,videos,source:"tiktok-post-item-list",checkedAt:Date.now()});
+        nativeError="no_items";
+      }else nativeError="tiktok_posts_http_"+r.status;
+    }catch(error){nativeError="tiktok_posts_fetch_"+String(error?.message||error||"error")}
   }
+  const fallback=await fetchTikTokProfileVideoLinks(handle,wanted);
+  if(fallback.length)return json({ok:true,handle,secUid,videos:fallback,source:"tiktok-profile-html",fallbackFrom:nativeError,checkedAt:Date.now()});
+  return json({ok:false,handle,secUid,videos:[],error:nativeError||"no_videos"},502);
 }
 
 async function checkTikTok(handle) {
