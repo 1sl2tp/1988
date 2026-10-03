@@ -25,7 +25,7 @@ const video=(id)=>call("video",{id});
 const videoMeta=(id)=>call("video_meta",{id});
 const playlist=(id)=>call("playlist",{id});
 const playlistNext=(id,nextpage)=>call("playlist_next",{id,nextpage});
-const channel=(id)=>call("channel",{id});
+const channel=(id,profile=false)=>call("channel",{id,profile:profile?1:""});
 const channelNext=(id,nextpage)=>call("channel_next",{id,nextpage});
 const sponsors=(id)=>call("sponsors",{id});
 const background=(id)=>call("background",{id});
