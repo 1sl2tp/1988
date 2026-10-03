@@ -544,34 +544,6 @@ html.one-col .player.inline-overlay:not(.pip){
 .icon-button:hover{background:linear-gradient(rgba(var(--header-accent-rgb),var(--ambient-control-hover)),rgba(var(--header-accent-rgb),var(--ambient-control-hover))),var(--yt-hover)}
 .icon-button:active{background:var(--yt-press)}
 
-/* One YouTube-style hint layer for the whole app. Native title bubbles are
-   inconsistent across Chrome/Safari/PWA, so interactive controls and clipped
-   video/channel text use this shared tooltip instead. */
-.app-hint{
-  position:fixed;
-  z-index:12000;
-  max-width:min(360px,calc(100vw - 24px));
-  padding:7px 10px;
-  border-radius:4px;
-  background:rgba(35,35,35,.96);
-  color:#fff;
-  font:400 12px/16px Roboto,Noto,Arial,sans-serif;
-  white-space:normal;
-  overflow-wrap:anywhere;
-  pointer-events:none;
-  opacity:0;
-  transform:translateY(2px);
-  transition:opacity .10s ease,transform .10s ease;
-  box-shadow:0 2px 8px rgba(0,0,0,.28);
-}
-.app-hint.visible{
-  opacity:1;
-  transform:translateY(0);
-}
-:root[data-theme="light"] .app-hint{
-  background:rgba(40,40,40,.94);
-  color:#fff;
-}
 .sourcebar{
   order:1;
   position:relative;
@@ -3461,7 +3433,7 @@ html.tiktok-ui.tiktok-watch .rows{
   <div class="masthead">
     <div class="platform-switcher" aria-label="Nền tảng">
       <button id="platformTikTok" class="platform-button platform-tiktok" type="button"
-        aria-label="TikTok" title="TikTok" aria-pressed="false">
+        aria-label="TikTok"  aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path class="tt-cyan" d="M14.1 3.2c.6 2.5 2.1 4 4.6 4.5v3.1c-1.7-.1-3.1-.6-4.4-1.5v6.2a6 6 0 1 1-5.2-5.9v3.2a2.9 2.9 0 1 0 2.1 2.8V3.2h2.9Z"></path>
           <path class="tt-pink" d="M13.1 2.4c.6 2.5 2.1 4 4.6 4.5v2.1c-1.7-.2-3.1-.8-4.4-1.7v7.4a5 5 0 1 1-4.2-4.9v2.1a3 3 0 1 0 2.2 2.9V2.4h1.8Z"></path>
@@ -3470,7 +3442,7 @@ html.tiktok-ui.tiktok-watch .rows{
       </button>
 
       <button id="platformYouTube" class="platform-button platform-youtube" type="button"
-        aria-label="YouTube" title="YouTube" aria-pressed="false">
+        aria-label="YouTube"  aria-pressed="false">
         <svg viewBox="0 0 29 20" aria-hidden="true" focusable="false">
           <path d="M14.4848 20C14.4848 20 23.5695 20 25.8229 19.4C27.0917 19.06 28.0459 18.08 28.3808 16.87C29 14.65 29 9.98 29 9.98C29 9.98 29 5.34 28.3808 3.14C28.0459 1.9 27.0917.94 25.8229.61C23.5695 0 14.4848 0 14.4848 0C14.4848 0 5.42037 0 3.17711.61C1.9286.94.954148 1.9.59888 3.14C0 5.34 0 9.98 0 9.98C0 9.98 0 14.65.59888 16.87C.954148 18.08 1.9286 19.06 3.17711 19.4C5.42037 20 14.4848 20 14.4848 20Z" fill="#FF0033"></path>
           <path d="M19 10 11.5 5.75v8.5L19 10Z" fill="#fff"></path>
@@ -3478,28 +3450,28 @@ html.tiktok-ui.tiktok-watch .rows{
       </button>
     </div>
 
-    <button id="searchBack" class="icon-button search-back" aria-label="Quay lại" title="Quay lại">
+    <button id="searchBack" class="icon-button search-back" aria-label="Quay lại" >
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg>
     </button>
 
     <div class="searchbox" role="search">
       <input id="searchInput" class="search-input" type="search" placeholder="Tìm kiếm"
         autocomplete="off" autocorrect="off" spellcheck="false">
-      <button id="searchButton" class="search-button" aria-label="Tìm kiếm" title="Tìm kiếm">
+      <button id="searchButton" class="search-button" aria-label="Tìm kiếm" >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
       </button>
     </div>
 
     <button id="voiceSearchButton" class="voice-search-button" type="button"
-      aria-label="Tìm kiếm bằng giọng nói" title="Tìm kiếm bằng giọng nói" hidden>
+      aria-label="Tìm kiếm bằng giọng nói"  hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.063 14.5a1 1 0 111.73 1A8.998 8.998 0 0113 19.942V22a1 1 0 11-2 0v-2.058A8.999 8.999 0 014.206 15.5l.866-.5.865-.5a7.002 7.002 0 0012.125 0ZM12 1a5 5 0 015 5v5a5 5 0 01-10 0V6a5 5 0 015-5ZM4.572 14.134a1 1 0 011.365.366l-1.731 1a1 1 0 01.366-1.366ZM12 3a3 3 0 00-3 3v5a3 3 0 106 0V6a3 3 0 00-3-3Z"></path></svg>
     </button>
 
-    <button id="searchToggle" class="icon-button search-toggle" aria-label="Tìm kiếm" title="Tìm kiếm">
+    <button id="searchToggle" class="icon-button search-toggle" aria-label="Tìm kiếm" >
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
     </button>
 
-    <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt" title="Cài đặt" aria-expanded="false" aria-controls="settingsPopover">
+    <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt"  aria-expanded="false" aria-controls="settingsPopover">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
     </button>
   </div>
@@ -3542,7 +3514,7 @@ html.tiktok-ui.tiktok-watch .rows{
 
 <main>
   <aside class="tiktok-account-rail" id="tiktokAccountRail" hidden></aside>
-  <button class="tiktok-watch-close" id="tiktokWatchClose" type="button" aria-label="Đóng video TikTok" title="Đóng">×</button>
+  <button class="tiktok-watch-close" id="tiktokWatchClose" type="button" aria-label="Đóng video TikTok" >×</button>
   <div class="media-col" id="mediaCol">
     <section class="stage" id="stage">
       <div class="player" id="player" data-media-provider="youtube" data-media-type="embed">
@@ -3597,7 +3569,7 @@ html.tiktok-ui.tiktok-watch .rows{
           </div>
         </div>
         <div class="info-actions" id="videoQuickActions"></div>
-        <button class="info-menu" id="videoMenu" aria-label="Thao tác khác" title="Thao tác khác">
+        <button class="info-menu" id="videoMenu" aria-label="Thao tác khác" >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>
         </button>
       </div>
@@ -5745,115 +5717,6 @@ html.tiktok-ui.tiktok-watch .rows{
       .replace(/>/g,"&gt;")
       .replace(/"/g,"&quot;");
   }
-
-  let appHintTimer=0;
-  let appHintEl=null;
-  let appHintTarget=null;
-
-  function ensureAppHint(){
-    if(appHintEl)return appHintEl;
-    appHintEl=document.createElement("div");
-    appHintEl.className="app-hint";
-    appHintEl.setAttribute("role","tooltip");
-    appHintEl.hidden=true;
-    document.body.appendChild(appHintEl);
-    return appHintEl;
-  }
-
-  function appHintCandidate(target){
-    if(!(target instanceof Element))return null;
-    return target.closest(
-      '[data-hint],[aria-label],[title],button,[role="button"],a,.row-title,.row-source'
-    );
-  }
-
-  function appHintText(target){
-    if(!target)return "";
-    const explicit=String(target.getAttribute?.("data-hint")||"").trim();
-    if(explicit)return explicit;
-    const aria=String(target.getAttribute?.("aria-label")||"").trim();
-    if(aria)return aria;
-    const nativeTitle=String(
-      target.getAttribute?.("title")||
-      target.getAttribute?.("data-native-title")||
-      ""
-    ).trim();
-    if(nativeTitle)return nativeTitle;
-    if(target.matches?.(".row-title,.row-source")){
-      return String(target.textContent||"").replace(/\s+/g," ").trim();
-    }
-    return "";
-  }
-
-  function hideAppHint(){
-    clearTimeout(appHintTimer);
-    appHintTarget=null;
-    if(!appHintEl)return;
-    appHintEl.classList.remove("visible");
-    appHintEl.hidden=true;
-  }
-
-  function positionAppHint(target){
-    const hint=ensureAppHint();
-    const rect=target.getBoundingClientRect();
-    const gap=8;
-    hint.style.left="0px";
-    hint.style.top="0px";
-    hint.hidden=false;
-    const box=hint.getBoundingClientRect();
-    let left=rect.left+(rect.width-box.width)/2;
-    left=Math.max(8,Math.min(window.innerWidth-box.width-8,left));
-    let top=rect.bottom+gap;
-    if(top+box.height>window.innerHeight-8){
-      top=Math.max(8,rect.top-box.height-gap);
-    }
-    hint.style.left=Math.round(left)+"px";
-    hint.style.top=Math.round(top)+"px";
-  }
-
-  function showAppHint(target,{delay=380}={}){
-    const text=appHintText(target);
-    if(!text)return hideAppHint();
-
-    // Avoid a second native browser title bubble underneath the app hint.
-    const nativeTitle=String(target.getAttribute?.("title")||"").trim();
-    if(nativeTitle&&!target.getAttribute("data-native-title")){
-      target.setAttribute("data-native-title",nativeTitle);
-      target.removeAttribute("title");
-    }
-
-    clearTimeout(appHintTimer);
-    appHintTarget=target;
-    appHintTimer=setTimeout(()=>{
-      if(appHintTarget!==target||!document.contains(target))return;
-      const hint=ensureAppHint();
-      hint.textContent=text;
-      positionAppHint(target);
-      requestAnimationFrame(()=>hint.classList.add("visible"));
-    },Math.max(0,Number(delay)||0));
-  }
-
-  document.addEventListener("pointerover",event=>{
-    if(event.pointerType==="touch")return;
-    const target=appHintCandidate(event.target);
-    if(!target)return;
-    if(target.contains(event.relatedTarget))return;
-    showAppHint(target,{delay:420});
-  },true);
-  document.addEventListener("pointerout",event=>{
-    const target=appHintCandidate(event.target);
-    if(!target||target!==appHintTarget)return;
-    if(target.contains(event.relatedTarget))return;
-    hideAppHint();
-  },true);
-  document.addEventListener("focusin",event=>{
-    const target=appHintCandidate(event.target);
-    if(target)showAppHint(target,{delay:120});
-  },true);
-  document.addEventListener("focusout",hideAppHint,true);
-  document.addEventListener("pointerdown",hideAppHint,true);
-  addEventListener("scroll",hideAppHint,{passive:true,capture:true});
-  addEventListener("resize",hideAppHint,{passive:true});
 
   function videoTitleSlug(value=""){
     return String(value||"")
@@ -8948,7 +8811,7 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   function verifiedBadgeMarkup(){
-    return '<span class="verified-badge" aria-label="Đã xác minh" title="Đã xác minh">'+
+    return '<span class="verified-badge" aria-label="Đã xác minh" >'+
       '<svg viewBox="0 0 24 24" aria-hidden="true">'+
         '<path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm5.707 7.293a1 1 0 010 1.414L10 17.414l-3.707-3.707a1 1 0 111.414-1.414L10 14.586l6.293-6.293a1 1 0 011.414 0Z"></path>'+
       '</svg>'+
@@ -9592,14 +9455,14 @@ html.tiktok-ui.tiktok-watch .rows{
         '<div class="row-details">'+
           avatarMarkup(meta,index<6)+
           '<div class="row-copy">'+
-            '<div class="row-title" data-hint="'+escapeHtml(title)+'">'+escapeHtml(title)+'</div>'+
+            '<div class="row-title">'+escapeHtml(title)+'</div>'+
             '<div class="row-meta row-meta-line">'+
-              '<span class="row-source" data-hint="'+escapeHtml(source)+'">'+escapeHtml(source)+verified+'</span>'+
+              '<span class="row-source">'+escapeHtml(source)+verified+'</span>'+
               ((source&&facts)?'<span class="row-meta-sep" aria-hidden="true"></span>':"")+
               (facts?'<span class="row-facts">'+factsMarkup+'</span>':"")+
             '</div>'+
           '</div>'+
-          '<button class="row-menu" aria-label="Thao tác khác" title="Thao tác khác">'+
+          '<button class="row-menu" aria-label="Thao tác khác" >'+
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>'+
           '</button>'+
         '</div>'+
@@ -10009,7 +9872,7 @@ html.tiktok-ui.tiktok-watch .rows{
           (thumb?'<img src="'+escapeHtml(thumb)+'" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async">':"")+
         '</div>'+
         '<div class="row-details"><div class="row-copy">'+
-          '<div class="row-title" data-hint="'+escapeHtml(meta?.title||"")+'">'+escapeHtml(meta?.title||"")+'</div>'+
+          '<div class="row-title">'+escapeHtml(meta?.title||"")+'</div>'+
           '<div class="row-meta">'+escapeHtml(facts)+'</div>'+
         '</div></div>'+
       '</article>'
@@ -10903,7 +10766,7 @@ html.tiktok-ui.tiktok-watch .rows{
     return (
       '<div class="feed-head" data-feed-head>'+
         '<div class="feed-head-left">'+
-          '<button class="feed-back" type="button" aria-label="Quay lại" title="Quay lại" data-channel-back hidden>'+
+          '<button class="feed-back" type="button" aria-label="Quay lại"  data-channel-back hidden>'+
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"></path></svg>'+
           '</button>'+
           '<div class="feed-head-title"></div>'+
@@ -10932,7 +10795,7 @@ html.tiktok-ui.tiktok-watch .rows{
     const toggle=head.querySelector("[data-autoplay-toggle]");
     if(toggle){
       toggle.setAttribute("aria-checked",autoplayNext?"true":"false");
-      toggle.title=autoplayNext?"Tắt tự động phát":"Bật tự động phát";
+      toggle.removeAttribute("title");
     }
   }
 
@@ -12264,7 +12127,7 @@ html.tiktok-ui.tiktok-watch .rows{
       "aria-label",
       voiceListening?"Dừng nghe":"Tìm kiếm bằng giọng nói"
     );
-    voiceSearchButton.title=voiceListening?"Đang nghe…":"Tìm kiếm bằng giọng nói";
+    voiceSearchButton.removeAttribute("title");
   }
 
   function stopVoiceSearch(abort=false){
@@ -12322,7 +12185,7 @@ html.tiktok-ui.tiktok-watch .rows{
     };
     recognition.onerror=event=>{
       if(event?.error==="not-allowed"||event?.error==="service-not-allowed"){
-        voiceSearchButton.title="Cho phép micro để tìm bằng giọng nói";
+        voiceSearchButton.removeAttribute("title");
       }
       setVoiceListening(false);
     };
