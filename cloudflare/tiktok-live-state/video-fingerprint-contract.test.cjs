@@ -31,12 +31,14 @@ assert.match(worker,/const walk=\(v,depth=0,inheritedId=""\)=>/);
 assert.match(worker,/const ownerId=localId\|\|String\(inheritedId\|\|""\)/);
 assert.match(worker,/const relevant=!wantedId\|\|!ownerId\|\|ownerId===wantedId/);
 assert.match(worker,/walk\(x,depth\+1,ownerId\)/);
-assert.match(worker,/const VOD_RESOLVER_POOL=\["tikwm","tdown","tiklydown","douyinwtf"\]/);
+assert.match(worker,/const VOD_RESOLVER_POOL=\["tikwm","tdown","musicaldown","tikdown","ttdownloader"\]/);
 assert.match(worker,/async function resolveMusicalDownVideoSource/);
 assert.match(worker,/async function resolveTikdownOrgVideoSource/);
 assert.match(worker,/async function resolveTTDownloaderVideoSource/);
 assert.match(worker,/async function resolveTiklyDownVideoSource/);
 assert.match(worker,/async function resolveDouyinWtfVideoSource/);
 assert.match(worker,/vodSourceOrder\(preferred,id\)/);
+assert.doesNotMatch(worker,/for \(let attempt = 0; attempt < 2; attempt\+\+\)/);
+assert.match(worker,/Never call the same provider twice in the/);
 
 console.log('tiktok-edge-video-fingerprint-contract: assertions passed');
