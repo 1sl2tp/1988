@@ -85,6 +85,39 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.18. YouTube/TikTok hard media-branch isolation + LIVE zero semantics
+
+Thời gian: **2026-10-04**.
+
+Yêu cầu:
+- YouTube và TikTok chỉ dùng chung shell/UI; media/data/player/fallback là hai nhánh độc lập.
+- LIVE viewer chưa biết không được hiển thị thành số 0.
+
+Patch:
+- commit `6189f230b5eacfdcb93ffffc64df9fbbe13adec0`;
+- PWA **v91**;
+- đổi sang YouTube: dừng TikTok LIVE/VOD/prepared streams;
+- đổi sang TikTok: dừng YouTube LIVE demand và pause YouTube player;
+- `openMedia()` chặn stale item sai provider;
+- generic feed renderer chỉ nhận YouTube; TikTok dùng workspace riêng;
+- TikTok card thiếu thumbnail chỉ fallback TikTok avatar/transparent, không dùng `i.ytimg.com`;
+- TikTok LIVE `viewerCount<=0/unknown` → `null` + ẩn;
+- không render nhóm `Đang LIVE · 0`;
+- profile LIVE không render dấu `·` nếu viewer count chưa biết.
+
+Production verify:
+- Deploy 1988 Player run `37146443871`: **SUCCESS**;
+- frontend production contracts PASS;
+- build/deploy/custom-domain verify PASS.
+
+Rule:
+- shared shell != shared media branch;
+- cấm cross-provider fallback;
+- unknown numeric telemetry dùng null/empty, không bịa 0.
+
+Rollback:
+- `5aaf23edff697b4e878e7211ddc6ceaad94eb22c`.
+
 ### 3.17. TikTok VOD slow-open — bounded provider failover
 
 Thời gian: **2026-10-04**.
