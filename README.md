@@ -2,7 +2,7 @@
 
 > ## ⚠️ BẮT BUỘC TRƯỚC KHI SỬA / DEPLOY
 >
-> Đọc **[README_MAINTENANCE.md](./README_MAINTENANCE.md)**, đặc biệt mục **FAST REPAIR**.
+> **Trước mọi lần sửa phải đọc [CURRENT_WORK.md](./CURRENT_WORK.md) trước**, sau đó đọc **[README_MAINTENANCE.md](./README_MAINTENANCE.md)**.
 > Trước mọi thay đổi liên quan polling, scheduler, package, API, cache, log hoặc media phải đọc thêm **[README_RESOURCE_GUARDRAILS.md](./README_RESOURCE_GUARDRAILS.md)**.
 > Quy tắc mặc định: **một lỗi → một owner → một patch → một deploy**; production hỏng thì rollback trước, điều tra sau.
 > Sau repair/deploy phải cập nhật `NHAT_KY.md` và Google Sheet **1988 - Vận hành kết nối bảo trì**.
