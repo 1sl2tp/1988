@@ -673,3 +673,20 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Verify: Deploy 1988 Player run `37143236812` SUCCESS; frontend contracts/build/Pages/custom-domain đều PASS.
 - Impact: UI/CSS only; không đổi data/network/polling.
 - Rollback: `e1bc04acc973069b7477134af1036c44f18cb975`.
+
+
+## 2026-10-04 — Mid-width viewer gap — 657–999px double top-boundary
+
+- Base: `328643014793ce9cf84196615636fb9d4e32a4ae`.
+- Ảnh production:
+  - ≤656px đúng;
+  - 657–999px có khoảng đen lớn trước video;
+  - ≥1000px đúng.
+- Root cause: v82 reserve `--top-boundary` cho toàn bộ <1000px, trong khi header chỉ fixed ở ≤656px.
+- Patch `e7d4817319c8ca22e78d8e3e4fc9898b3c6e9ce4`:
+  - 657–999px padding=0;
+  - ≤656px mới reserve measured top-boundary;
+  - PWA v83.
+- Verify: Deploy 1988 Player run `37143464690` SUCCESS; frontend contracts/build/Pages/custom-domain đều PASS.
+- Impact: UI/CSS only; không đổi data/network/polling.
+- Rollback: `328643014793ce9cf84196615636fb9d4e32a4ae`.

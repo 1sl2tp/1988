@@ -85,6 +85,40 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.12. Mid-width viewer gap — 657–999px double top-boundary
+
+Thời gian: **2026-10-04**.
+
+Ảnh production sau v82 cho thấy ba breakpoint:
+- ≤656px: viewer đúng, fixed header cần `--top-boundary`;
+- 657–999px: xuất hiện khoảng đen lớn giữa chip row và video;
+- ≥1000px: viewer + queue desktop đúng.
+
+Root cause:
+- v82 áp `padding:var(--top-boundary)` cho toàn bộ `@media(max-width:999px)`;
+- nhưng header chỉ chuyển sang `position:fixed` ở `max-width:656px`;
+- 657–999px header vẫn nằm trong document/sticky flow, nên top-boundary bị cộng **hai lần**.
+
+Patch:
+- commit `e7d4817319c8ca22e78d8e3e4fc9898b3c6e9ce4`;
+- 657–999px focused viewer: `main padding:0`;
+- ≤656px focused viewer: `main padding:var(--top-boundary) 0 0`;
+- portrait bottom radius fix giữ nguyên;
+- PWA **v83**.
+
+Production verify:
+- Deploy 1988 Player run `37143464690`: **SUCCESS**;
+- frontend contracts, artifact build, Pages deploy và custom-domain verify đều PASS.
+
+Rule:
+- chỉ breakpoint thật sự dùng fixed chrome mới reserve `--top-boundary`;
+- không dùng cùng một top padding cho toàn bộ one-column range;
+- breakpoint 657–999px phải liền chip row → viewer, không có spacer đen.
+
+Impact:
+- UI/CSS only; không đổi data/network/polling.
+- Rollback: `328643014793ce9cf84196615636fb9d4e32a4ae`.
+
 ### 3.11. Mobile viewer geometry — header overlap + portrait bottom radius
 
 Thời gian: **2026-10-04**.
