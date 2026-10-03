@@ -115,10 +115,12 @@ Fix:
 - source-state suggestion row chỉ giữ ID + state;
 - `yt1988-refresh v31` ACTIVE.
 
-Probe production:
-- Supabase pg_net request `585`: GET no-view;
-- request `586`: GET `?view=lite`;
-- mục tiêu verify: response no-view phải có cùng shape/size lớp `lite`, không được đi full-library path.
+Production verify:
+- Supabase pg_net request `585` = GET no-view → HTTP 200, body **24,781 bytes**, response `"view":"lite"`;
+- request `586` = GET `?view=lite` → HTTP 200, body **24,781 bytes**, response `"view":"lite"`;
+- no-view và explicit lite có cùng payload size/shape; full-library path không còn được gọi bởi default/legacy GET;
+- full frontend contract + Pages/custom-domain deploy run `37141879904`: **SUCCESS**;
+- PWA cache production: `v78`.
 
 Rule khóa:
 - **public default/full source-state không còn tồn tại**;
