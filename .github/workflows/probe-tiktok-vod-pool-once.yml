@@ -12,35 +12,25 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe exact TikWM resolver and redirect
+      - name: Probe exact TikWM resolver and edge redirect
         shell: bash
         run: |
           set -u
           H='tu.thuong_lay_minh_1'
           ID='7680871454702882069'
           PAGE="https://www.tiktok.com/@${H}/video/${ID}"
-          ENC=$(python3 - <<'PY'
-import urllib.parse
-print(urllib.parse.quote('https://www.tiktok.com/@tu.thuong_lay_minh_1/video/7680871454702882069', safe=''))
-PY
-)
-          API="https://www.tikwm.com/api/?url=${ENC}"
           EDGE="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-direct?user=${H}&id=${ID}"
 
           echo '=== TIKWM API ==='
-          curl -sS --max-time 20 -D /tmp/tikwm.h "$API"             -H 'Referer: https://www.tikwm.com/'             -H 'User-Agent: Mozilla/5.0'             -o /tmp/tikwm.body || true
+          curl -sS --max-time 20 -G 'https://www.tikwm.com/api/'             --data-urlencode "url=${PAGE}"             -H 'Referer: https://www.tikwm.com/'             -H 'User-Agent: Mozilla/5.0'             -D /tmp/tikwm.h -o /tmp/tikwm.body || true
           cat /tmp/tikwm.h
           echo
-          head -c 12000 /tmp/tikwm.body
+          head -c 8000 /tmp/tikwm.body
           echo
 
           echo '=== EDGE 302 ==='
-          curl -sS --max-time 20 -D /tmp/edge.h "$EDGE" -o /tmp/edge.body || true
+          curl -sS --max-time 20 "$EDGE" -D /tmp/edge.h -o /tmp/edge.body || true
           cat /tmp/edge.h
           echo
           cat /tmp/edge.body
           echo
-
-          echo '=== EDGE FOLLOW ==='
-          curl -sS -L --max-time 20 -D /tmp/follow.h "$EDGE" -o /dev/null || true
-          cat /tmp/follow.h
