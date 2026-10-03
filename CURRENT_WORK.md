@@ -85,6 +85,46 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.17. TikTok VOD slow-open — bounded provider failover
+
+Thời gian: **2026-10-04**.
+
+Triệu chứng:
+- một số TikTok VOD mở lâu dù player/UI đã đúng;
+- nghi một số nguồn MP4 bị treo hoặc trả lỗi chậm.
+
+Bằng chứng source:
+- `/tiktok/video-stream?source=auto` failover tuần tự qua provider pool;
+- trước patch, resolver/media fetch không có deadline cứng theo từng nguồn;
+- `warmTikTokVod()` có thể chọn `native` là nguồn tốt nhất nhưng `readVodWarmPreference()` lại loại `native`, nên click không dùng winner đã warm;
+- warm cache hit còn resolve lại cả chuỗi provider dù đã có winner.
+
+Patch:
+- `d168c3c043cc587a9c012e87f53421558999bbc7`:
+  - VOD source version `avc4`;
+  - resolver deadline 2200 ms;
+  - media-open deadline 1800 ms;
+  - probe deadline 1400 ms;
+  - warm preference cho phép `native`;
+  - warm cache hit trả winner ngay, không resolve lại toàn bộ nguồn;
+  - thêm `vod-failover-contract.test.cjs`.
+- deploy đầu fail ở contract cũ còn khóa `avc3`; Worker chưa deploy.
+- `5a9470aba20d3db74d0c631ae6cbe42bffa53ea1`:
+  - cập nhật contract sang `avc4`;
+  - TDown dùng `vodFetch(..., VOD_RESOLVE_TIMEOUT_MS, "tdown_resolve")` để abort request thật;
+  - deploy Worker cuối **SUCCESS** run `37146003420`.
+
+Contract:
+- một source chỉ gọi một lần mỗi click;
+- source timeout/fail → chuyển source kế tiếp;
+- không thêm provider/fan-out;
+- không thêm polling/cron;
+- warm winner được reuse thay vì resolve lại.
+
+Lưu ý:
+- môi trường tool hiện không resolve được hostname workers.dev nên không có số latency production trực tiếp; production verify dựa trên contract PASS + Worker deploy SUCCESS.
+- rollback: `375204cdaa21b1925d6cd8f875caba2cb0005034`.
+
 ### 3.16. TikTok VOD native geometry — contain + center
 
 Thời gian: **2026-10-04**.
