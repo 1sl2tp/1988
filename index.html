@@ -6528,6 +6528,67 @@ html.tiktok-ui.tiktok-watch .rows{
 
   const youtubeLiveAvatarLookupDone=new Set();
   const youtubeLiveAvatarLookupPending=new Set();
+  const youtubeLiveViewerLookupPending=new Set();
+  const youtubeLiveViewerLookupAt=new Map();
+
+  async function hydrateMissingYoutubeLiveViewers({paint=true}={}){
+    if(!youtubeEdgeLiveReady||!window.YT1988_API?.search)return false;
+    const now=Date.now();
+    const missing=youtubeEdgeLiveMetas
+      .filter(meta=>{
+        const id=String(meta?.id||"").trim();
+        const last=Number(youtubeLiveViewerLookupAt.get(id)||0);
+        return (
+          /^[A-Za-z0-9_-]{11}$/.test(id)&&
+          Math.max(0,Number(meta?.viewerCount)||0)===0&&
+          !youtubeLiveViewerLookupPending.has(id)&&
+          now-last>45_000
+        );
+      })
+      .slice(0,6);
+
+    if(!missing.length)return false;
+
+    await Promise.allSettled(missing.map(async meta=>{
+      const id=String(meta.id);
+      youtubeLiveViewerLookupPending.add(id);
+      youtubeLiveViewerLookupAt.set(id,Date.now());
+      try{
+        const query=[
+          String(meta?.sourceName||"").trim(),
+          String(meta?.title||"").trim()
+        ].filter(Boolean).join(" ");
+        if(!query)return;
+
+        const payload=await window.YT1988_API.search(query,"videos");
+        const exact=collectVideoRows(payload)
+          .find(row=>
+            String(row?.id||"").trim()===id&&
+            row?.isLive===true
+          );
+        const viewers=Math.max(0,Number(exact?.views)||0);
+        if(!viewers)return;
+
+        meta.viewerCount=viewers;
+        meta.viewsLabel=compactLiveViewerCount(viewers);
+        const visible=feedMetas.find(row=>String(row?.id||"").trim()===id);
+        if(visible){
+          visible.viewerCount=viewers;
+          visible.viewsLabel=meta.viewsLabel;
+        }
+      }catch{}
+      finally{
+        youtubeLiveViewerLookupPending.delete(id);
+      }
+    }));
+
+    if(paint&&liveDemandActive("youtube")){
+      const rows=document.getElementById("rows");
+      if(rows)rows.dataset.renderSignature="";
+      paintUnifiedLiveFromEdge("youtube");
+    }
+    return true;
+  }
 
   async function hydrateMissingYoutubeLiveAvatars({paint=true}={}){
     // LIVE avatars used to come from the normal YouTube stream/package rows.
@@ -6777,7 +6838,10 @@ html.tiktok-ui.tiktok-watch .rows{
         youtubeEdgeLiveMetas,
         "live-background"
       );
-      await hydrateMissingYoutubeLiveAvatars({paint:false}).catch(()=>false);
+      await Promise.allSettled([
+        hydrateMissingYoutubeLiveAvatars({paint:false}),
+        hydrateMissingYoutubeLiveViewers({paint:false})
+      ]);
       saveClientLiveSnapshot();
 
       // If the user entered LIVE while the warm scan was running, publish the
@@ -6816,7 +6880,10 @@ html.tiktok-ui.tiktok-watch .rows{
         youtubeEdgeLiveMetas,
         "live-background-refresh"
       );
-      await hydrateMissingYoutubeLiveAvatars({paint:false}).catch(()=>false);
+      await Promise.allSettled([
+        hydrateMissingYoutubeLiveAvatars({paint:false}),
+        hydrateMissingYoutubeLiveViewers({paint:false})
+      ]);
       saveClientLiveSnapshot();
 
       const provider=activeLiveProvider();
@@ -6848,6 +6915,7 @@ html.tiktok-ui.tiktok-watch .rows{
           youtubeEdgeLiveReady=true;
           if(paint)paintUnifiedLiveFromEdge("youtube");
           void hydrateMissingYoutubeLiveAvatars({paint});
+          void hydrateMissingYoutubeLiveViewers({paint});
           saveClientLiveSnapshot();
           return true;
         }catch{
@@ -6888,6 +6956,7 @@ html.tiktok-ui.tiktok-watch .rows{
         if(!ok||!liveDemandActive("youtube"))return false;
         paintUnifiedLiveFromEdge("youtube");
         void hydrateMissingYoutubeLiveAvatars({paint:true});
+        void hydrateMissingYoutubeLiveViewers({paint:true});
         saveClientLiveSnapshot();
         return true;
       }
@@ -6981,6 +7050,7 @@ html.tiktok-ui.tiktok-watch .rows{
         // halfway through a refresh.
         if(paint&&liveDemandActive("youtube"))paintUnifiedLiveFromEdge("youtube");
         void hydrateMissingYoutubeLiveAvatars({paint:paint&&liveDemandActive("youtube")});
+        void hydrateMissingYoutubeLiveViewers({paint:paint&&liveDemandActive("youtube")});
         return true;
       }catch(error){
         if(error?.name!=="AbortError"){
@@ -9834,7 +9904,15 @@ html.tiktok-ui.tiktok-watch .rows{
         // placeholders instead of being skipped by the visual-signature cache.
         const feedRows=document.getElementById("rows");
         if(feedRows)feedRows.dataset.renderSignature="";
-        if(feedMetas.length)renderSampleContent();
+        if(
+          feedMode==="package"&&
+          activePackageScope==="live"&&
+          activeLiveProvider()
+        ){
+          paintUnifiedLiveFromEdge(activeLiveProvider());
+        }else if(feedMetas.length){
+          renderSampleContent();
+        }
         if(currentMeta)renderCurrentInfo();
 
         const rows=existingSourceTabNames(remote);
