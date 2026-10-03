@@ -9376,7 +9376,7 @@ html.tiktok-ui.tiktok-watch .rows{
         effective!=="normal"&&
         direct!==effective;
 
-      let stateLabel="Chưa chọn";
+      let stateLabel=action==="blocked"?"Chưa chặn":"Chưa chọn";
       if(effective==="selected")stateLabel=inherited?"Đã chọn · kế thừa":"Đã chọn";
       if(effective==="blocked")stateLabel=inherited?"Đã chặn · kế thừa":"Đã chặn";
 
