@@ -479,3 +479,49 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - PWA v74; source manager JS v22.
 - Targeted Dân Ca Lofi sync vẫn HTTP 200; không full scan.
 - Regression contracts cập nhật để MAIN/Cloudflare không quay lại full-state.
+
+
+## 2026-10-03 — Khóa kiến trúc host/data/action và giảm invocation thừa
+
+- Contract production mới:
+  `GitHub = CODE`,
+  `Supabase = TRUTH + CURRENT PACKAGE`,
+  `Cloudflare = REALTIME + EDGE CACHE`,
+  `Render = HEAVY RESOLVER`,
+  `Browser = LOCAL CACHE + RENDER`.
+- Tạo `README_HOST_ARCHITECTURE.md`; README/Maintenance/Resource Guardrails/CURRENT_WORK đã liên kết contract này.
+- GitHub:
+  - `src/channel-library.js` chứa 744 channelId nhưng chỉ là legacy generated seed;
+  - production `index.html` và `/sources/` không load file này;
+  - canonical channel identity vẫn ở Supabase.
+- Supabase `yt1988 v6`:
+  - bỏ hidden fan-out `yt1988-video-meta?resolve=1` từ search/channel result;
+  - chỉ reuse aspect metadata đã cache;
+  - video thiếu metadata chỉ resolve khi user thật sự mở item.
+- MAIN package demand:
+  - latest wake tối đa 5 phút/lần;
+  - week 30 phút/lần;
+  - content/hashtag 15 phút/lần;
+  - focus/visibility check manifest nhưng không reset cadence.
+- LIVE single-owner wake:
+  - Cloudflare scan là realtime owner;
+  - snapshot changed mới wake LIVE package;
+  - recurring browser scan/focus chỉ chờ hash;
+  - tab-open được một catch-up wake;
+  - source edit dùng targeted Cloudflare sync đúng một channel.
+- `yt1988-state v12`:
+  - non-LIVE source edit refresh đúng scope;
+  - LIVE source edit không pre-refresh stale package;
+  - targeted edge sync là owner duy nhất; snapshot đổi mới wake LIVE.
+- Production verify:
+  - search `bao tien phong` HTTP 200 và không phát sinh server-side video-meta warm job sau request;
+  - source edit request 577 HTTP 200;
+  - Cloudflare đọc `state-lite` khoảng 16 KB;
+  - không có `yt1988-refresh` trực tiếp từ source edit trong cửa sổ verify;
+  - Supabase cron chỉ còn Render keepalive + retention cleanup, không có LIVE/package discovery cron;
+  - frontend run `37137967816` SUCCESS toàn bộ: contracts, build, Pages deploy, custom-domain verify.
+- PWA: `v76`.
+- Resource conclusion:
+  - database hiện không phải bottleneck;
+  - ưu tiên kiểm soát response bytes, Edge Function invocations và log volume;
+  - direct user action không được tạo background work theo số card.
