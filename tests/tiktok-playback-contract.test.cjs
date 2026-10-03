@@ -16,9 +16,10 @@ assert.match(html,/async function checkLibraryOnDemand/);
 assert.equal((html.match(/<video\b/g)||[]).length,1,'TikTok LIVE/VOD demo must keep one canonical native video surface');
 assert.doesNotMatch(html,/id="tiktokVideoFrame"/,'TikTok VOD iframe must be removed');
 assert.doesNotMatch(html,/https:\/\/www\.tiktok\.com\/player\/v1\//,'TikTok VOD must not use the official TikTok iframe player');
-assert.match(html,/const VOD_SOURCE_ROTATION=\['tikwm','tdown','tiklydown','douyinwtf'\]/,'TikTok VOD must rotate independent resolver sources');
+assert.match(html,/const VOD_SOURCE_ROTATION=\['tikwm','tdown','musicaldown','tikdown','ttdownloader'\]/,'TikTok VOD must rotate the five independent resolver sources');
 assert.match(html,/function nextVodSource\(\)/,'TikTok VOD source rotation helper missing');
 assert.match(html,/endpoint\.searchParams\.set\('source',source\)/,'TikTok VOD click must select exactly one resolver first');
+assert.doesNotMatch(html,/packagedFresh/,'TikTok VOD click must not bypass source rotation through a packaged URL');
 assert.match(html,/if\(pictureFailovers>=1\)return false/,'TikTok VOD picture failure must have bounded failover');
 
 const proxyStart=server.indexOf("async function proxyTikTokLive(");
