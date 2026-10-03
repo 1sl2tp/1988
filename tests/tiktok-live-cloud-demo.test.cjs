@@ -12,9 +12,14 @@ assert.match(demo,/async function loadChannelVideos\(h\)/);
 assert.match(demo,/endpoint\.searchParams\.set\("count","1"\)/);
 assert.match(demo,/Promise\.allSettled\(\[liveTask,videoTask\]\)/);
 assert.match(demo,/renderVideos\(data\.videos\)/);
-assert.match(demo,/target="_blank"/);
+assert.doesNotMatch(demo,/target="_blank"/);
+assert.match(demo,/data-video-i/);
+assert.match(demo,/async function playChannelVideo\(row\)/);
+assert.match(demo,/\/tiktok\/video-direct\?user=/);
+assert.match(demo,/async function resolveBhwaVideo\(row\)/);
+assert.match(demo,/downloader-api\.bhwa233\.com\/api\/parse\?url=/);
 assert.doesNotMatch(demo,/onrender\.com/);
 assert.doesNotMatch(demo,/TikWM HD/);
 assert.doesNotMatch(demo,/BHWA/);
 
-console.log('tiktok demo: LIVE lookup + one latest video metadata only');
+console.log('tiktok demo: latest video opens in own player via TikWM redirect with BHWA fallback');
