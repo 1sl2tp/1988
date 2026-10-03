@@ -6,7 +6,7 @@ const LIVE_PRIORITY_MAX = 16;
 const VIDEO_BATCH_SIZE = 6;
 const VIDEO_SOURCE_CACHE_SECONDS = 240;
 const TIKTOK_NATIVE_VOD_CACHE_SECONDS = 120;
-const TIKTOK_VOD_SOURCE_VERSION = "avc4";
+const TIKTOK_VOD_SOURCE_VERSION = "avc5";
 const VOD_RESOLVE_TIMEOUT_MS = 2200;
 const VOD_MEDIA_OPEN_TIMEOUT_MS = 1800;
 const VOD_PROBE_TIMEOUT_MS = 1400;
@@ -1380,7 +1380,8 @@ function vodResolverCacheKey(name,handle,id){
   return new Request(
     "https://1988-edge-cache.invalid/tiktok/vod-resolver/"+encodeURIComponent(name)+
     "?user="+encodeURIComponent(String(handle||"").toLowerCase())+
-    "&id="+encodeURIComponent(String(id||""))
+    "&id="+encodeURIComponent(String(id||""))+
+    "&v="+encodeURIComponent(TIKTOK_VOD_SOURCE_VERSION)
   );
 }
 function vodDecodeHtml(value){

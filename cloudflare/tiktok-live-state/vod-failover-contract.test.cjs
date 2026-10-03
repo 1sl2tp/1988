@@ -6,7 +6,7 @@ const path=require('node:path');
 
 const worker=fs.readFileSync(path.join(__dirname,'worker.js'),'utf8');
 
-assert.match(worker,/const TIKTOK_VOD_SOURCE_VERSION = "avc4"/);
+assert.match(worker,/const TIKTOK_VOD_SOURCE_VERSION = "avc5"/);
 assert.match(worker,/const VOD_RESOLVE_TIMEOUT_MS = 2200/);
 assert.match(worker,/const VOD_MEDIA_OPEN_TIMEOUT_MS = 1800/);
 assert.match(worker,/const VOD_PROBE_TIMEOUT_MS = 1400/);
@@ -38,6 +38,7 @@ assert.match(worker,/VOD_MEDIA_OPEN_TIMEOUT_MS,"media_open"/);
 assert.match(worker,/VOD_RESOLVE_TIMEOUT_MS,"tdown_resolve"/);
 assert.match(worker,/VOD_PROBE_TIMEOUT_MS,source\.name\+"_probe"/);
 assert.match(worker,/const VOD_EXPLICIT_EXTRA_SOURCES=\["tiklydown","douyinwtf"\]/);
+assert.match(worker,/&v="\+encodeURIComponent\(TIKTOK_VOD_SOURCE_VERSION\)/);
 assert.match(worker,/VOD_EXPLICIT_EXTRA_SOURCES\.includes\(requested\)/);
 const tikwmStart=worker.indexOf("async function resolveTikwmVideoSource");
 const tikwmEnd=worker.indexOf("async function redirectTikTokVideoDirect",tikwmStart);
