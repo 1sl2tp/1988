@@ -203,6 +203,77 @@ Deno.serve(async (req) => {
   };
 
   if (req.method === "GET") {
+    const requestUrl = new URL(req.url);
+    const view = cleanText(requestUrl.searchParams.get("view") || "full", 24).toLowerCase();
+
+    if (view === "manifest") {
+      const [sourceMetaRes, legacyMetaRes, hashtagMetaRes, directoryMetaRes, tiktokMetaRes] = await Promise.all([
+        fetch(
+          rest + "/yt1988_source_state?profile_key=eq." + encodeURIComponent(PROFILE) +
+          "&select=version,updated_at&order=version.desc&limit=1",
+          { headers: authHeaders }
+        ),
+        fetch(
+          rest + "/yt1988_user_state?profile_key=eq." + encodeURIComponent(PROFILE) +
+          "&select=version,updated_at&limit=1",
+          { headers: authHeaders }
+        ),
+        fetch(
+          rest + "/yt1988_hashtags?profile_key=eq." + encodeURIComponent(PROFILE) +
+          "&select=updated_at&order=updated_at.desc&limit=1",
+          { headers: authHeaders }
+        ),
+        fetch(
+          rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
+          "&select=updated_at&order=updated_at.desc&limit=1",
+          { headers: authHeaders }
+        ),
+        fetch(
+          rest + "/yt1988_tiktok_channels?select=updated_at&order=updated_at.desc&limit=1",
+          { headers: authHeaders }
+        ).catch(() => null)
+      ]);
+
+      const readFirst = async (res: Response | null) => {
+        if (!res?.ok) return {};
+        const rows = await res.json().catch(() => []);
+        return Array.isArray(rows) && rows[0] ? rows[0] : {};
+      };
+      const [sourceMeta, legacyMeta, hashtagMeta, directoryMeta, tiktokMeta] = await Promise.all([
+        readFirst(sourceMetaRes),
+        readFirst(legacyMetaRes),
+        readFirst(hashtagMetaRes),
+        readFirst(directoryMetaRes),
+        readFirst(tiktokMetaRes)
+      ]);
+
+      const sourceVersion = Math.max(0, Number(sourceMeta?.version) || 0);
+      const legacyVersion = Math.max(0, Number(legacyMeta?.version) || 0);
+      const stateToken = [
+        sourceVersion,
+        String(sourceMeta?.updated_at || ""),
+        legacyVersion,
+        String(legacyMeta?.updated_at || ""),
+        String(hashtagMeta?.updated_at || "")
+      ].join("|");
+      const libraryToken = [
+        sourceVersion,
+        String(sourceMeta?.updated_at || ""),
+        String(directoryMeta?.updated_at || ""),
+        String(tiktokMeta?.updated_at || "")
+      ].join("|");
+
+      return json({
+        ok: true,
+        view: "manifest",
+        stateHash: (await sha256(stateToken)).slice(0, 20),
+        libraryHash: (await sha256(libraryToken)).slice(0, 20),
+        stateVersion: Math.max(sourceVersion, legacyVersion),
+        sourceUpdatedAt: sourceMeta?.updated_at || null,
+        libraryUpdatedAt: directoryMeta?.updated_at || tiktokMeta?.updated_at || null
+      });
+    }
+
     const res = await fetch(
       rest + "/yt1988_source_state?profile_key=eq." + encodeURIComponent(PROFILE) +
       "&select=scope,channel_id,status,name,thumbnail_url,subscribers,version,updated_at" +
@@ -213,6 +284,111 @@ Deno.serve(async (req) => {
 
     const rows = await res.json();
     const allRows = Array.isArray(rows) ? rows : [];
+
+    if (view === "lite") {
+      const [legacyRes, hashtagsResult] = await Promise.all([
+        fetch(
+          rest + "/yt1988_user_state?profile_key=eq." + encodeURIComponent(PROFILE) +
+          "&select=state,version,updated_at&limit=1",
+          { headers: authHeaders }
+        ),
+        readHashtags(rest, authHeaders, true)
+      ]);
+      if (!legacyRes.ok) {
+        return json({ ok: false, error: "legacy_read_failed", detail: await legacyRes.text() }, 502);
+      }
+      const legacyRows = await legacyRes.json().catch(() => []);
+      const legacy = Array.isArray(legacyRows) ? legacyRows[0] : null;
+      const hashtags = Array.isArray(hashtagsResult) ? hashtagsResult : [];
+      const savedLabels =
+        legacy?.state?.sourceLabels &&
+        typeof legacy.state.sourceLabels === "object" &&
+        !Array.isArray(legacy.state.sourceLabels)
+          ? legacy.state.sourceLabels
+          : {};
+
+      const state: any = {
+        sourceScopeVersion: 6,
+        hashtags,
+        selected: [],
+        blocked: [],
+        scopedSelected: {},
+        scopedBlocked: {},
+        scopedSuggested: {},
+        customSources: [],
+        sourceGroups: {},
+        sourceLabels: savedLabels,
+        avatars: {}
+      };
+      const customById = new Map<string, any>();
+      let version = Math.max(0, Number(legacy?.version) || 0);
+      let updatedAt = String(legacy?.updated_at || "");
+
+      for (const row of allRows) {
+        version = Math.max(version, Number(row?.version) || 0);
+        const rowUpdated = String(row?.updated_at || "");
+        if (rowUpdated && rowUpdated > updatedAt) updatedAt = rowUpdated;
+
+        const scope = cleanText(row?.scope, 32) || "general";
+        const id = cleanId(row?.channel_id);
+        const status = cleanText(row?.status, 16);
+        if (!id || !["selected","blocked","normal"].includes(status)) continue;
+
+        if (scope === "general") {
+          if (status === "selected") state.selected.push(id);
+          if (status === "blocked") state.blocked.push(id);
+        } else if (status === "selected") {
+          if (!Array.isArray(state.scopedSelected[scope])) state.scopedSelected[scope] = [];
+          state.scopedSelected[scope].push(id);
+        } else if (status === "blocked") {
+          if (!Array.isArray(state.scopedBlocked[scope])) state.scopedBlocked[scope] = [];
+          state.scopedBlocked[scope].push(id);
+        } else {
+          if (!Array.isArray(state.scopedSuggested[scope])) state.scopedSuggested[scope] = [];
+          state.scopedSuggested[scope].push(id);
+        }
+
+        // Lite identity is only for source controls/LIVE targeting. Do not copy
+        // description/profile/stats/TikTok library into this response.
+        if (status === "selected" || status === "blocked") {
+          const name = cleanText(row?.name, 180);
+          const thumbnailUrl = cleanText(row?.thumbnail_url, 1000);
+          const subscribers = cleanText(row?.subscribers, 120);
+          if (name || thumbnailUrl || subscribers) {
+            const current = customById.get(id) || { id, name: "", thumbnailUrl: "", subscribers: "" };
+            if (name) current.name = name;
+            if (thumbnailUrl) current.thumbnailUrl = thumbnailUrl;
+            if (subscribers) current.subscribers = subscribers;
+            customById.set(id, current);
+            if (current.thumbnailUrl) state.avatars[id] = current.thumbnailUrl;
+          }
+        }
+      }
+      state.customSources = [...customById.values()];
+
+      const hashtagUpdated = hashtags.reduce(
+        (max: string, row: any) => String(row?.updatedAt || "") > max ? String(row.updatedAt) : max,
+        ""
+      );
+      const stateToken = [
+        version,
+        updatedAt,
+        Number(legacy?.version || 0),
+        String(legacy?.updated_at || ""),
+        hashtagUpdated
+      ].join("|");
+
+      return json({
+        ok: true,
+        view: "lite",
+        exists: allRows.length > 0 || !!legacy,
+        state,
+        hashtags,
+        stateHash: (await sha256(stateToken)).slice(0, 20),
+        version,
+        updated_at: updatedAt || legacy?.updated_at || null
+      });
+    }
 
     const directoryRes = await fetch(
       rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
@@ -375,6 +551,39 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (view === "library") {
+      const sourceVersion = allRows.reduce(
+        (max: number, row: any) => Math.max(max, Number(row?.version) || 0),
+        0
+      );
+      const sourceUpdated = allRows.reduce(
+        (max: string, row: any) => String(row?.updated_at || "") > max ? String(row.updated_at) : max,
+        ""
+      );
+      const directoryUpdated = directoryRows.reduce(
+        (max: string, row: any) => String(row?.updated_at || "") > max ? String(row.updated_at) : max,
+        ""
+      );
+      const tiktokUpdated = tiktokRows.reduce(
+        (max: string, row: any) => String(row?.updated_at || "") > max ? String(row.updated_at) : max,
+        ""
+      );
+      const libraryToken = [
+        sourceVersion,
+        sourceUpdated,
+        directoryUpdated,
+        tiktokUpdated
+      ].join("|");
+
+      return json({
+        ok: true,
+        view: "library",
+        libraryHash: (await sha256(libraryToken)).slice(0, 20),
+        channelLibraryVersion: (await sha256(libraryToken)).slice(0, 20),
+        channelLibrary
+      });
+    }
+
     const legacyRes = await fetch(
       rest + "/yt1988_user_state?profile_key=eq." + encodeURIComponent(PROFILE) +
       "&select=state,version,updated_at&limit=1",
@@ -502,7 +711,7 @@ Deno.serve(async (req) => {
     }
 
     state.customSources = [...customById.values()];
-    state.channelLibraryVersion = 1;
+    state.channelLibraryVersion = Math.max(1, version);
     state.channelLibrary = channelLibrary;
     return json({ ok: true, exists: true, state, hashtags, version, updated_at });
   }
