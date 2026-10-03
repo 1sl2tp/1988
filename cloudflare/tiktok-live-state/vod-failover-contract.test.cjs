@@ -54,4 +54,9 @@ assert.match(worker,/source:"tiktok-post-item-list"/);
 
 assert.ok(worker.includes('async function fetchTikTokProfileVideoLinks(rawHandle,count=5)'));
 assert.ok(worker.includes('source:"tiktok-profile-html"'));
+assert.ok(worker.includes('function tikTokHydrationPayloads(html)'));
+assert.ok(worker.includes('__UNIVERSAL_DATA_FOR_REHYDRATION__'));
+assert.ok(worker.includes('SIGI_STATE'));
+assert.ok(worker.includes('function tikTokRowsFromPayload(payload,rawHandle,max=30)'));
+assert.ok(worker.includes('const hydrated=[...byId.values()]'));
 console.log('tiktok VOD direct-url + failover contract ok');

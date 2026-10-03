@@ -338,9 +338,73 @@ async function resolveTikTokSecUid(rawHandle){
   }
 }
 
+function decodeTikTokHtmlJsonText(text){
+  return String(text||"")
+    .replace(/&quot;/gi,'"')
+    .replace(/&#34;/g,'"')
+    .replace(/&amp;/gi,"&")
+    .replace(/&#39;/g,"'")
+    .trim();
+}
+
+function tikTokHydrationPayloads(html){
+  const out=[];
+  const re=/<script\b[^>]*\bid=["'](?:__UNIVERSAL_DATA_FOR_REHYDRATION__|SIGI_STATE)["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while((m=re.exec(String(html||"")))){
+    const raw=decodeTikTokHtmlJsonText(m[1]);
+    if(!raw)continue;
+    try{out.push(JSON.parse(raw))}catch{}
+  }
+  return out;
+}
+
+function tikTokRowsFromPayload(payload,rawHandle,max=30){
+  const handle=normalizeHandle(rawHandle);
+  const rows=[];
+  const seenIds=new Set();
+  const seenObjects=new WeakSet();
+  const walk=(value,depth=0)=>{
+    if(!value||typeof value!=="object"||depth>10||rows.length>=max)return;
+    if(seenObjects.has(value))return;
+    seenObjects.add(value);
+
+    if(!Array.isArray(value)){
+      const id=normalizeVideoId(value?.id||value?.itemId||value?.aweme_id||value?.video_id||"");
+      const author=value?.author||value?.authorInfo||value?.user||{};
+      const authorHandle=normalizeHandle(author?.uniqueId||author?.unique_id||"");
+      const video=value?.video||value?.videoInfo||{};
+      const looksLikeVideo=Boolean(id&&(value?.video||value?.desc!==undefined||value?.description!==undefined||value?.stats||value?.statistics));
+      if(looksLikeVideo&&(!authorHandle||authorHandle.toLowerCase()===handle.toLowerCase())&&!seenIds.has(id)){
+        seenIds.add(id);
+        rows.push({
+          id,
+          handle,
+          title:String(value?.desc||value?.description||value?.title||"").slice(0,300),
+          thumbnail:firstTikTokUrl(video?.cover||video?.originCover||video?.dynamicCover||video?.cover?.urlList||video?.originCover?.urlList||value?.cover),
+          createTime:Number(value?.createTime||value?.create_time||0),
+          pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id
+        });
+      }
+    }
+
+    if(Array.isArray(value)){
+      for(const child of value)walk(child,depth+1);
+    }else{
+      for(const child of Object.values(value)){
+        walk(child,depth+1);
+        if(rows.length>=max)break;
+      }
+    }
+  };
+  walk(payload);
+  return rows;
+}
+
 async function fetchTikTokProfileVideoLinks(rawHandle,count=5){
   const handle=normalizeHandle(rawHandle);
   if(!handle)return [];
+  const wanted=Math.max(1,Math.min(5,Number(count)||5));
   try{
     const r=await fetch("https://www.tiktok.com/@"+encodeURIComponent(handle),{
       headers:{
@@ -351,14 +415,35 @@ async function fetchTikTokProfileVideoLinks(rawHandle,count=5){
       redirect:"follow"
     });
     if(!r.ok)return [];
-    let html=await r.text();
-    html=html.replace(/\\u002F/gi,"/").replace(/\\\//g,"/").replace(/&quot;/gi,'"').replace(/&#34;/g,'"');
+    const html=await r.text();
+
+    const byId=new Map();
+    for(const payload of tikTokHydrationPayloads(html)){
+      for(const row of tikTokRowsFromPayload(payload,handle,60)){
+        if(!byId.has(row.id))byId.set(row.id,row);
+      }
+    }
+    const hydrated=[...byId.values()]
+      .sort((a,b)=>{
+        const at=Number(a.createTime||0),bt=Number(b.createTime||0);
+        if(at!==bt)return bt-at;
+        try{
+          const aa=BigInt(a.id),bb=BigInt(b.id);
+          return aa===bb?0:(aa>bb?-1:1);
+        }catch{
+          return String(b.id).localeCompare(String(a.id));
+        }
+      })
+      .slice(0,wanted);
+    if(hydrated.length)return hydrated;
+
+    const normalized=String(html||"").replace(/\\u002F/gi,"/").replace(/\\\//g,"/");
     const ids=new Set();
     const safe=handle.replace(/[.*+?^$()|[\]\\]/g,"\\$&");
     const patterns=[new RegExp("/@"+safe+"/video/(\\d{8,})","gi"),/\/video\/(\d{8,})/gi];
     for(const re of patterns){
       let m;
-      while((m=re.exec(html))){
+      while((m=re.exec(normalized))){
         const id=normalizeVideoId(m[1]||"");
         if(id)ids.add(id);
         if(ids.size>=80)break;
@@ -366,10 +451,19 @@ async function fetchTikTokProfileVideoLinks(rawHandle,count=5){
       if(ids.size>=80)break;
     }
     return [...ids]
-      .sort((a,b)=>{try{const aa=BigInt(a),bb=BigInt(b);return aa===bb?0:(aa>bb?-1:1)}catch{return String(b).localeCompare(String(a))}})
-      .slice(0,Math.max(1,Math.min(5,Number(count)||5)))
+      .sort((a,b)=>{
+        try{
+          const aa=BigInt(a),bb=BigInt(b);
+          return aa===bb?0:(aa>bb?-1:1);
+        }catch{
+          return String(b).localeCompare(String(a));
+        }
+      })
+      .slice(0,wanted)
       .map(id=>({id,handle,title:"",thumbnail:"",createTime:0,pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id}));
-  }catch{return []}
+  }catch{
+    return [];
+  }
 }
 
 async function fetchTikTokLatestFive(rawHandle,count=5){
