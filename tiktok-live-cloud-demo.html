@@ -170,6 +170,19 @@ function renderVideos(rows){
   });
 }
 
+async function resolveTikwmVideo(row){
+  const pageUrl=String(row?.pageUrl||("https://www.tiktok.com/@"+row.handle+"/video/"+row.id));
+  const api="https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl);
+  const data=await getJson(api,12000);
+  if(Number(data?.code)!==0)throw new Error(String(data?.msg||("TikWM code "+data?.code)));
+  const body=data?.data||{};
+  let url=String(body?.hdplay||body?.play||"").trim();
+  if(!url)throw new Error("TikWM không trả link phát");
+  if(url.startsWith("//"))url="https:"+url;
+  else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
+  return url;
+}
+
 async function resolveBhwaVideo(row){
   const pageUrl=String(row?.pageUrl||("https://www.tiktok.com/@"+row.handle+"/video/"+row.id));
   const api="https://downloader-api.bhwa233.com/api/parse?url="+encodeURIComponent(pageUrl);
@@ -194,18 +207,9 @@ async function playChannelVideo(row){
   const id=String(row?.id||"");
   if(!h||!/^\d{8,}$/.test(id))return;
 
-  const tikwmRedirect=
-    EDGE+"/tiktok/video-direct?user="+encodeURIComponent(h)+
-    "&id="+encodeURIComponent(id)+"&t="+Date.now();
-
-  streamUrlEl.value=tikwmRedirect;
-  nowEl.textContent="@"+h+" · đang mở video bằng TikWM HD…";
-  video.src=tikwmRedirect;
-  video.load();
-
   let bhwaTried=false;
   const tryBhwa=async()=>{
-    if(bhwaTried)return;
+    if(bhwaTried)return false;
     bhwaTried=true;
     try{
       const direct=await resolveBhwaVideo(row);
@@ -214,16 +218,28 @@ async function playChannelVideo(row){
       video.src=direct;
       video.load();
       await video.play().catch(()=>{});
+      return true;
     }catch(error){
       nowEl.textContent="Không mở được video: "+String(error?.message||error);
+      return false;
     }
   };
 
-  video.onerror=()=>{ video.onerror=null; tryBhwa(); };
   try{
-    await video.play();
-  }catch(error){
-    if(String(error?.name||"")==="NotAllowedError")return;
+    nowEl.textContent="@"+h+" · đang lấy TikWM HD…";
+    const direct=await resolveTikwmVideo(row);
+    streamUrlEl.value=direct;
+    nowEl.textContent="@"+h+" · TikWM";
+    video.onerror=()=>{ video.onerror=null; tryBhwa(); };
+    video.src=direct;
+    video.load();
+    try{
+      await video.play();
+    }catch(error){
+      if(String(error?.name||"")==="NotAllowedError")return;
+      await tryBhwa();
+    }
+  }catch{
     await tryBhwa();
   }
 }

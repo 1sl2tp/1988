@@ -21,11 +21,14 @@ assert.match(demo,/renderVideos\(data\.videos\)/);
 assert.doesNotMatch(demo,/target="_blank"/);
 assert.match(demo,/data-video-i/);
 assert.match(demo,/async function playChannelVideo\(row\)/);
-assert.match(demo,/\/tiktok\/video-direct\?user=/);
+assert.doesNotMatch(demo,/\/tiktok\/video-direct\?user=/);
+assert.match(demo,/async function resolveTikwmVideo\(row\)/);
+assert.match(demo,/www\.tikwm\.com\/api\/\?url=/);
+assert.match(demo,/body\?\.hdplay\|\|body\?\.play/);
 assert.match(demo,/async function resolveBhwaVideo\(row\)/);
 assert.match(demo,/downloader-api\.bhwa233\.com\/api\/parse\?url=/);
 assert.doesNotMatch(demo,/onrender\.com/);
 assert.match(demo,/TikWM HD/);
 assert.match(demo,/BHWA/);
 
-console.log('tiktok demo: video/live switching works and compact player keeps full frame visible');
+console.log('tiktok demo: browser resolves TikWM directly, BHWA only on real fallback');
