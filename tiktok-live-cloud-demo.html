@@ -45,11 +45,12 @@
       </div></div>
       <div class="body">
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
-          <button type="button" data-source="tikwm" class="active">TikWM</button>
-          <button type="button" data-source="clipx">ClipX</button>
-          <button type="button" data-source="bhwa">Bhwa API</button>
+          <button type="button" data-source="tikwm_hd" class="active">TikWM HD</button>
+          <button type="button" data-source="tikwm_std">TikWM Standard</button>
+          <button type="button" data-source="bhwa_play">Bhwa Play</button>
+          <button type="button" data-source="voidfetch">VoidFetch Player</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">Browser gọi thẳng TikWM / ClipX / Bhwa. Nguồn nào chặn/CORS thì báo lỗi tại đây.</div>
+        <div class="sourceinfo" id="sourceInfo">TikWM HD/Standard phát direct; Bhwa Play dùng /api/play; VoidFetch Player mở nguyên player của VoidFetch.</div>
         <div class="player">
           <video id="video" playsinline controls></video>
           <iframe id="iframe" title="TikTok player" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
@@ -94,7 +95,7 @@ let videos=[
 let vodOpenCount=0;
 let vodSeq=0;
 let playerMode="auto";
-let selectedSource="tikwm";
+let selectedSource="tikwm_hd";
 let currentVodIndex=-1;
 const LIVE_CACHE_MS=60_000;
 
@@ -148,71 +149,29 @@ function writeVodLinkCache(item,source,url){
   if(!/^https?:\/\//i.test(String(url||"")))return;
   try{sessionStorage.setItem(vodLinkCacheKey(item,source),JSON.stringify({at:Date.now(),url:String(url)}))}catch{}
 }
-function pickJsonVideoUrl(data,pageUrl){
-  const found=[];
-  const seen=new Set();
-  const walk=(node,path="",depth=0)=>{
-    if(node==null||depth>10)return;
-    if(typeof node==="string"){
-      const url=String(node||"").trim();
-      if(!/^https?:\/\//i.test(url)||url===pageUrl)return;
-      const key=path.toLowerCase();
-      let score=0;
-      if(/downloadvideourl|origindownloadvideourl|standard_mp4|hd_mp4|video\.url|streamurl/.test(key))score+=180;
-      if(/\.mp4(?:$|[?#])/i.test(url))score+=120;
-      if(/tiktokcdn|byteoversea|ibytedtos|muscdn|akamaized/i.test(url))score+=60;
-      if(/video|download|play|stream|hd/.test(key))score+=40;
-      if(/audio|music|mp3|m4a|cover|avatar|image|thumb/.test(key))score-=220;
-      found.push({url,score});
-      return;
-    }
-    if(typeof node!=="object"||seen.has(node))return;
-    seen.add(node);
-    if(Array.isArray(node)){node.forEach((v,i)=>walk(v,path+"["+i+"]",depth+1));return}
-    Object.entries(node).forEach(([k,v])=>walk(v,path?path+"."+k:k,depth+1));
-  };
-  walk(data);
-  found.sort((a,b)=>b.score-a.score);
-  return String(found[0]?.url||"");
-}
 async function resolveVodDirect(item,source){
   const cached=readVodLinkCache(item,source);
   if(cached)return {url:cached,cached:true};
   const pageUrl=vodPageUrl(item);
   let url="";
 
-  if(source==="tikwm"){
+  if(source==="tikwm_hd"||source==="tikwm_std"){
     const data=await json("https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl),12000);
     const body=data?.data||{};
-    url=String(body.play||body.hdplay||body.wmplay||"").trim();
+    url=String(
+      source==="tikwm_hd"
+        ? (body.hdplay||body.play||"")
+        : (body.play||body.hdplay||"")
+    ).trim();
     if(url.startsWith("//"))url="https:"+url;
     else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
-  }else if(source==="clipx"){
-    const data=await json(
-      "https://clipx.zamdev.workers.dev/?url="+encodeURIComponent(pageUrl)+
-      "&quality=best&audio=false&cover=false&metadata=false&cache=true",
-      15000
-    );
-    if(data?.success===false)throw new Error(String(data?.error||"ClipX lỗi"));
-    const v=data?.data?.video||{};
-    url=String(v.hd_mp4||v.standard_mp4||v.wmplay||"").trim();
-    if(!url)url=pickJsonVideoUrl(data,pageUrl);
-  }else if(source==="bhwa"){
-    const data=await json(
-      "https://downloader-api.bhwa233.com/api/parse?url="+encodeURIComponent(pageUrl),
-      15000
-    );
-    if(data?.success===false)throw new Error(String(data?.error||data?.message||"Bhwa lỗi"));
-    const d=data?.data||{};
-    url=String(
-      d.downloadVideoUrl||
-      d.originDownloadVideoUrl||
-      d.streamUrl||
-      ""
-    ).trim();
-    if(!url)url=pickJsonVideoUrl(data,pageUrl);
+  }else if(source==="bhwa_play"){
+    url=
+      "https://downloader-api.bhwa233.com/api/play?url="+
+      encodeURIComponent(pageUrl)+
+      "&type=video";
   }else{
-    throw new Error("Nguồn không hỗ trợ");
+    throw new Error("Nguồn không hỗ trợ direct media");
   }
 
   if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
@@ -282,6 +241,28 @@ function playLive(item){
 function iframeUrl(item){
   return "https://www.tiktok.com/player/v1/"+encodeURIComponent(item.id)+"?autoplay=1&muted=0&loop=1&rel=0&description=0&music_info=0";
 }
+function voidFetchPlayerUrl(item){
+  return "https://void-fetch.vercel.app/vi/play?play="+encodeURIComponent(vodPageUrl(item))+"&autoplay=1";
+}
+function playVodVoidFetch(item){
+  stop();
+  const seq=vodSeq;
+  const started=performance.now();
+  video.style.display="none";
+  iframe.style.display="block";
+  sourceInfo.className="sourceinfo";
+  sourceInfo.textContent="VoidFetch Player · đang mở…";
+  iframe.onload=()=>{
+    if(seq!==vodSeq)return;
+    const sec=((performance.now()-started)/1000).toFixed(2);
+    sourceInfo.className="sourceinfo ok";
+    sourceInfo.textContent="VoidFetch Player · tải xong "+sec+"s";
+    nowEl.textContent=(item.title||("Video "+item.id))+" · VOIDFETCH · "+sec+"s";
+  };
+  iframe.src=voidFetchPlayerUrl(item);
+  nowEl.textContent=(item.title||("Video "+item.id))+" · VOIDFETCH";
+}
+
 function playVodIframe(item){
   stop();
   const seq=vodSeq;
@@ -356,6 +337,7 @@ function playVod(index){
   if(!item?.id)return;
   currentVodIndex=index;
   if(playerMode==="iframe"){playVodIframe(item);return}
+  if(selectedSource==="voidfetch"){playVodVoidFetch(item);return}
   playVodMedia(item,{iframeFallback:playerMode==="auto",source:selectedSource});
 }
 function setPlayerMode(mode){

@@ -3,26 +3,28 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const demo=fs.readFileSync('tiktok-live-cloud-demo.html','utf8');
 
-assert.match(demo,/data-source="tikwm"/);
-assert.match(demo,/data-source="clipx"/);
-assert.match(demo,/data-source="bhwa"/);
+for(const source of ['tikwm_hd','tikwm_std','bhwa_play','voidfetch']){
+  assert.match(demo,new RegExp('data-source="'+source+'"'));
+}
 
 assert.match(demo,/https:\/\/www\.tikwm\.com\/api\/\?url=/);
-assert.match(demo,/https:\/\/clipx\.zamdev\.workers\.dev\/\?url=/);
-assert.match(demo,/hd_mp4/);
-assert.match(demo,/standard_mp4/);
-assert.match(demo,/https:\/\/downloader-api\.bhwa233\.com\/api\/parse\?url=/);
-assert.match(demo,/downloadVideoUrl/);
-assert.match(demo,/originDownloadVideoUrl/);
+assert.match(demo,/body\.hdplay\|\|body\.play/);
+assert.match(demo,/body\.play\|\|body\.hdplay/);
+assert.doesNotMatch(demo,/wmplay/);
 
-assert.match(demo,/pickJsonVideoUrl/);
+assert.match(demo,/https:\/\/downloader-api\.bhwa233\.com\/api\/play\?url=/);
+assert.match(demo,/&type=video/);
+
+assert.match(demo,/https:\/\/void-fetch\.vercel\.app\/vi\/play\?play=/);
+assert.match(demo,/playVodVoidFetch/);
+
+assert.doesNotMatch(demo,/clipx\.zamdev/);
+assert.doesNotMatch(demo,/data-source="clipx"/);
+assert.doesNotMatch(demo,/ssstik\.vn/);
+assert.doesNotMatch(demo,/vn\.snaptik\.com/);
+
 assert.match(demo,/video\.src=direct/);
 assert.match(demo,/PHÁT ĐƯỢC/);
 assert.match(demo,/GET LINK LỖI/);
 
-assert.doesNotMatch(demo,/ssstik\.vn/);
-assert.doesNotMatch(demo,/vn\.snaptik\.com/);
-assert.doesNotMatch(demo,/\/tiktok\/video-link\?user=/);
-assert.doesNotMatch(demo,/\/tiktok\/video-stream\?user=/);
-
-console.log('tiktok demo browser-direct TikWM ClipX Bhwa contract ok');
+console.log('tiktok demo TikWM no-watermark + Bhwa Play + VoidFetch Player contract ok');
