@@ -113,10 +113,16 @@ Patch:
   - queue hiển thị LIVE pill và dùng cùng sequence.
 - `07fbf33f156cd8294f9ad3645dc263349f97e9d0`:
   - sửa regression trước deploy: profile thumbnail grid phải giữ cố định 9:16; chỉ Watch player dùng ratio thật;
-  - PWA **v88**.
+  - PWA v88.
+- `c3401f112146ea2e9c78664bef30942f29a3ce6e`:
+  - mobile smart landing ≤656px được coi là một LIVE-aware surface khi visible;
+  - chạy đúng một `runTikTokLiveCycle({smartLanding:true})` trước khi chọn item đầu;
+  - hidden / đóng web / không ở TikTok mobile thì không scan;
+  - không tạo timer/cron mới;
+  - PWA **v89**.
 
 Production verify:
-- Deploy 1988 Player run `37144911223`: **SUCCESS**;
+- Deploy 1988 Player run `37145155222`: **SUCCESS**;
 - frontend contracts, artifact build, deploy và custom-domain verify đều PASS.
 
 Resource/data:
@@ -130,7 +136,7 @@ Rule:
 - TikTok Watch = exact source ratio + `object-fit:contain`; cấm snap ratio để lấp khung.
 - LIVE cover = LIVE-origin only; thiếu thì avatar, không dùng VOD cover.
 - Navigation ↑↓ / wheel / swipe phải đi qua cùng `tiktokWatchSequence`.
-- Mobile TikTok landing ưu tiên LIVE playable, sau đó latest VOD per channel.
+- Mobile TikTok landing visible chạy một demand cycle LIVE trước, rồi ưu tiên LIVE playable; nếu không có thì latest VOD per channel.
 
 Impact:
 - Browser/UI/player orchestration only.
