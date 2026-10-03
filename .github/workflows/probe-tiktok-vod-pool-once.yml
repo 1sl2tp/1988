@@ -1,4 +1,4 @@
-name: Probe TikTok RSS Bridge JSON
+name: Probe Production TikTok Channel Videos
 on:
   push:
     branches: [main]
@@ -12,13 +12,13 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe RSS-Bridge JSON
+      - name: Probe production worker
         shell: bash
         run: |
           set -u
-          URL='https://rss-bridge.org/bridge01/?action=display&bridge=TikTokBridge&context=By%20user&username=%40tu.thuong_lay_minh_1&format=Json'
-          curl -sS -L --max-time 30 -D /tmp/h "$URL" -o /tmp/body || true
+          URL='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/channel-videos?user=tu.thuong_lay_minh_1&count=5'
+          curl -sS --max-time 30 -D /tmp/h "$URL" -o /tmp/body || true
           cat /tmp/h
           echo
-          head -c 16000 /tmp/body
+          cat /tmp/body
           echo
