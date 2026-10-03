@@ -185,6 +185,8 @@ if(simpleProduction){
   assert.match(html,/commitCurrentAspect\(id,detected,\{relayout:true,provider:"tiktok"\}\)/);
   assert.doesNotMatch(html,/current\.ratio=detectedKind==="portrait"\?9\/16:16\/9/);
   assert.match(html,/TikTok Watch navigation \+ exact source geometry/);
+  assert.match(html,/\.row\.tiktok-profile-video \.row-thumb\{[\s\S]{0,100}aspect-ratio:9\/16!important/);
+  assert.doesNotMatch(html,/\.row\.tiktok-profile-video \.row-thumb\{[\s\S]{0,100}aspect-ratio:var\(--media-ratio\)!important/);
   assert.match(html,/tiktok-ui\.tiktok-watch\.landscape \.stage[\s\S]{0,260}aspect-ratio:var\(--media-ratio\)!important/);
   assert.doesNotMatch(html,/latestCover[\s\S]{0,260}meta\.livePreview=latestCover/);
   assert.match(html,/matchMedia\("\(max-width:656px\)"\)\.matches&&!explicitHandle[\s\S]{0,420}firstLive/);
