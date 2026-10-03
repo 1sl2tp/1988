@@ -86,6 +86,28 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.25. TikTok demo VOD — TikWM → TTDownloader → BHWA, luôn ưu tiên HQ
+
+Thời gian: **2026-10-04**.
+
+- Owner: **TikTok VOD demo + TTDownloader resolver**. MAIN và TikTok LIVE không đổi.
+- Demo `/tiktok-live-cloud-demo.html` chỉ còn 3 nguồn media:
+  1. `tikwm_hd` = TikWM;
+  2. `ttdownloader` = **TTDownloader**;
+  3. `bhwa_get` = BHWA.
+- **TTDownloader và TDown là hai provider khác nhau. Demo dùng TTDownloader, không dùng TDown.**
+- Auto gọi tuần tự **TikWM → TTDownloader → BHWA**; mỗi lần chỉ gọi một nguồn, lỗi thật mới chuyển nguồn kế tiếp; không fan-out.
+- Chất lượng:
+  - TikWM ưu tiên `hdplay` rồi mới `play`;
+  - TTDownloader ưu tiên option **No Watermark** và nhãn **HD / High Quality / 1080 / Original** trước generic link;
+  - BHWA ưu tiên `originDownloadVideoUrl` trước `downloadVideoUrl` / `streamUrl`.
+- Frontend commit: `0ac8c6d32905c8a576670d112343eebcb856f048`.
+- Worker HQ commit: `00b0759e10c72f2bceeb13c40f40a255a7345f33`.
+- Deploy 1988 Player run `37155880303`: **SUCCESS**.
+- Deploy TikTok Live State Edge run `37155955038`: **SUCCESS**; edge contracts PASS, Worker deploy PASS, zero LIVE schedules enforcement PASS.
+- Rollback frontend: `c4a3ccd29c64f8c868faf9f1908ab4bc9143a894`.
+- Rollback Worker: `0ac8c6d32905c8a576670d112343eebcb856f048`.
+
 ### 3.24. TikTok demo VOD — 2 video mẫu cố định
 
 Thời gian: **2026-10-04**.

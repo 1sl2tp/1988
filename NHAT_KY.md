@@ -1,3 +1,15 @@
+## 2026-10-04 — TikTok VOD demo dùng TTDownloader, không phải TDown
+
+- Sửa demo chỉ còn **TikWM → TTDownloader → BHWA**.
+- Xác nhận **TTDownloader ≠ TDown**; source `tdown` không còn ở demo.
+- Auto chỉ gọi một provider mỗi lần; lỗi mới chuyển provider kế tiếp.
+- Luôn ưu tiên chất lượng cao nhất:
+  - TikWM: `hdplay` trước `play`;
+  - TTDownloader: ưu tiên No Watermark + HD/High Quality/1080/Original;
+  - BHWA: `originDownloadVideoUrl` trước.
+- Frontend commit `0ac8c6d32905c8a576670d112343eebcb856f048` — Deploy 1988 Player `37155880303` SUCCESS.
+- Worker commit `00b0759e10c72f2bceeb13c40f40a255a7345f33` — Deploy TikTok Live State Edge `37155955038` SUCCESS.
+
 # NHẬT KÝ 1988
 
 ## 2026-09-28 — Chốt giao diện proof làm MAIN chính
