@@ -66,7 +66,7 @@ if(simpleProduction){
   assert.match(html,/writeStoredPackage\(scope,pkg\)/);
   assert.match(html,/const STARTUP_SCOPE=["']latest["']/);
   assert.match(html,/restoreStoredPackage\(scope\)/);
-  assert.match(html,/restoreStoredPackage\(["']live["']\)/);
+  assert.match(html,/ensurePreparedPackageReady\(["']live["']\)/);
   assert.match(html,/function oneLatestVideoPerChannel\(/);
   assert.match(html,/function preloadStartupLiveLists\(/);
   assert.match(html,/function syncPreparedScopeAfterWake\(/);
