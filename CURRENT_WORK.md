@@ -1281,3 +1281,15 @@ Next probe:
 - Direct URL được lưu localStorage không TTL cứng; chỉ xóa khi video thực sự lỗi. Với Bhwa GetLink, lỗi media sẽ get mới đúng 1 lần.
 - Giữ `Bhwa Play` và `VoidFetch Player` chỉ để đối chiếu; không qua Cloud VOD.
 - TikTok LIVE rule 3.23 không đổi.
+
+
+### 3.27. TikTok demo — direct-only TikWM + Bhwa
+- Bỏ Bhwa Play và VoidFetch Player khỏi nguồn VOD demo; chúng chỉ là wrapper/player và có thể hiển thị UI/logo riêng.
+- Nguồn chính còn TikWM HD, TikWM Standard và Bhwa Direct.
+- TikWM tuyệt đối không dùng `wmplay`; chỉ `hdplay/play`.
+- Bhwa Direct gọi browser-side `https://downloader-api.bhwa233.com/api/parse?url=<TikTok URL>`.
+- Ưu tiên `originDownloadVideoUrl`, sau đó `downloadVideoUrl`; direct CDN/MP4 được ưu tiên hơn wrapper `/api/play` hoặc `/api/download`.
+- Direct URL được gán thẳng vào native `<video>`; player VoidFetch/TikTok không nằm trong nhánh Bhwa Direct.
+- Link lưu tới khi media thực sự lỗi; link chết mới xóa/get lại đúng 1 lần.
+- Mục tiêu là lấy media no-watermark/no-player-overlay. Backend Bhwa public UI mô tả TikTok download no-watermark; việc một candidate cụ thể có watermark bake vào pixels vẫn phải xác nhận bằng phát thực tế.
+- TikTok LIVE không đổi.

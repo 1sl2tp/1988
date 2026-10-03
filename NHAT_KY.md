@@ -864,3 +864,10 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Thêm Bhwa GetLink trực tiếp từ browser, đọc direct video candidates từ `/api/parse`.
 - Lưu direct URL đến khi media lỗi thay vì TTL 5 phút; link chết mới xóa/get lại một lần.
 - Không thay đổi TikTok LIVE và không proxy VOD qua Cloud.
+
+
+## 2026-10-04 — TikTok VOD direct-only Bhwa
+- Bỏ Bhwa Play + VoidFetch Player khỏi lựa chọn VOD chính.
+- Bhwa dùng /api/parse như TikWM: get direct URL rồi phát thẳng.
+- Ưu tiên originDownloadVideoUrl, tránh wrapper player/download nếu có direct CDN.
+- TikWM giữ no-watermark path hdplay/play, không wmplay.

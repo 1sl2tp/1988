@@ -47,11 +47,9 @@
         <div class="sourcebar"><span>Nguồn Media:</span><div class="sources" id="sources">
           <button type="button" data-source="tikwm_hd" class="active">TikWM HD</button>
           <button type="button" data-source="tikwm_std">TikWM Standard</button>
-          <button type="button" data-source="bhwa_get">Bhwa GetLink</button>
-          <button type="button" data-source="bhwa_play">Bhwa Play</button>
-          <button type="button" data-source="voidfetch">VoidFetch Player</button>
+          <button type="button" data-source="bhwa_get">Bhwa Direct</button>
         </div></div>
-        <div class="sourceinfo" id="sourceInfo">Bhwa GetLink lấy direct URL từ /api/parse và giữ tới khi link chết; Bhwa Play/VoidFetch Player giữ để đối chiếu.</div>
+        <div class="sourceinfo" id="sourceInfo">Chỉ phát direct URL. TikWM không dùng wmplay; Bhwa ưu tiên originDownloadVideoUrl để tránh player/logo trung gian.</div>
         <div class="sourceinfo" id="candidateInfo"></div>
         <div class="player">
           <video id="video" playsinline controls></video>
@@ -169,18 +167,21 @@ function collectBhwaVideoCandidates(data,pageUrl){
     const lower=url.toLowerCase();
     if(/audio|\.mp3(?:$|[?#])|\.m4a(?:$|[?#])/.test(lower))return;
     if(rows.some(x=>x.url===url))return;
-    rows.push({label,url,priority});
+    let score=priority;
+    if(/tiktokcdn|byteoversea|ibytedtos|muscdn|akamaized|\.mp4(?:$|[?#])/i.test(url))score+=80;
+    if(/downloader-api\.bhwa233\.com\/api\/(?:play|download)/i.test(url))score-=180;
+    rows.push({label,url,priority:score,direct:score>=priority});
   };
   const d=data?.data||{};
-  add("originDownloadVideoUrl",d.originDownloadVideoUrl,300);
-  add("downloadVideoUrl",d.downloadVideoUrl,250);
-  add("streamUrl",d.streamUrl,220);
+  add("originDownloadVideoUrl",d.originDownloadVideoUrl,500);
+  add("downloadVideoUrl",d.downloadVideoUrl,350);
+  add("streamUrl",d.streamUrl,300);
   (d.videos||[]).forEach((v,i)=>{
-    add("videos["+(i+1)+"].origin",v?.originDownloadVideoUrl,190);
-    add("videos["+(i+1)+"].download",v?.downloadVideoUrl,180);
+    add("videos["+(i+1)+"].origin",v?.originDownloadVideoUrl,260);
+    add("videos["+(i+1)+"].download",v?.downloadVideoUrl,220);
   });
   (d.pages||[]).forEach((v,i)=>{
-    add("pages["+(i+1)+"].download",v?.downloadVideoUrl,160);
+    add("pages["+(i+1)+"].download",v?.downloadVideoUrl,180);
   });
   return rows.sort((a,b)=>b.priority-a.priority);
 }
@@ -225,11 +226,6 @@ async function resolveVodDirect(item,source,{force=false}={}){
   }else if(source==="bhwa_get"){
     const parsed=await fetchBhwaParse(item,{force});
     url=String(parsed.rows[0]?.url||"");
-  }else if(source==="bhwa_play"){
-    url=
-      "https://downloader-api.bhwa233.com/api/play?url="+
-      encodeURIComponent(pageUrl)+
-      "&type=video";
   }else{
     throw new Error("Nguồn không hỗ trợ direct media");
   }
@@ -301,28 +297,6 @@ function playLive(item){
 function iframeUrl(item){
   return "https://www.tiktok.com/player/v1/"+encodeURIComponent(item.id)+"?autoplay=1&muted=0&loop=1&rel=0&description=0&music_info=0";
 }
-function voidFetchPlayerUrl(item){
-  return "https://void-fetch.vercel.app/vi/play?play="+encodeURIComponent(vodPageUrl(item))+"&autoplay=1";
-}
-function playVodVoidFetch(item){
-  stop();
-  const seq=vodSeq;
-  const started=performance.now();
-  video.style.display="none";
-  iframe.style.display="block";
-  sourceInfo.className="sourceinfo";
-  sourceInfo.textContent="VoidFetch Player · đang mở…";
-  iframe.onload=()=>{
-    if(seq!==vodSeq)return;
-    const sec=((performance.now()-started)/1000).toFixed(2);
-    sourceInfo.className="sourceinfo ok";
-    sourceInfo.textContent="VoidFetch Player · tải xong "+sec+"s";
-    nowEl.textContent=(item.title||("Video "+item.id))+" · VOIDFETCH · "+sec+"s";
-  };
-  iframe.src=voidFetchPlayerUrl(item);
-  nowEl.textContent=(item.title||("Video "+item.id))+" · VOIDFETCH";
-}
-
 function playVodIframe(item){
   stop();
   const seq=vodSeq;
@@ -354,7 +328,7 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
     const getSec=((performance.now()-started)/1000).toFixed(2);
     if(mySeq!==vodSeq)return;
 
-    sourceInfo.textContent=source.toUpperCase()+" · có link sau "+getSec+"s"+(resolved?.cached?" (cache)":"")+" · đang mở video…";
+    sourceInfo.textContent=(source==="bhwa_get"?"BHWA DIRECT":source.toUpperCase())+" · có link sau "+getSec+"s"+(resolved?.cached?" (cache)":"")+" · đang mở video…";
     nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · "+source.toUpperCase()+" · link "+getSec+"s";
 
     video.style.display="block";
@@ -364,7 +338,7 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource,for
       if(mySeq!==vodSeq)return;
       const total=((performance.now()-started)/1000).toFixed(2);
       sourceInfo.className="sourceinfo ok";
-      sourceInfo.textContent=source.toUpperCase()+" · PHÁT ĐƯỢC · "+total+"s (get "+getSec+"s)";
+      sourceInfo.textContent=(source==="bhwa_get"?"BHWA DIRECT":source.toUpperCase())+" · PHÁT ĐƯỢC · "+total+"s (get "+getSec+"s)";
       nowEl.textContent=(item.title||("Video "+item.id))+" · "+source.toUpperCase()+" · "+total+"s";
     };
     video.addEventListener("playing",onPlaying,{once:true});
@@ -404,7 +378,6 @@ function playVod(index){
   if(!item?.id)return;
   currentVodIndex=index;
   if(playerMode==="iframe"){playVodIframe(item);return}
-  if(selectedSource==="voidfetch"){playVodVoidFetch(item);return}
   playVodMedia(item,{iframeFallback:playerMode==="auto",source:selectedSource});
 }
 function setPlayerMode(mode){
