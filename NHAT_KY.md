@@ -449,3 +449,33 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - source change chỉ check 1 channel;
   - không tăng cron/polling;
   - không preload LIVE package khi LIVE không visible.
+
+
+## 2026-10-03 — Giảm Egress yt1988-state bằng manifest/lite/library
+
+- Baseline ảnh Free plan: Egress 1.49/5 GB, DB 48/500 MB, Storage 0.06/1 GB, Log Ingestion 0.19/1 GB, Log Query 17.9/100 GB.
+- Điều tra 6 giờ trước sửa:
+  - `yt1988-state` 1,545 requests;
+  - khoảng 228.4 MB response;
+  - Cloudflare LIVE khoảng 134 MB; browser khoảng 90 MB.
+- Root cause: full state chứa source rows + 1,231 YouTube channel library + 173 TikTok profiles và metadata lặp.
+- Kiến trúc mới:
+  - `view=manifest` hash-only;
+  - `view=lite` source membership/keyword/tab state only;
+  - `view=library` full channel library chỉ cho `/sources/`.
+- MAIN: manifest → hash compare → lite chỉ khi stateHash đổi.
+- Cloudflare LIVE: chỉ `?view=lite`.
+- /sources/: IndexedDB `yt1988-source-cache-v1`; manifest check; library chỉ tải khi `libraryHash` đổi.
+- `libraryHash` chỉ theo channel directory + TikTok profile, không đổi do chọn/chặn.
+- Production measurements:
+  - manifest raw 236 B;
+  - lite raw 24,723 B, giảm từ 256,089 B (~90%);
+  - Cloudflare targeted sync nhận lite khoảng 16,275 B transmitted;
+  - library raw ~1.40 MB nhưng demand-only/versioned.
+- Runtime:
+  - `yt1988-state v11` ACTIVE;
+  - Cloudflare Worker state-lite deploy step PASS + zero schedules PASS in run `37135851230`;
+  - frontend deploy `37136133606` SUCCESS;
+  - PWA v74; source manager JS v22.
+- Targeted Dân Ca Lofi sync vẫn HTTP 200; không full scan.
+- Regression contracts cập nhật để MAIN/Cloudflare không quay lại full-state.
