@@ -189,7 +189,9 @@ if(simpleProduction){
   assert.doesNotMatch(html,/\.row\.tiktok-profile-video \.row-thumb\{[\s\S]{0,100}aspect-ratio:var\(--media-ratio\)!important/);
   assert.match(html,/tiktok-ui\.tiktok-watch\.landscape \.stage[\s\S]{0,260}aspect-ratio:var\(--media-ratio\)!important/);
   assert.doesNotMatch(html,/latestCover[\s\S]{0,260}meta\.livePreview=latestCover/);
-  assert.match(html,/matchMedia\("\(max-width:656px\)"\)\.matches&&!explicitHandle[\s\S]{0,420}firstLive/);
+  assert.match(html,/function tiktokSmartLandingDemandActive\(\)[\s\S]{0,260}activePlatformNav==="tiktok"[\s\S]{0,160}max-width:656px/);
+  assert.match(html,/runTikTokLiveCycle\(\{smartLanding=false\}=\{\}\)[\s\S]{0,260}smartLanding&&tiktokSmartLandingDemandActive/);
+  assert.match(html,/smartMobileLanding[\s\S]{0,420}runTikTokLiveCycle\(\{smartLanding:true\}\)[\s\S]{0,520}firstLive/);
   assert.match(html,/@media\(min-width:1280px\)[\s\S]{0,360}grid-template-areas:"tiktok-accounts media feed"!important/);
   assert.match(html,/@media\(max-width:999px\)[\s\S]{0,260}html\.tiktok-ui\.tiktok-profile main\{[\s\S]{0,80}padding:8px 10px 28px!important/);
   assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}html\.tiktok-ui\.tiktok-profile main\{padding:calc\(var\(--top-boundary\) \+ 8px\)/);

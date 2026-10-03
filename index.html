@@ -7505,6 +7505,15 @@ button.tiktok-watch-action-item{cursor:pointer}
     return !provider||active===String(provider).toLowerCase();
   }
 
+  function tiktokSmartLandingDemandActive(){
+    return (
+      !document.hidden&&
+      activePlatformNav==="tiktok"&&
+      tiktokWorkspaceView==="profile"&&
+      matchMedia("(max-width:656px)").matches
+    );
+  }
+
   function stopYoutubeLiveDemand(){
     youtubeLiveScanSeq++;
     try{youtubeLiveAbortController?.abort()}catch{}
@@ -8968,8 +8977,11 @@ button.tiktok-watch-action-item{cursor:pointer}
     ];
   }
 
-  async function runTikTokLiveCycle(){
-    if(!liveDemandActive("tiktok"))return false;
+  async function runTikTokLiveCycle({smartLanding=false}={}){
+    const demandActive=()=>
+      liveDemandActive("tiktok")||
+      (smartLanding&&tiktokSmartLandingDemandActive());
+    if(!demandActive())return false;
     if(tiktokLiveScanPromise)return tiktokLiveScanPromise;
 
     tiktokLiveScanPromise=(async()=>{
@@ -8990,7 +9002,7 @@ button.tiktok-watch-action-item{cursor:pointer}
           );
           if(!fallback.ok)throw new Error("tiktok_live_sweep_"+fallback.status);
           await fallback.json().catch(()=>null);
-          if(!liveDemandActive("tiktok"))return false;
+          if(!demandActive())return false;
           await refreshTikTokLiveFeed({paint:false,force:true});
           return true;
         }
@@ -9001,7 +9013,7 @@ button.tiktok-watch-action-item{cursor:pointer}
         while(
           state?.ok===true&&
           state?.done!==true&&
-          liveDemandActive("tiktok")
+          demandActive()
         ){
           response=await fetch(
             TIKTOK_LIVE_API+"/tiktok/live-scan?t="+Date.now(),
@@ -9011,7 +9023,7 @@ button.tiktok-watch-action-item{cursor:pointer}
           state=await response.json();
         }
 
-        if(!liveDemandActive("tiktok")||state?.done!==true)return false;
+        if(!demandActive()||state?.done!==true)return false;
         await refreshTikTokLiveFeed({paint:false,force:true});
         return true;
       }catch(error){
@@ -11059,15 +11071,21 @@ button.tiktok-watch-action-item{cursor:pointer}
     channelFeedBackStack.length=0;
     setTikTokWorkspaceView("profile");
 
+    const explicitHandle=String(handle||"").trim().replace(/^@/,"");
+    const smartMobileLanding=
+      matchMedia("(max-width:656px)").matches&&
+      !explicitHandle;
+
     await Promise.all([
       loadTikTokLatestVideoFeed({silent:true}).catch(()=>[]),
-      refreshTikTokLiveFeed({paint:false,force:true}).catch(()=>[])
+      smartMobileLanding
+        ?runTikTokLiveCycle({smartLanding:true}).catch(()=>false)
+        :refreshTikTokLiveFeed({paint:false,force:true}).catch(()=>[])
     ]);
 
     renderTikTokAccountRail();
 
-    const explicitHandle=String(handle||"").trim().replace(/^@/,"");
-    if(matchMedia("(max-width:656px)").matches&&!explicitHandle){
+    if(smartMobileLanding){
       const smart=tiktokSmartWatchSequence();
       if(smart.length){
         tiktokWatchSequence=smart;
