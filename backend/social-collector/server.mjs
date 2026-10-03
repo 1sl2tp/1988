@@ -1357,22 +1357,7 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
     if(!r.ok)throw new Error('tiktok_membership_delete_'+r.status+':'+await r.text());
   }
 
-  // Compatibility mirror only. Nothing reads this table as membership anymore.
-  if(selected){
-    void fetch(
-      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?on_conflict=handle',
-      {
-        method:'POST',
-        headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
-        body:JSON.stringify([{handle}])
-      }
-    ).catch(()=>{});
-  }else{
-    void fetch(
-      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?handle=eq.'+encodeURIComponent(handle),
-      {method:'DELETE',headers:storeHeaders({prefer:'return=minimal'})}
-    ).catch(()=>{});
-  }
+  // yt1988_tiktok_channels.selected is the single membership source of truth.
   return true;
 }
 
@@ -1401,21 +1386,6 @@ async function reconcileTikTokManagedMembership(){
         ).catch(()=>{});
       }
     }
-    // Compatibility table is rebuilt from the canonical managed set.
-    await fetch(
-      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?handle=not.is.null',
-      {method:'DELETE',headers:storeHeaders({prefer:'return=minimal'})}
-    ).catch(()=>{});
-    if(handles.length){
-      await fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?on_conflict=handle',
-        {
-          method:'POST',
-          headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
-          body:JSON.stringify(handles.map(handle=>({handle})))
-        }
-      ).catch(()=>{});
-    }
   }catch(error){
     console.warn('[tiktok-membership] reconcile failed',compactText(error?.message||error,160));
   }
@@ -1433,7 +1403,7 @@ async function loadTikTokLiveStore(){
         {headers:storeHeaders()}
       ),
       fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_package?package_key=eq.live&select=version,payload,updated_at&limit=1',
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_package?package_key=eq.live&select=version,updated_at&limit=1',
         {headers:storeHeaders()}
       )
     ]);
@@ -1571,22 +1541,10 @@ async function persistTikTokLiveStore({force=false}={}){
     const staleLiveUnknownCount=rows.filter(
       row=>row.live&&row.probe_state==='unknown'
     ).length;
+    // This row is only a durable version/health marker. Per-channel state
+    // already lives in yt1988_tiktok_live_channels and the UI reads LIVE from
+    // the Cloudflare edge. Do not duplicate 171 channel rows inside JSONB.
     const payload={
-      items:rows.map(row=>{
-        const publishedLive=isPublishedLive(row);
-        return {
-          handle:row.handle,
-          live:publishedLive,
-          detectedLive:row.probe_state==='live',
-          probeState:row.probe_state,
-          playable:publishedLive,
-          link:publishedLive?row.stream_url:'',
-          type:publishedLive?'flv':'',
-          sourceSig:publishedLive?row.source_sig:'',
-          stateChangedAt:row.state_changed_at,
-          checkedAt:row.checked_at
-        };
-      }),
       total:rows.length,
       live:liveCount,
       playable:playableCount,
@@ -5456,19 +5414,30 @@ async function persistTikTokCanonicalMp4Source(source){
   if(!tiktokCanonicalLoaded)return false;
   const row=tiktokCanonicalVideos.get(String(source.id));
   if(!row||String(row.handle||'').toLowerCase()!==String(source.handle||'').toLowerCase())return false;
+  const nextWidth=width>0?Math.round(width):Number(row.width||0);
+  const nextHeight=height>0?Math.round(height):Number(row.height||0);
+  const nextDuration=Number(source?.duration||0)>0
+    ?Math.round(Number(source.duration))
+    :Number(row.duration||0);
+  const packageMetaChanged=
+    nextWidth!==Number(row.width||0)||
+    nextHeight!==Number(row.height||0)||
+    nextDuration!==Number(row.duration||0);
   const expiresAt=tiktokStreamExpiresAt(source.url)||Date.now()+10*60_000;
-  if(row.mp4_url===source.url&&canonicalMp4Usable(row,90_000))return true;
+  if(row.mp4_url===source.url&&canonicalMp4Usable(row,90_000)&&!packageMetaChanged)return true;
   row.mp4_url=String(source.url||'');
   row.mp4_expires_at=new Date(expiresAt).toISOString();
   row.mp4_source=String(source.source||'yt-dlp');
   row.mp4_updated_at=nowIso();
-  if(width>0)row.width=Math.round(width);
-  if(height>0)row.height=Math.round(height);
-  if(Number(source?.duration||0)>0)row.duration=Math.round(Number(source.duration));
+  row.width=nextWidth;
+  row.height=nextHeight;
+  row.duration=nextDuration;
   row.updated_at=nowIso();
   tiktokCanonicalVideos.set(String(row.video_id),row);
   await upsertTikTokCanonicalRows([], [row]);
-  await persistTikTokCanonicalPackage();
+  // Signed URLs rotate frequently and are not part of the browser package.
+  // Rebuild the large package only if durable metadata changed.
+  if(packageMetaChanged)await persistTikTokCanonicalPackage();
   console.log('[tiktok-mp4-library]',source.handle,source.id,'saved',row.mp4_source);
   return true;
 }
@@ -7076,7 +7045,7 @@ async function loadTikTokVideoStore(){
         {headers:storeHeaders()}
       ),
       fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_package?package_key=eq.latest&select=version,payload,updated_at&limit=1',
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_package?package_key=eq.latest&select=version,updated_at&limit=1',
         {headers:storeHeaders()}
       )
     ]);
@@ -7157,16 +7126,15 @@ async function persistTikTokVideoStore({force=false}={}){
 
   tiktokVideoStoreWritePromise=(async()=>{
     const rows=buildTikTokVideoStoredRows();
+    // Detailed video metadata already exists in yt1988_tiktok_video_channels
+    // and the canonical yt1988_tiktok_videos table. Keep this singleton package
+    // as a tiny version/health marker instead of duplicating the full library.
     const payload={
-      channels:rows.map(row=>({
-        handle:row.handle,
-        secUid:row.sec_uid,
-        latestVideoId:row.latest_video_id,
-        scanStatus:row.scan_status,
-        videos:row.videos
-      })),
       total:rows.length,
-      videoCount:rows.reduce((sum,row)=>sum+row.videos.length,0)
+      videoCount:rows.reduce((sum,row)=>sum+row.videos.length,0),
+      ready:rows.filter(row=>row.scan_status==='ready').length,
+      empty:rows.filter(row=>row.scan_status==='empty').length,
+      unknown:rows.filter(row=>row.scan_status==='unknown').length
     };
     const now=nowIso();
 
@@ -7922,7 +7890,6 @@ function canonicalPackageVideo(row){
   const id=String(row.video_id||'');
   const sourceCover=String(row.cover_source_url||'');
   const storedCover=String(row.cover_stored_url||'');
-  const playback=preferredTikTokLibraryPlayback(handle,id,row);
   return {
     id,
     handle,
@@ -7943,16 +7910,6 @@ function canonicalPackageVideo(row){
       comments:Number(row.comment_count||0),
       shares:Number(row.share_count||0),
       collects:Number(row.collect_count||0)
-    },
-    playback:{
-      type:'mp4',
-      ready:Boolean(playback?.url),
-      // Browser plays the signed TikTok CDN URL directly. No Render proxy.
-      url:String(playback?.url||''),
-      proxyUrl:'',
-      source:String(playback?.source||''),
-      expiresAt:playback?.expiresAt||null,
-      updatedAt:row.mp4_updated_at||null
     }
   };
 }
@@ -8033,7 +7990,7 @@ function buildTikTokCanonicalPackage(){
       videos:'append-only-by-video-id',
       liveStream:'replace-or-clear-only',
       images:'current-reference-only-with-orphan-cleanup',
-      videoPlayback:'refreshable-signed-mp4-kept-in-library'
+      videoPlayback:'resolved-on-demand-outside-ui-package'
     },
     channels
   };
