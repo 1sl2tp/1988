@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v45-strict-player";
+const LIVE_PIPELINE_VERSION="live-v46-player-owner";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -1702,39 +1702,55 @@ async function verifyCurrentLiveRows(rows:any[],limit=64){
     const sid=channelId(row);
     if(!id||!sid)return null;
 
-    const [currentId,player,embed]=await Promise.all([
-      youtubeChannelLiveVideoId(sid,3200),
+    const [player,embed]=await Promise.all([
       youtubePlayerMetadata(id),
       youtubeEmbedPlayback(id)
     ]);
 
-    // The source list identifies which channel should be checked. /live must
-    // point to this exact video, InnerTube must say it is live now, and the
-    // player-reported owner must match that same channel. A title mentioning
-    // another team/channel never changes ownership.
-    if(currentId!==id)return null;
+    // /channel/{id}/live is discovery only. Final publication does not depend
+    // on YouTube choosing to HTTP-redirect that URL. InnerTube must say this
+    // exact video is live now and must report the same canonical owner.
     if(player?.known!==true||player?.isLive!==true||player?.ended===true)return null;
     const playerOwner=clean(player?.sourceId||"",180);
-    if(playerOwner&&playerOwner!==sid)return null;
+    if(!/^UC[A-Za-z0-9_-]+$/.test(playerOwner)||playerOwner!==sid)return null;
     if(embed?.playable!==true)return null;
 
-    const sourceName=
+    let sourceName=
       validChannelDisplayName(player?.sourceName||"")||
       validChannelDisplayName(row?._sourceName||row?.sourceName||row?.uploaderName||row?.uploader||"");
-    const sourceAvatar=normalizeAvatarUrl(clean(
+    let sourceAvatar=normalizeAvatarUrl(clean(
       row?._sourceThumbnailUrl||row?.sourceAvatar||row?.uploaderAvatar||"",
       1000
     ));
-    const originalTitle=clean(player?.title||row?._displayTitle||row?.title||"",300);
-    const thumbnail=clean(
+    let originalTitle=clean(player?.title||row?._displayTitle||row?.title||"",300);
+    let thumbnail=clean(
       player?.thumbnailUrl||row?.thumbnailUrl||row?.thumbnail||
       ("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
       1000
     );
-    const views=Math.max(
+    let views=Math.max(
       0,
       Number(row?.viewerCount)||Number(row?.views)||Number(player?.views)||0
     );
+
+    // If a discovery source supplied only the channel name as the title,
+    // resolve this exact video once. The result may enrich metadata but can
+    // never change ownership away from the player-reported channel.
+    const cleanedCandidate=cleanLiveTitle(cleanSourceTitle(originalTitle,sourceName));
+    const titleIsSource=
+      !cleanedCandidate||
+      compactTitleIdentity(cleanedCandidate)===compactTitleIdentity(sourceName);
+    if(titleIsSource||!sourceName||!sourceAvatar){
+      const exact=await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,id);
+      const exactOwner=clean(exact?.sourceId||"",180);
+      if(exact&&(!exactOwner||exactOwner===sid)){
+        if(titleIsSource&&exact?.title)originalTitle=clean(exact.title,300);
+        if(!sourceName)sourceName=validChannelDisplayName(exact?.sourceName||"");
+        if(!sourceAvatar)sourceAvatar=normalizeAvatarUrl(clean(exact?.sourceThumbnailUrl||"",1000));
+        if(exact?.thumbnailUrl)thumbnail=clean(exact.thumbnailUrl,1000);
+        if(views<=0)views=Math.max(0,Number(exact?.views)||0);
+      }
+    }
 
     return normalizeRow({
       ...row,
@@ -1761,7 +1777,7 @@ async function verifyCurrentLiveRows(rows:any[],limit=64){
       duration:-1,
       uploaded:-1,
       publishedText:"Đang trực tiếp",
-      _liveVerified:"channel_live_redirect+player_is_live"
+      _liveVerified:"player_is_live+owner_match+embed"
     },{id:sid,name:sourceName,thumbnailUrl:sourceAvatar});
   });
 
