@@ -165,6 +165,15 @@ if(simpleProduction){
   assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active main[\s\S]{0,260}grid-template-areas:"media feed"!important/);
   assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active \.tiktok-account-rail[\s\S]{0,100}display:none!important/);
   assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active \.rows[\s\S]{0,260}grid-template-columns:minmax\(0,1fr\)!important/);
+  assert.match(html,/TIKTOK YOUTUBE-SHELL v1/);
+  assert.match(html,/class="tiktok-profile-banner"/);
+  assert.match(html,/class="tiktok-profile-tabs"/);
+  assert.match(html,/class="tiktok-profile-grid"/);
+  assert.match(html,/id="tiktokWatchActions"/);
+  assert.match(html,/grid-template-areas:"stage actions"!important/);
+  assert.match(html,/tiktok-profile-grid[\s\S]{0,180}grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
+  assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}tiktok-profile-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(html,/data-tiktok-watch-share="1"/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
   assert.match(sw,/1988-simple-media-v\d+/);
