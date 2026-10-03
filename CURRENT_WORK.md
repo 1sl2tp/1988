@@ -85,6 +85,46 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 5. sửa package builder / source data;
 6. không sửa CSS/fallback UI để che lỗi.
 
+### 3.16. TikTok VOD native geometry — contain + center
+
+Thời gian: **2026-10-04**.
+
+Ảnh production cho thấy TikTok VOD ngang vẫn bị phóng/cắt dù stage đã dùng ratio thật.
+
+Root cause:
+- preview TikTok đã dùng `object-fit:contain`;
+- TikTok LIVE video cũng đã khóa `width/height:100% + object-fit:contain`;
+- nhưng VOD thật `#tiktokMediaVideo` chỉ có display/visibility/opacity, không khóa kích thước và object-fit;
+- sau khi preview biến mất, native video có thể dùng intrinsic layout size rồi bị parent overflow cắt, tạo cảm giác zoom.
+
+Patch:
+- commit `2c883a42e297b43f0e69b2f9f7d9c664594a0f29`;
+- `#tiktokMediaVideo`:
+  - `position:absolute; inset:0`;
+  - `width/height:100%`;
+  - `object-fit:contain`;
+  - `object-position:center center`;
+  - nền đen, không border;
+- TikTok Watch native core dùng `place-items:center`;
+- stage vẫn dùng ratio thật do metadata; landscape nằm giữa và letterbox nếu cần;
+- PWA **v90**.
+
+Production verify:
+- Deploy 1988 Player run `37145430565`: **SUCCESS**;
+- frontend contracts, build, deploy và custom-domain verify PASS.
+
+Rule:
+- TikTok VOD player thật phải luôn `contain + center`;
+- không dùng intrinsic video pixels làm kích thước layout;
+- `object-fit:cover` chỉ dành cho thumbnail/card, không được áp vào Watch VOD.
+
+Impact:
+- UI/CSS only;
+- không đổi API, resolver, LIVE, polling, Supabase/Cloudflare/Render.
+
+Rollback:
+- `9eca8ad3717573370d730ccb21d00611f9545376`.
+
 ### 3.15. TikTok Watch navigation + exact ratio + mobile smart entry
 
 Thời gian: **2026-10-04**.
