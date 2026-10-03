@@ -1126,15 +1126,17 @@ Deno.serve(async (req) => {
       });
       if (!rpc.ok) return json({ ok: false, error: "write_failed", detail: await rpc.text() }, 502);
       const saved = await rpc.json();
-      // LIVE inherits selected channels from every enabled source. A deliberate
-      // source-management write therefore refreshes its own scope and LIVE.
-      triggerPackageRefresh(
-        supabaseUrl,
-        serviceKey,
-        scope === "live" ? ["live"] : [scope, "live"]
-      );
+      // The edited non-LIVE scope owns its own package rebuild. LIVE is
+      // updated only by the targeted Cloudflare source-sync below; if the
+      // verified LIVE snapshot changes, that Worker wakes the LIVE package.
+      // This avoids building LIVE once from stale edge state and again after
+      // the targeted verification completes.
+      if (scope !== "live") {
+        triggerPackageRefresh(supabaseUrl, serviceKey, [scope]);
+      }
+
       // Source edits are explicit user actions. Sync only this changed channel
-      // into the demand-only LIVE snapshot; do not start a full 249-channel scan.
+      // into the demand-only LIVE snapshot; do not start a full scan.
       triggerLiveSourceSync(channelId);
       return json({ ok: true, source: saved, version });
     }
