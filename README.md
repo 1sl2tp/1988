@@ -3,6 +3,7 @@
 > ## ⚠️ BẮT BUỘC TRƯỚC KHI SỬA / DEPLOY
 >
 > Đọc **[README_MAINTENANCE.md](./README_MAINTENANCE.md)**, đặc biệt mục **FAST REPAIR**.
+> Trước mọi thay đổi liên quan polling, scheduler, package, API, cache, log hoặc media phải đọc thêm **[README_RESOURCE_GUARDRAILS.md](./README_RESOURCE_GUARDRAILS.md)**.
 > Quy tắc mặc định: **một lỗi → một owner → một patch → một deploy**; production hỏng thì rollback trước, điều tra sau.
 > Sau repair/deploy phải cập nhật `NHAT_KY.md` và Google Sheet **1988 - Vận hành kết nối bảo trì**.
 > Chưa verify production + chưa cập nhật tài liệu thì chưa được coi là “xong”.
@@ -47,3 +48,13 @@ UI không tự ghép identity riêng ở từng màn hình.
 8. GitHub Pages production phải dùng **Source = GitHub Actions**; nếu thấy run `pages build and deployment` event=`dynamic` cho Markdown thì còn branch/native deploy song song.
 
 Chi tiết xem `README_MAINTENANCE.md`.
+
+
+## Guardrail tài nguyên
+
+- Supabase là data/state/package, **không phải media proxy**.
+- UI YouTube đọc package; hash không đổi thì không tải lại package.
+- LIVE: Cloudflare phát hiện → Supabase đóng package → UI đọc package.
+- Không log từng video/kênh/segment; production chỉ giữ summary/error compact.
+- Không cho một browser tạo crawler/job riêng; server lease/dedupe chống trùng.
+- Chi tiết ngưỡng Egress/Log/DB và checklist deploy: [README_RESOURCE_GUARDRAILS.md](./README_RESOURCE_GUARDRAILS.md).
