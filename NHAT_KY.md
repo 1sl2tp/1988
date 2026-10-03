@@ -149,3 +149,19 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Bước còn lại: add `yt.taphoa.xyz` vào Render Custom Domains; đổi CNAME `yt` tại Mắt Bão sang `one988-site.onrender.com`; verify TLS.
 - Không thay đổi database hoặc API runtime.
 
+## 2026-10-03 — Khôi phục GitHub Pages cho yt.taphoa.xyz
+
+- Branch nguồn: `main`.
+- Nguyên nhân: sau khi repo được bật Public/Pages lại, workflow riêng `Deploy 1988 Player` vẫn thiếu `environment: github-pages`, nên `actions/deploy-pages@v4` báo `Missing environment` và không tạo deployment.
+- Commit sửa: `f4b84c57c23b059f1a7acf8fa78dd16ec3ecc469`.
+- Sửa `.github/workflows/pages.yml`:
+  - thêm environment `github-pages`;
+  - dùng output `steps.deployment.outputs.page_url`.
+- Workflow `Deploy 1988 Player` run `37112089705`: SUCCESS.
+- Probe ngoài production sau deploy:
+  - HTTPS `https://yt.taphoa.xyz/` trả `HTTP/2 200`;
+  - title trả về: `1988`;
+  - body chứa `const STARTUP_SCOPE="latest"` => đúng bản video-first mới.
+- DNS hiện resolve qua GitHub Pages và site đang phục vụ bản production mới.
+- Không thay đổi database/API runtime.
+
