@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const html=fs.readFileSync('index.html','utf8');
 const state=fs.readFileSync('supabase/functions/yt1988-state/index.ts','utf8');
 const refresh=fs.readFileSync('supabase/functions/yt1988-refresh/index.ts','utf8');
+const ytApi=fs.readFileSync('supabase/functions/yt1988/index.ts','utf8');
 const migration=fs.readFileSync('supabase/migrations/20261003092500_unified_channel_library.sql','utf8');
 
 // One normalized contract is returned for both platforms.
@@ -35,6 +36,15 @@ assert.match(refresh,/const channelDirectoryWrites:any\[\]=\[\]/);
 assert.match(refresh,/profileStale/);
 assert.match(refresh,/yt1988_upsert_channel_directory/);
 assert.match(refresh,/source:"server-channel-refresh"/);
+assert.match(refresh,/profileStale\?"&profile=1":""/);
+assert.match(state,/action=channel&id=.*profile=1/);
+
+// Rich YouTube profile metadata is fetched only on explicit profile requests.
+assert.match(ytApi,/function youtubeWebChannelProfile\(/);
+assert.match(ytApi,/aboutChannelViewModel/);
+assert.match(ytApi,/BADGE_STYLE_TYPE_VERIFIED/);
+assert.match(ytApi,/url\.searchParams\.get\("profile"\) === "1"/);
+assert.match(ytApi,/wantsProfile\s*\?\s*youtubeWebChannelProfile/);
 
 // Browser primes and prefers the unified library for both platforms.
 assert.match(html,/const channelLibraryByKey=new Map\(\)/);
