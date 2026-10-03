@@ -132,3 +132,20 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Không thay đổi DB hoặc dữ liệu người dùng.
 - Rollback source: revert các commit Cloudflare site nếu không dùng.
 
+## 2026-10-03 — Khôi phục host frontend sau khi GitHub Private
+
+- GitHub source vẫn giữ `private`.
+- DNS công khai xác nhận:
+  - nameserver: `ns1.matbao.com`, `ns2.matbao.com`;
+  - `yt.taphoa.xyz` hiện vẫn CNAME về GitHub Pages cũ.
+- Tạo Render Static Site mới:
+  - service: `1988-site`;
+  - service id: `srv-db0c716gekts7392dut0`;
+  - URL: `https://one988-site.onrender.com`;
+  - source: private repo `1sl2tp/1988`, branch `main`;
+  - chỉ publish frontend production: index/manifest/sw/icons/src/sources.
+- Deploy `dep-db0c71egekts7392dvl0`: `live`.
+- Custom domain `yt.taphoa.xyz` chưa chuyển vì DNS đang do Mắt Bão quản lý và connector hiện không có quyền chỉnh Mắt Bão.
+- Bước còn lại: add `yt.taphoa.xyz` vào Render Custom Domains; đổi CNAME `yt` tại Mắt Bão sang `one988-site.onrender.com`; verify TLS.
+- Không thay đổi database hoặc API runtime.
+
