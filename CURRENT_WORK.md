@@ -86,6 +86,19 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.26. TikTok VOD demo — KHÔI PHỤC MỐC KNOWN-GOOD e271
+
+Thời gian: **2026-10-04**.
+
+- Khôi phục đúng trạng thái demo/runtime tại commit `e2717d5df2cabee04f9de91d5fe89030206c68e4`.
+- 4 file được phục hồi nguyên nội dung: `tiktok-live-cloud-demo.html`, `tests/tiktok-live-cloud-demo.test.cjs`, `cloudflare/tiktok-live-state/worker.js`, `cloudflare/tiktok-live-state/vod-failover-contract.test.cjs`.
+- Giao diện trở lại đủ các nút nguồn như ảnh: TikWM HD, TikWM Standard, BHWA, Native, Direct, TDown, MusicalDown, TikDown, TTDownloader, TiklyDown, DouyinWTF.
+- Bỏ toàn bộ thay đổi sau mốc này về 3-source chain, TTDownloader HQ selector và resolver-cache `avc5`.
+- Commit restore: `a06cb6fe6d9db027a0ba912e83e75f06f8dcc53e`.
+- Edge run `37156612837`: SUCCESS.
+- Player run `37156612927`: SUCCESS.
+- 4 file sau restore đã kiểm tra khớp nguyên nội dung với `e2717d5d`.
+
 ### 3.25. TikTok demo VOD — TikWM → TTDownloader → BHWA, luôn ưu tiên HQ
 
 Thời gian: **2026-10-04**.
