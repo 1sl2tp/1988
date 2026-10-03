@@ -17,7 +17,7 @@ assert.match(worker,/First observation is only a baseline/);
 assert.match(worker,/Wake at most one channel per minute/);
 assert.match(worker,/const video = await videoFingerprintSweep\(env, selectedRows\);/);
 assert.doesNotMatch(worker,/selectedHandles\(\)/);
-assert.match(worker,/const TIKTOK_VOD_SOURCE_VERSION = "avc3";/);
+assert.match(worker,/const TIKTOK_VOD_SOURCE_VERSION = "avc4";/);
 assert.match(worker,/const preferredIsAvc=\/h264\|avc\//);
 assert.match(worker,/preferredIsAvc\?\(preferred\?\.urls\|\|\[\]\):\[\]/);
 assert.match(worker,/probe\?\.avc1&&row\?\.probe\?\.mp4a/);

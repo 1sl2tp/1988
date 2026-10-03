@@ -30,6 +30,7 @@ const relay=worker.slice(relayStart,relayEnd);
 assert.match(relay,/vodWithTimeout\([\s\S]*sourceName\+"_resolve"/);
 assert.match(relay,/continue;/);
 assert.match(worker,/VOD_MEDIA_OPEN_TIMEOUT_MS,"media_open"/);
+assert.match(worker,/VOD_RESOLVE_TIMEOUT_MS,"tdown_resolve"/);
 assert.match(worker,/VOD_PROBE_TIMEOUT_MS,source\.name\+"_probe"/);
 
 console.log('tiktok VOD failover contract ok');

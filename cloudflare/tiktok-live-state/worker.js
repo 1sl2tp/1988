@@ -1278,7 +1278,7 @@ async function resolveTdownVideoSource(handle, id, { refresh = false } = {}) {
   const api = new URL("https://tdownv4.sl-bjs.workers.dev/");
   api.searchParams.set("down", pageUrl);
 
-  const r = await fetch(api, {
+  const r = await vodFetch(api, {
     headers: {
       "user-agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
@@ -1286,7 +1286,7 @@ async function resolveTdownVideoSource(handle, id, { refresh = false } = {}) {
     },
     redirect: "follow",
     cf: { cacheTtl: 0, cacheEverything: false }
-  });
+  },VOD_RESOLVE_TIMEOUT_MS,"tdown_resolve");
   if (!r.ok) throw new Error("tdown_api_http_" + r.status);
 
   const data = await r.json();
