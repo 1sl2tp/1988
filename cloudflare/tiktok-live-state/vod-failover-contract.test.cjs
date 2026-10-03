@@ -49,4 +49,10 @@ assert.match(worker,/async function lookupLive\(rawHandle\)/);
 assert.match(worker,/url\.pathname === "\/lookup"/);
 assert.match(worker,/const state=await checkTikTok\(handle\)/);
 
+assert.match(worker,/async function resolveTikTokSecUid\(rawHandle\)/);
+assert.match(worker,/https:\/\/www\.tiktok\.com\/api\/user\/detail\//);
+assert.match(worker,/https:\/\/www\.tiktok\.com\/api\/post\/item_list\//);
+assert.match(worker,/async function fetchTikTokLatestFive\(rawHandle,count=5\)/);
+assert.match(worker,/source:"tiktok-post-item-list"/);
+
 console.log('tiktok VOD direct-url + failover contract ok');

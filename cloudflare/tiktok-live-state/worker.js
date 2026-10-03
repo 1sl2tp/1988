@@ -253,52 +253,143 @@ async function videoFingerprintSweep(env, selectedRows) {
   return { ...next.batch, pending: next.pending.length, persisted: materialChanged };
 }
 
-async function fetchTikwmLatestFive(rawHandle,count=5){
-  const handle=normalizeHandle(rawHandle);
-  if(!handle)return json({ok:false,error:"invalid_tiktok_handle"},400);
+function firstTikTokUrl(value){
+  if(!value)return "";
+  if(typeof value==="string")return /^https?:\/\//i.test(value)?value:"";
+  if(Array.isArray(value)){
+    for(const row of value){
+      const u=firstTikTokUrl(row);
+      if(u)return u;
+    }
+    return "";
+  }
+  if(typeof value==="object"){
+    for(const key of ["urlList","url_list","urls","url","UrlList"]){
+      const u=firstTikTokUrl(value[key]);
+      if(u)return u;
+    }
+  }
+  return "";
+}
 
-  const endpoint=new URL("https://www.tikwm.com/api/user/posts");
-  endpoint.searchParams.set("unique_id",handle);
-  endpoint.searchParams.set("count",String(Math.max(1,Math.min(5,Number(count)||5))));
-  endpoint.searchParams.set("cursor","0");
+async function resolveTikTokSecUid(rawHandle){
+  const handle=normalizeHandle(rawHandle);
+  if(!handle)return "";
+
+  const headers={
+    "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+    accept:"application/json,text/plain,*/*",
+    "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+    referer:"https://www.tiktok.com/@"+handle
+  };
 
   try{
-    const r=await fetch(endpoint,{
-      method:"GET",
+    const endpoint=new URL("https://www.tiktok.com/api/user/detail/");
+    endpoint.searchParams.set("aid","1988");
+    endpoint.searchParams.set("uniqueId",handle);
+    const r=await fetch(endpoint,{headers,redirect:"follow"});
+    if(r.ok){
+      const body=await r.json().catch(()=>null);
+      const user=
+        body?.userInfo?.user||
+        body?.data?.userInfo?.user||
+        body?.data?.user||
+        body?.user||
+        null;
+      const secUid=String(user?.secUid||user?.sec_uid||"").trim();
+      if(secUid)return secUid;
+    }
+  }catch{}
+
+  // Fallback: profile HTML hydration. Keep it stateless and metadata-only.
+  try{
+    const r=await fetch("https://www.tiktok.com/@"+encodeURIComponent(handle),{
       headers:{
-        "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
-        accept:"application/json,text/plain,*/*",
-        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5"
+        "user-agent":headers["user-agent"],
+        accept:"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "accept-language":headers["accept-language"]
       },
       redirect:"follow"
     });
-    if(!r.ok)return json({ok:false,handle,error:"tikwm_http_"+r.status},502);
+    if(!r.ok)return "";
+    const html=await r.text();
 
-    const body=await r.json().catch(()=>null);
-    if(Number(body?.code)!==0){
-      return json({
-        ok:false,
-        handle,
-        error:"tikwm_"+String(body?.msg||body?.code||"error")
-      },502);
+    const needles=[
+      '"uniqueId":"'+handle+'"',
+      '\\"uniqueId\\":\\"'+handle+'\\"'
+    ];
+    for(const needle of needles){
+      const at=html.indexOf(needle);
+      if(at<0)continue;
+      const chunk=html.slice(Math.max(0,at-5000),Math.min(html.length,at+9000));
+      const m=
+        chunk.match(/"secUid":"([^"]+)"/)||
+        chunk.match(/"sec_uid":"([^"]+)"/)||
+        chunk.match(/\\\"secUid\\\":\\\"([^"]+)\\\"/);
+      if(m?.[1])return String(m[1]).replace(/\\u0026/g,"&").replace(/\\u002F/g,"/");
     }
 
-    const data=body?.data||{};
-    const rows=
-      (Array.isArray(data?.videos)&&data.videos)||
-      (Array.isArray(data?.items)&&data.items)||
+    const fallback=
+      html.match(/"secUid":"([^"]+)"/)||
+      html.match(/"sec_uid":"([^"]+)"/);
+    return fallback?.[1]?String(fallback[1]):"";
+  }catch{
+    return "";
+  }
+}
+
+async function fetchTikTokLatestFive(rawHandle,count=5){
+  const handle=normalizeHandle(rawHandle);
+  if(!handle)return json({ok:false,error:"invalid_tiktok_handle"},400);
+
+  const secUid=await resolveTikTokSecUid(handle);
+  if(!secUid)return json({ok:false,handle,error:"missing_secuid"},502);
+
+  const endpoint=new URL("https://www.tiktok.com/api/post/item_list/");
+  endpoint.searchParams.set("aid","1988");
+  endpoint.searchParams.set("count",String(Math.max(1,Math.min(5,Number(count)||5))));
+  endpoint.searchParams.set("cursor","0");
+  endpoint.searchParams.set("from_page","user");
+  endpoint.searchParams.set("secUid",secUid);
+
+  try{
+    const r=await fetch(endpoint,{
+      headers:{
+        "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        accept:"application/json,text/plain,*/*",
+        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+        referer:"https://www.tiktok.com/@"+handle
+      },
+      redirect:"follow"
+    });
+    if(!r.ok)return json({ok:false,handle,error:"tiktok_posts_http_"+r.status},502);
+
+    const body=await r.json().catch(()=>null);
+    const items=
+      (Array.isArray(body?.itemList)&&body.itemList)||
+      (Array.isArray(body?.item_list)&&body.item_list)||
+      (Array.isArray(body?.data?.itemList)&&body.data.itemList)||
+      (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
+      (Array.isArray(body?.items)&&body.items)||
       [];
 
-    const videos=rows
+    const videos=items
       .map(row=>{
-        const id=normalizeVideoId(row?.video_id||row?.aweme_id||row?.id||"");
+        const id=normalizeVideoId(row?.id||row?.video_id||row?.aweme_id||"");
         if(!id)return null;
+        const video=row?.video||{};
         return {
           id,
           handle,
-          title:String(row?.title||row?.desc||row?.description||"").slice(0,300),
-          thumbnail:String(row?.cover||row?.origin_cover||row?.ai_dynamic_cover||""),
-          createTime:Number(row?.create_time||row?.createTime||0),
+          title:String(row?.desc||row?.description||row?.title||"").slice(0,300),
+          thumbnail:firstTikTokUrl(
+            video?.cover||
+            video?.originCover||
+            video?.dynamicCover||
+            video?.cover?.urlList||
+            video?.originCover?.urlList
+          ),
+          createTime:Number(row?.createTime||row?.create_time||0),
           pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id
         };
       })
@@ -309,15 +400,16 @@ async function fetchTikwmLatestFive(rawHandle,count=5){
     return json({
       ok:true,
       handle,
+      secUid,
       videos,
-      source:"tikwm-user-posts",
+      source:"tiktok-post-item-list",
       checkedAt:Date.now()
     });
   }catch(error){
     return json({
       ok:false,
       handle,
-      error:"tikwm_fetch_"+String(error?.message||error||"error")
+      error:"tiktok_posts_fetch_"+String(error?.message||error||"error")
     },502);
   }
 }
@@ -3113,7 +3205,7 @@ export default {
       return relayTikTokVideo(request);
     }
     if (url.pathname === "/tiktok/channel-videos" && request.method === "GET") {
-      return fetchTikwmLatestFive(
+      return fetchTikTokLatestFive(
         url.searchParams.get("user") || "",
         url.searchParams.get("count") || "5"
       );
