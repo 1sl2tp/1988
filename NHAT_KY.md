@@ -252,3 +252,35 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - GitHub limitation: với custom GitHub Actions workflow, file `CNAME` không tự thay đổi Pages Custom domain setting; domain setting vẫn phải tồn tại trong Settings → Pages. Guard mới sẽ fail rõ nếu setting và CNAME lệch.
 - Không thay đổi DB/API/data.
 
+
+
+## 2026-10-03 — Sửa LIVE gắn sai channel + tạo handoff bắt buộc giữa các chat
+
+- Branch: `main`.
+- Owner incident: **Supabase LIVE package builder** (`yt1988-refresh`).
+- Triệu chứng: video LIVE `t7goDOQdn9U` của **ChimSeDiNang AOE** bị package gắn nhầm thành **Hillsong Worship**.
+- Bằng chứng:
+  - Cloudflare snapshot có cùng một `videoId=t7goDOQdn9U` nhưng bị hai channel claim:
+    - sai: `UCTSkEZ84nY5gBjiXekhkgmQ` / Hillsong Worship;
+    - đúng: `UCXH0kpsCwpoh94iQfGEokOA` / ChimSeDiNang AOE.
+  - exact video-id search trả đúng `UCXH0kpsCwpoh94iQfGEokOA`, title Thiên Khôi CUP và 9659 viewers tại lần probe.
+- Patch code:
+  - commit `7bd7e3eddcc4ec6991c5fb8600d3b752a85a2b56`;
+  - `exactSearchVideoMeta()` trả thêm `sourceId` + title;
+  - trước khi đóng package LIVE, nếu một videoId bị nhiều channelId claim thì exact-search videoId một lần và chỉ giữ owner đúng.
+- Deploy:
+  - Supabase Edge Function `yt1988-refresh v21` ACTIVE.
+- Production verify:
+  - package LIVE hash `11dikh9`;
+  - row `t7goDOQdn9U` hiện là:
+    - sourceId `UCXH0kpsCwpoh94iQfGEokOA`;
+    - sourceName `ChimSeDiNang AOE`;
+    - title `Thiên Khôi CUP | 4v4 Random | SPartacus Gaming vs Thiên Khôi | Ngày 03/10/2026`;
+    - viewers `9659`.
+- Data impact: không xóa canonical data; chỉ sửa identity trước khi publish package LIVE.
+- Rollback code: revert `7bd7e3e` và redeploy phiên bản Edge Function trước đó nếu cần.
+- Handoff/rule:
+  - tạo `CURRENT_WORK.md` commit `d95b4137a85f2607a5bfddc5d001308f91c35237`;
+  - `README_MAINTENANCE.md` bắt buộc đọc `CURRENT_WORK.md` trước mọi repair, commit `08871ca071a0c6490c9efabb1ca4e7b8ae0cc48c`;
+  - README gốc trỏ vào CURRENT_WORK trước mọi sửa, commit `448f77fc916957ea4657e358c12ea824586abe41`.
+- Quy tắc mới: **trước khi sửa phải đọc rule + CURRENT_WORK; sau khi sửa phải cập nhật CURRENT_WORK + NHAT_KY để chat sau tiếp tục đúng trạng thái.**
