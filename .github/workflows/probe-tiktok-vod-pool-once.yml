@@ -1,4 +1,4 @@
-name: Probe TikTok RSS Bridge
+name: Probe TikTok RSS Bridge JSON
 on:
   push:
     branches: [main]
@@ -12,26 +12,13 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe RSS-Bridge and rss2json
+      - name: Probe RSS-Bridge JSON
         shell: bash
         run: |
           set -u
-          USER='%40tu.thuong_lay_minh_1'
-          FEED="https://rss-bridge.org/bridge01/?action=display&bridge=TikTokBridge&context=By%20user&username=${USER}&format=Atom"
-
-          echo "===== RSS-BRIDGE ====="
-          curl -sS -L --max-time 30 -D /tmp/rss.h "$FEED" -o /tmp/rss.body || true
-          cat /tmp/rss.h
+          URL='https://rss-bridge.org/bridge01/?action=display&bridge=TikTokBridge&context=By%20user&username=%40tu.thuong_lay_minh_1&format=Json'
+          curl -sS -L --max-time 30 -D /tmp/h "$URL" -o /tmp/body || true
+          cat /tmp/h
           echo
-          head -c 12000 /tmp/rss.body
-          echo
-
-          ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$FEED")
-          JSON_URL="https://api.rss2json.com/v1/api.json?rss_url=${ENC}"
-
-          echo "===== RSS2JSON ====="
-          curl -sS -L --max-time 30 -D /tmp/json.h "$JSON_URL" -o /tmp/json.body || true
-          cat /tmp/json.h
-          echo
-          head -c 12000 /tmp/json.body
+          head -c 16000 /tmp/body
           echo
