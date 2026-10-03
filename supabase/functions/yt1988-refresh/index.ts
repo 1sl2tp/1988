@@ -544,6 +544,32 @@ function normalizeRow(row:any,source:any={}){
   };
 }
 
+function stripChannelIdentityForCache(row:any){
+  // Channel cache owns video/feed state only. Keep stable channel IDs, but
+  // never persist a second copy of channel name/avatar/profile fields.
+  const {
+    _sourceName,
+    _sourceThumbnailUrl,
+    sourceName,
+    sourceAvatar,
+    uploader,
+    uploaderName,
+    uploaderAvatar,
+    uploaderThumbnailUrl,
+    uploaderUrl,
+    uploaderVerified,
+    channelName,
+    channelThumbnailUrl,
+    channelAvatar,
+    channelUrl,
+    ...videoState
+  }=row&&typeof row==="object"?row:{};
+  return videoState;
+}
+function stripChannelIdentityRowsForCache(rows:any[]){
+  return (Array.isArray(rows)?rows:[]).map(stripChannelIdentityForCache);
+}
+
 function dedupeRows(rows:any[]){
   const ids=new Set<string>();
   const titleHashes=new Set<string>();
@@ -3525,7 +3551,12 @@ Deno.serve(async(req:Request)=>{
         {
           method:"POST",
           headers:{...authHeaders,"prefer":"resolution=merge-duplicates,return=minimal"},
-          body:JSON.stringify(chunk)
+          body:JSON.stringify(
+            chunk.map((entry:any)=>({
+              ...entry,
+              items:stripChannelIdentityRowsForCache(entry?.items)
+            }))
+          )
         }
       );
       if(!writeRes.ok)console.warn("channel cache write failed",await writeRes.text());

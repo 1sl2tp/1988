@@ -39,5 +39,13 @@ assert.doesNotMatch(refresh,/source_name/);
 assert.doesNotMatch(refresh,/previous\?\.thumbnail_url/);
 assert.doesNotMatch(refresh,/yt1988_source_state[\s\S]{0,220}name,thumbnail_url/);
 assert.match(refresh,/yt1988_channel_directory[\s\S]{0,260}select=channel_id,name,thumbnail_url/);
+assert.match(refresh,/function stripChannelIdentityForCache\(/);
+assert.match(refresh,/items:stripChannelIdentityRowsForCache\(entry\?\.items\)/);
+assert.match(refresh,/_sourceName,/);
+assert.match(refresh,/_sourceThumbnailUrl,/);
+assert.match(refresh,/uploaderAvatar,/);
+assert.match(refresh,/uploaderUrl,/);
+assert.match(refresh,/uploaderVerified,/);
+assert.match(refresh,/channelThumbnailUrl,/);
 
 console.log('source-state contract ok');
