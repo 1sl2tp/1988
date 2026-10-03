@@ -1,4 +1,4 @@
-name: Probe TikTok Channel ID to BHWA
+name: Probe TikTok Profile HTML Variants
 on:
   push:
     branches: [main]
@@ -12,31 +12,30 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe live owner id then BHWA profile
+      - name: Probe profile HTML variants
         shell: bash
         run: |
           set -u
           H='tu.thuong_lay_minh_1'
-          LIVE="https://www.tiktok.com/api-live/user/room?aid=1988&sourceType=54&uniqueId=${H}"
-          curl -sS --max-time 20 "$LIVE"             -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36'             -H "Referer: https://www.tiktok.com/@${H}/live"             -o /tmp/live.json
-          python3 - <<'PY'
-          import json
-          d=json.load(open('/tmp/live.json'))
-          room=((d.get('data') or {}).get('liveRoom') or {})
-          owner=room.get('ownerInfo') or (d.get('data') or {}).get('user') or {}
-          print('STATUS', room.get('status'))
-          print('OWNER_ID', owner.get('id'))
-          print('SEC_UID', owner.get('secUid') or owner.get('sec_uid'))
-          print('UNIQUE_ID', owner.get('uniqueId') or owner.get('unique_id'))
-          open('/tmp/channel_id','w').write(str(owner.get('id') or ''))
+          URLS=(
+            "https://www.tiktok.com/@${H}"
+            "https://www.tiktok.com/@${H}?lang=en"
+            "https://www.tiktok.com/@${H}?is_from_webapp=1&sender_device=pc"
+          )
+          i=0
+          for URL in "${URLS[@]}"; do
+            i=$((i+1))
+            echo "===== VARIANT $i $URL ====="
+            curl -sS -L --max-time 20 -c /tmp/cookies -b /tmp/cookies               "$URL"               -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'               -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'               -H 'Accept-Language: en-US,en;q=0.9'               -H 'Referer: https://www.tiktok.com/'               -o "/tmp/p${i}.html" -D "/tmp/h${i}" || true
+            head -n 5 "/tmp/h${i}" || true
+            python3 - "/tmp/p${i}.html" <<'PY'
+          import re,sys
+          p=sys.argv[1]
+          s=open(p,'r',errors='ignore').read()
+          print('LEN',len(s))
+          for needle in ['__UNIVERSAL_DATA_FOR_REHYDRATION__','SIGI_STATE','"itemList"','/video/','webapp.user-detail','secUid']:
+              print(needle, s.count(needle))
+          ids=re.findall(r'/video/(\d{8,})',s)
+          print('VIDEO_IDS', ids[:10])
           PY
-          CID=$(cat /tmp/channel_id)
-          echo "CID=${CID}"
-          ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("tiktokuser:"+sys.argv[1], safe=""))' "$CID")
-          URL="https://downloader-api.bhwa233.com/api/parse?url=${ENC}"
-          echo "$URL"
-          curl -sS --max-time 30 -D /tmp/h "$URL" -H 'User-Agent: Mozilla/5.0' -o /tmp/body || true
-          cat /tmp/h
-          echo
-          cat /tmp/body
-          echo
+          done
