@@ -1,4 +1,5 @@
 name: Verify TikTok LIVE metadata once v3
+# manual probe trigger: 2026-10-04 current live count
 
 on:
   push:
