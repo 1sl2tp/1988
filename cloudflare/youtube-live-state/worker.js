@@ -331,6 +331,85 @@ function liveCandidateIdsFromChannelHtml(html,targetVideoId=""){
   return ids.slice(0,8);
 }
 
+function extractJsonObject(text,start){
+  text=String(text||"");
+  start=Number(start)||0;
+  const open=text.indexOf("{",start);
+  if(open<0)return null;
+  let depth=0;
+  let inString=false;
+  let escaped=false;
+  for(let i=open;i<text.length;i++){
+    const ch=text[i];
+    if(inString){
+      if(escaped){escaped=false;continue;}
+      if(ch==="\\"){escaped=true;continue;}
+      if(ch==='"'){inString=false;}
+      continue;
+    }
+    if(ch==='"'){inString=true;continue;}
+    if(ch==="{")depth++;
+    else if(ch==="}"){
+      depth--;
+      if(depth===0){
+        try{return JSON.parse(text.slice(open,i+1));}catch{return null;}
+      }
+    }
+  }
+  return null;
+}
+function playerMetaFromWatchHtml(html,videoId=""){
+  const text=String(html||"");
+  const markers=[
+    "var ytInitialPlayerResponse =",
+    "ytInitialPlayerResponse =",
+    "window.ytInitialPlayerResponse ="
+  ];
+  for(const marker of markers){
+    const pos=text.indexOf(marker);
+    if(pos<0)continue;
+    const data=extractJsonObject(text,pos+marker.length);
+    if(!data)continue;
+    const meta=playerMetaFromResponse(data);
+    const actualId=validVideoId(data?.videoDetails?.videoId||"");
+    if(videoId&&actualId&&actualId!==validVideoId(videoId))continue;
+    return meta;
+  }
+
+  // Compact fallback for watch HTML variants where the initial response is
+  // embedded differently. Scope extraction around the exact target id so
+  // recommendation cards cannot become the owner/live source.
+  const id=validVideoId(videoId);
+  const needle=id?('"videoId":"'+id+'"'):"";
+  const pos=needle?text.indexOf(needle):-1;
+  if(pos>=0){
+    const segment=text.slice(Math.max(0,pos-12000),Math.min(text.length,pos+22000));
+    const channelId=validChannelId(
+      segment.match(/"channelId":"(UC[A-Za-z0-9_-]+)"/)?.[1]||""
+    );
+    const title=decodeJsonString(
+      segment.match(/"title":"((?:\\.|[^"])*)"/)?.[1]||""
+    );
+    const sourceName=decodeJsonString(
+      segment.match(/"author":"((?:\\.|[^"])*)"/)?.[1]||""
+    );
+    const live=/"isLive":true/.test(segment)||/"isLiveNow":true/.test(segment);
+    const ended=/"endTimestamp":"[^"]+"/.test(segment)&&!/"isLiveNow":true/.test(segment);
+    return {
+      known:Boolean(channelId||title||live||ended),
+      live:live&&!ended,
+      ended,
+      channelId,
+      sourceName:clean(sourceName,180),
+      title:clean(title,300),
+      thumbnail:"",
+      totalViews:0
+    };
+  }
+
+  return {known:false,live:false,ended:false,channelId:"",sourceName:"",title:"",thumbnail:"",totalViews:0};
+}
+
 function playerMetaFromResponse(data={}){
   const details=data?.videoDetails||{};
   const liveDetails=data?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails||{};
@@ -432,28 +511,41 @@ async function inspectWatchLive(videoId){
   const id=validVideoId(videoId);
   if(!id)return {known:false,live:false,viewerCount:0,channelId:"",sourceName:"",title:"",thumbnail:""};
 
-  // InnerTube is the only current-LIVE authority. isLiveContent is intentionally
-  // ignored because archived livestreams can retain it after ending.
+  // Primary path: inspect the exact YouTube watch page. This avoids depending
+  // on InnerTube API availability while still binding LIVE state + owner to the
+  // exact videoId through ytInitialPlayerResponse/videoDetails.
+  const page=await fetchText(
+    "https://www.youtube.com/watch?v="+encodeURIComponent(id)+"&hl=vi&gl=VN",
+    5000
+  );
+
+  if(page.ok){
+    const text=String(page.text||"");
+    if(/LIVE_STREAM_OFFLINE|live stream recording is not available|sự kiện trực tiếp này đã kết thúc/i.test(text)){
+      return {known:true,live:false,ended:true,viewerCount:0,channelId:"",sourceName:"",title:"",thumbnail:""};
+    }
+
+    const watchMeta=playerMetaFromWatchHtml(text,id);
+    if(watchMeta?.known===true){
+      return {
+        ...watchMeta,
+        known:true,
+        live:watchMeta?.live===true&&watchMeta?.ended!==true,
+        viewerCount:watchMeta?.live===true?liveViewerCountFromHtml(text):0
+      };
+    }
+  }
+
+  // Fallback only: InnerTube may be rate-limited/blocked on some edge routes.
   const player=await inspectPlayerLive(id);
   if(player?.known!==true){
     return {known:false,live:false,viewerCount:0,...player};
   }
-  if(player?.live!==true||player?.ended===true){
-    return {known:true,live:false,viewerCount:0,...player};
-  }
-
-  // Viewer count is optional decoration. A watch-page failure must not change
-  // the already verified LIVE/owner decision.
-  const page=await fetchText(
-    "https://www.youtube.com/watch?v="+encodeURIComponent(id)+"&hl=vi&gl=VN",
-    4500
-  );
-  const viewerCount=page.ok?liveViewerCountFromHtml(page.text):0;
   return {
     ...player,
     known:true,
-    live:true,
-    viewerCount
+    live:player?.live===true&&player?.ended!==true,
+    viewerCount:0
   };
 }
 
@@ -488,7 +580,7 @@ async function checkChannelLive(target){
       checkedAt:Date.now(),
       verifiedOwner:true,
       verifiedLive:true,
-      verification:"innertube_is_live+owner_match"
+      verification:"watch_player_is_live+owner_match"
     };
   };
 
