@@ -43,6 +43,7 @@ assert.match(state,/action=channel&id=.*profile=1/);
 assert.match(ytApi,/function youtubeWebChannelProfile\(/);
 assert.match(ytApi,/aboutChannelViewModel/);
 assert.match(ytApi,/BADGE_STYLE_TYPE_VERIFIED/);
+assert.match(ytApi,/CHECK_CIRCLE_FILLED/);
 assert.match(ytApi,/url\.searchParams\.get\("profile"\) === "1"/);
 assert.match(ytApi,/wantsProfile\s*\?\s*youtubeWebChannelProfile/);
 
