@@ -364,3 +364,23 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - `3ffc8f0c68fcd4fb66f196ffc9d2c38b7c795d6c` — Maintenance;
   - `85a801918d87c3eaefbe2c5d40ca642f0c4a3f3b` — Resource Guardrails.
 - Data/runtime impact: docs-only; không đổi production data/package/API.
+
+
+## 2026-10-03 — Sửa LIVE GH AI Muzick thiếu avatar dù thư viện đã có
+
+- Channel: `UCoOmYgEUQG9Pp_iXgmLzJYg` / GH AI Muzick.
+- Bằng chứng trước sửa:
+  - `yt1988_channel_directory.thumbnail_url` có dữ liệu;
+  - package LIVE row `le-EBatRnpU` có `sourceAvatar=""`.
+- Owner: Supabase `yt1988-refresh`; không sửa UI.
+- Commits:
+  - `51187b81124e469e5f69a41a4ac6f0a97da6f766` — fallback LIVE identity từ canonical channel directory;
+  - `53592b41a4a36727b6afbbb079b821f4f7ee5608` — regression test;
+  - `ed392856ebcfe96ecdaca3c5082c0109121cd6ba` — cho phép sửa canonical identity trên last-known-good LIVE package.
+- Deploy: `yt1988-refresh v26` ACTIVE.
+- Production verify:
+  - hash LIVE `wx4gj5 → q7qrx8`;
+  - item count giữ nguyên 31;
+  - videoId/title GH AI Muzick không đổi;
+  - `sourceAvatar` đã lấy đúng từ `yt1988_channel_directory`.
+- Data impact: chỉ bổ sung package metadata đã có sẵn trong canonical library; không thêm/xóa LIVE.
