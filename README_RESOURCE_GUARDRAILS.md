@@ -178,6 +178,34 @@ Mục tiêu là **stale-while-revalidate**: dùng gói hiện có trước, cậ
 
 **Không chờ tới 5 GB mới xử lý.**
 
+### 3.3. Source-state egress contract
+
+```text
+yt1988-state?view=manifest
+→ hash/version only
+
+yt1988-state?view=lite
+→ selected / blocked / suggested ids
+→ source labels + LIVE keywords + hashtags
+→ NO channelLibrary
+→ NO TikTok profiles
+→ NO description/stats/avatar duplication
+
+yt1988-state?view=library
+→ channel library only
+→ /sources/ only
+→ IndexedDB cache
+→ download only when libraryHash changes
+```
+
+Rules:
+- MAIN starts from package + state manifest. State hash unchanged → do not fetch lite again.
+- Cloudflare YouTube LIVE may only use `view=lite`.
+- MAIN/Cloudflare must never fetch default/full state during normal operation.
+- `libraryHash` must not change on selected/blocked-only edits.
+- Channel library is not a render prerequisite for package feed; package identity remains authoritative.
+- Keep default full view only for backward compatibility, not as a normal read path.
+
 ## 4. Quy tắc Log Ingestion
 
 ### 4.1. Production không log theo item
