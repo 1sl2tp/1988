@@ -199,7 +199,14 @@ Deno.serve(async (req) => {
 
   if (req.method === "GET") {
     const requestUrl = new URL(req.url);
-    const view = cleanText(requestUrl.searchParams.get("view") || "full", 24).toLowerCase();
+    const requestedView = cleanText(requestUrl.searchParams.get("view") || "", 24).toLowerCase();
+    // Public GET never returns the old monolithic full state. Legacy/no-view,
+    // explicit full, and unknown views all degrade to lite so stale PWAs cannot
+    // keep burning egress while still receiving source membership state.
+    const view =
+      requestedView === "manifest" || requestedView === "library"
+        ? requestedView
+        : "lite";
 
     if (view === "manifest") {
       const [sourceMetaRes, legacyMetaRes, hashtagMetaRes, directoryMetaRes, tiktokMetaRes] = await Promise.all([
