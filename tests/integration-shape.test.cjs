@@ -70,6 +70,9 @@ if(simpleProduction){
   assert.match(html,/fetchYoutubeLiveSnapshot\(\)/);
   assert.match(html,/refreshTikTokLiveFeed\(\{paint:false,force:true\}\)/);
   assert.match(html,/loadTikTokLatestVideoFeed\(\{silent:true\}\)/);
+  assert.match(html,/runYoutubeLiveCycle\(\{[\s\S]{0,140}background:true/);
+  assert.match(html,/const LIVE_BACKGROUND_REFRESH_MS=3\*60_000/);
+  assert.match(html,/function scheduleLiveBackgroundRefresh\(/);
   assert.match(html,/scheduleStartupLivePreload\(\)/);
   assert.match(html,/Promise\.all\(scopes\.map\(scope=>restoreStoredPackage\(scope\)\)\)/);
   assert.match(html,/function selectedMetaNeedsLookup\(/);
@@ -134,7 +137,7 @@ if(simpleProduction){
   assert.match(html,/playing-avatar-ring/);
   assert.match(html,/--card-hover-alpha:\.095/);
   assert.match(html,/grid-auto-flow:row dense/);
-  assert.match(html,/const cardGap=32/);
+  assert.match(html,/const cardGap=16/);
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
