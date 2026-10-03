@@ -1,3 +1,11 @@
+## 2026-10-04 — TikTok channel videos chuyển sang RSS-Bridge JSON
+
+- Xác nhận TikWM user/posts bị Cloudflare challenge 403 từ server.
+- RSS-Bridge TikTokBridge trả video thật cho `@tu.thuong_lay_minh_1`.
+- Endpoint production `/tiktok/channel-videos` dùng RSS-Bridge JSON trực tiếp.
+- Probe production HTTP 200, trả video ID `7680871454702882069`, source `rss-bridge-json`.
+- Runtime `7e292720738b92a17999626999823e5fe5ac2bf8`; Edge `37160900232` SUCCESS; probe `37160938659` SUCCESS.
+
 ## 2026-10-04 — latest 5 TikTok chuyển sang TikWM user/posts
 
 - Bỏ đường native secUid/post_item_list khỏi endpoint lấy danh sách 5 video.
