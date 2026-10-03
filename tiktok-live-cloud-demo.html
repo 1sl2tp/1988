@@ -48,7 +48,9 @@
           <button type="button" data-source="tikwm" class="active">TikWM</button>
           <button type="button" data-source="tdown">TDown</button>
           <button type="button" data-source="tiklydown">TiklyDown</button>
-          <button type="button" data-source="douyinwtf">DouyinWTF</button>
+          <button type="button" data-source="musicaldown">MusicalDown</button>
+          <button type="button" data-source="tikdown">TikDown</button>
+          <button type="button" data-source="ttdownloader">TTDownloader</button>
         </div></div>
         <div class="sourceinfo" id="sourceInfo">Chọn video rồi bấm nguồn để thử thủ công.</div>
         <div class="player">
@@ -149,78 +151,21 @@ function writeVodLinkCache(item,source,url){
   if(!/^https?:\/\//i.test(String(url||"")))return;
   try{sessionStorage.setItem(vodLinkCacheKey(item,source),JSON.stringify({at:Date.now(),url:String(url)}))}catch{}
 }
-function pickJsonVideoUrl(data){
-  const found=[];
-  const seen=new Set();
-  const walk=(node,path="",depth=0)=>{
-    if(node==null||depth>10)return;
-    if(typeof node==="string"){
-      const url=String(node||"").trim();
-      if(/^https?:\/\//i.test(url)){
-        const key=path.toLowerCase();
-        let score=0;
-        if(/\.mp4(?:$|[?#])/i.test(url))score+=120;
-        if(/download|video|play|nowatermark|no_watermark|hd/.test(key))score+=70;
-        if(/tiktokcdn|byteoversea|ibytedtos|muscdn|akamaized/i.test(url))score+=30;
-        if(/cover|avatar|image|music|audio|mp3|m4a|thumbnail/.test(key))score-=180;
-        found.push({url,score});
-      }
-      return;
-    }
-    if(typeof node!=="object"||seen.has(node))return;
-    seen.add(node);
-    if(Array.isArray(node)){node.forEach((v,i)=>walk(v,path+"["+i+"]",depth+1));return}
-    Object.entries(node).forEach(([k,v])=>walk(v,path?path+"."+k:k,depth+1));
-  };
-  walk(data);
-  found.sort((a,b)=>b.score-a.score);
-  return String(found[0]?.url||"");
-}
 async function resolveVodDirect(item,source){
   const cached=readVodLinkCache(item,source);
-  if(cached)return cached;
-  const pageUrl=vodPageUrl(item);
-  let url="";
-
-  if(source==="tikwm"){
-    const data=await json("https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl),12000);
-    const body=data?.data||{};
-    url=String(body.play||body.wmplay||body.hdplay||"").trim();
-    if(url.startsWith("//"))url="https:"+url;
-    else if(url.startsWith("/"))url="https://www.tikwm.com"+url;
-  }else if(source==="tdown"){
-    const data=await json("https://tdownv4.sl-bjs.workers.dev/?down="+encodeURIComponent(pageUrl),12000);
-    url=String(
-      data?.download_url||
-      data?.downloadUrl||
-      data?.video?.download_url||
-      data?.data?.download_url||
-      ""
-    ).trim();
-    if(url.startsWith("//"))url="https:"+url;
-  }else if(source==="tiklydown"){
-    let lastError=null;
-    for(const base of ["https://api.tiklydown.eu.org/api/download","https://api.tiklydown.link/api/download"]){
-      try{
-        const data=await json(base+"?url="+encodeURIComponent(pageUrl),12000);
-        url=pickJsonVideoUrl(data);
-        if(url)break;
-      }catch(error){lastError=error}
-    }
-    if(!url&&lastError)throw lastError;
-  }else if(source==="douyinwtf"){
-    const data=await json(
-      "https://api.douyin.wtf/api/hybrid/video_data?minimal=false&url="+encodeURIComponent(pageUrl),
-      12000
-    );
-    url=pickJsonVideoUrl(data);
-  }else{
-    throw new Error("Nguồn không hỗ trợ");
+  if(cached)return {url:cached,resolverMs:0,cached:true};
+  const endpoint=
+    EDGE+"/tiktok/video-link?user="+encodeURIComponent(item.handle)+
+    "&id="+encodeURIComponent(item.id)+
+    "&source="+encodeURIComponent(source)+
+    "&t="+Date.now();
+  const data=await json(endpoint,15000);
+  const url=String(data?.url||"").trim();
+  if(!data?.ok||!/^https?:\/\//i.test(url)){
+    throw new Error(String(data?.error||source+" không trả link video"));
   }
-
-  if(!/^https?:\/\//i.test(url))throw new Error(source+" không trả link video");
   writeVodLinkCache(item,source,url);
-  return url;
+  return {url,resolverMs:Number(data?.resolverMs||0),cached:false};
 }
 async function json(url,timeout=20000){
   const controller=new AbortController();
@@ -311,11 +256,12 @@ async function playVodMedia(item,{iframeFallback=false,source=selectedSource}={}
   sourceInfo.textContent=source.toUpperCase()+" · đang get link…";
 
   try{
-    const direct=await resolveVodDirect(item,source);
+    const resolved=await resolveVodDirect(item,source);
+    const direct=String(resolved?.url||"");
     const getSec=((performance.now()-started)/1000).toFixed(2);
     if(mySeq!==vodSeq)return;
 
-    sourceInfo.textContent=source.toUpperCase()+" · có link sau "+getSec+"s · đang mở video…";
+    sourceInfo.textContent=source.toUpperCase()+" · có link sau "+getSec+"s"+(resolved?.cached?" (cache)":"")+" · đang mở video…";
     nowEl.textContent=(item.title||("Video "+item.id))+" · @"+item.handle+" · "+source.toUpperCase()+" · link "+getSec+"s";
 
     video.style.display="block";

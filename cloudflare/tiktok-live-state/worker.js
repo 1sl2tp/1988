@@ -2924,6 +2924,44 @@ async function redirectTikTokOriginPlay(request){
   },502);
 }
 
+async function resolveTikTokVideoLinkOnly(request){
+  const incoming=new URL(request.url);
+  const handle=normalizeHandle(incoming.searchParams.get("user")||"");
+  const id=normalizeVideoId(incoming.searchParams.get("id")||"");
+  const source=String(incoming.searchParams.get("source")||"tikwm").trim().toLowerCase();
+  const allowed=new Set(["tikwm","tdown","tiklydown","musicaldown","tikdown","ttdownloader"]);
+  if(!handle||!id)return json({ok:false,error:"invalid_tiktok_video"},400);
+  if(!allowed.has(source))return json({ok:false,error:"unsupported_source",source},400);
+
+  const started=Date.now();
+  try{
+    const row=await resolveVodSourceByName(source,handle,id,{refresh:false});
+    const url=String(row?.url||"").trim();
+    if(!/^https?:\/\//i.test(url))throw new Error(source+"_no_media_url");
+    return json({
+      ok:true,
+      handle,
+      id,
+      source,
+      url,
+      resolverMs:Date.now()-started,
+      proxyVideo:false,
+      mediaBytesThroughWorker:false
+    },200,{"cache-control":"no-store"});
+  }catch(error){
+    return json({
+      ok:false,
+      handle,
+      id,
+      source,
+      resolverMs:Date.now()-started,
+      error:String(error?.message||error||source+"_resolve_failed"),
+      proxyVideo:false,
+      mediaBytesThroughWorker:false
+    },502,{"cache-control":"no-store"});
+  }
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
@@ -2948,6 +2986,9 @@ export default {
 
     if (url.pathname === "/tiktok/video-warm-edge" && request.method === "GET") {
       return warmTikTokVod(request);
+    }
+    if (url.pathname === "/tiktok/video-link" && request.method === "GET") {
+      return resolveTikTokVideoLinkOnly(request);
     }
     if (url.pathname === "/tiktok/video-stream" && (request.method === "GET" || request.method === "HEAD")) {
       return relayTikTokVideo(request);
