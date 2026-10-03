@@ -150,6 +150,11 @@ if(simpleProduction){
   assert.match(html,/Desktop watch uses the right side as a queue/);
   assert.match(html,/scrolling must never create a floating player/);
   assert.doesNotMatch(html,/if\(opened&&!isTwoColumn\(\)&&mediaProviderFor\(selectedMeta\)!==["']tiktok["']\)/);
+  assert.match(html,/Feed rerender must never move the active media out of the focused viewer/);
+  assert.doesNotMatch(html,/activeCard\)attachPlayerToCard/);
+  assert.doesNotMatch(html,/routedId&&currentId&&routedId===currentId/);
+  assert.equal((html.match(/showPlayerAsPip\(\)/g)||[]).length,2);
+  assert.equal((html.match(/attachPlayerToCard\(/g)||[]).length,2);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
   assert.match(sw,/1988-simple-media-v\d+/);
