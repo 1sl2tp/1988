@@ -48,15 +48,20 @@ assert.match(ytApi,/CHECK_CIRCLE_FILLED/);
 assert.match(ytApi,/url\.searchParams\.get\("profile"\) === "1"/);
 assert.match(ytApi,/wantsProfile\s*\?\s*youtubeWebChannelProfile/);
 
-// Browser primes and prefers the unified library for both platforms.
+// MAIN keeps library helpers for explicit/local enrichment, but startup must
+// not download or prime the full library. Package/search metadata own cards.
 assert.match(html,/const channelLibraryByKey=new Map\(\)/);
 assert.match(html,/function primeUnifiedChannelLibrary\(/);
-assert.match(html,/primeUnifiedChannelLibrary\(remote\)/);
+assert.doesNotMatch(html,/primeUnifiedChannelLibrary\(remote\)/);
+assert.match(html,/SOURCE_STATE_URL\+"\?view=manifest"/);
+assert.match(html,/SOURCE_STATE_URL\+"\?view=lite"/);
 assert.match(html,/channelLibraryEntry\("youtube",sourceId\)/);
 assert.match(html,/channelLibraryEntry\("tiktok",handle\)/);
 
-// Source manager must consume the same canonical identity library.
+// Source manager alone consumes/caches the canonical identity library.
 assert.match(sourceManager,/state\.remote\?\.channelLibrary/);
+assert.match(sourceManager,/indexedDB\.open\(SOURCE_CACHE_DB,1\)/);
+assert.match(sourceManager,/view:"library"/);
 assert.match(sourceManager,/function channelLibraryYoutubeRow\(/);
 const sourceMetaStart=sourceManager.indexOf('function metaMap');
 const sourceMetaEnd=sourceManager.indexOf('function directScopeSet',sourceMetaStart);
