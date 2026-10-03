@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v47-player-api";
+const LIVE_PIPELINE_VERSION="live-v48-original-title";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -485,20 +485,9 @@ function cleanSourceTitle(value:any,sourceName:any){
 }
 
 function cleanLiveTitle(value:any){
-  const original=clean(value,300);
-  if(!original)return "";
-
-  let title=original;
-  // Strip only a leading LIVE/TRỰC TIẾP marker plus its surrounding decoration.
-  // Do not remove emoji/symbols elsewhere in the actual title.
-  const marker=/^(?:[^A-Za-zÀ-ỹ0-9]*)(?:(?:trực\s*tiếp)|(?:live\s*stream)|livestream|live)\b(?:[^A-Za-zÀ-ỹ0-9]*)/iu;
-  for(let i=0;i<3;i++){
-    const next=title.replace(marker,"").trim();
-    if(!next||next===title)break;
-    title=next;
-  }
-
-  return title||original;
+  // LIVE title is canonical source data. Do not remove markers, channel names,
+  // separators, emoji or any other title content.
+  return clean(value,300);
 }
 
 function normalizeRow(row:any,source:any={}){
@@ -531,8 +520,9 @@ function normalizeRow(row:any,source:any={}){
   ));
   const live=isLive(row);
   const rawTitle=clean(row?._displayTitle||row?.title||"",300);
-  const sourceCleanTitle=cleanSourceTitle(rawTitle,sname);
-  const normalizedTitle=live?cleanLiveTitle(sourceCleanTitle):sourceCleanTitle;
+  const normalizedTitle=live
+    ?rawTitle
+    :cleanSourceTitle(rawTitle,sname);
   return {
     ...row,
     id,
@@ -566,6 +556,18 @@ function dedupeRows(rows:any[]){
     if(th&&titleHashes.has(th))continue;
     ids.add(id);
     if(th)titleHashes.add(th);
+    out.push(row);
+  }
+  return out;
+}
+
+function dedupeLiveRows(rows:any[]){
+  const ids=new Set<string>();
+  const out:any[]=[];
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=videoId(row);
+    if(!id||ids.has(id))continue;
+    ids.add(id);
     out.push(row);
   }
   return out;
@@ -1713,7 +1715,7 @@ async function youtubeChannelLiveVideoId(channel:string,timeout=3200){
 }
 
 async function verifyCurrentLiveRows(rows:any[],limit=64){
-  const list=dedupeRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
+  const list=dedupeLiveRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
   if(!list.length)return [];
 
   const checked=await mapLimit(list,6,async(row)=>{
@@ -1760,15 +1762,11 @@ async function verifyCurrentLiveRows(rows:any[],limit=64){
     // If a discovery source supplied only the channel name as the title,
     // resolve this exact video once. The result may enrich metadata but can
     // never change ownership away from the player-reported channel.
-    const cleanedCandidate=cleanLiveTitle(cleanSourceTitle(originalTitle,sourceName));
-    const titleIsSource=
-      !cleanedCandidate||
-      compactTitleIdentity(cleanedCandidate)===compactTitleIdentity(sourceName);
-    if(titleIsSource||!sourceName||!sourceAvatar){
+    if(!originalTitle||!sourceName||!sourceAvatar){
       const exact=ownerExact||await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,id);
       const exactOwner=clean(exact?.sourceId||"",180);
       if(exact&&(!exactOwner||exactOwner===sid)){
-        if(titleIsSource&&exact?.title)originalTitle=clean(exact.title,300);
+        if(!originalTitle&&exact?.title)originalTitle=clean(exact.title,300);
         if(!sourceName)sourceName=validChannelDisplayName(exact?.sourceName||"");
         if(!sourceAvatar)sourceAvatar=normalizeAvatarUrl(clean(exact?.sourceThumbnailUrl||"",1000));
         if(exact?.thumbnailUrl)thumbnail=clean(exact.thumbnailUrl,1000);
@@ -1829,7 +1827,7 @@ function exactSearchVideoMeta(data:any,id:string){
       row?.uploaderAvatar||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",
       1000
     )),
-    title:cleanLiveTitle(row?.title||row?.name||""),
+    title:clean(row?.title||row?.name||"",300),
     thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
     views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0)
   };
@@ -2051,8 +2049,8 @@ async function discoverGlobalLiveCandidates(
   });
 
   return {
-    external:dedupeRows(external),
-    selected:dedupeRows(selected)
+    external:dedupeLiveRows(external),
+    selected:dedupeLiveRows(selected)
   };
 }
 
@@ -2537,20 +2535,15 @@ Deno.serve(async(req:Request)=>{
               item?.sourceAvatar||source?.thumbnailUrl||"",
               1000
             );
-            let title=cleanLiveTitle(item?.title||"");
+            let title=clean(item?.title||"",300);
             let thumbnail=clean(
               item?.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
               1000
             );
             let views=Math.max(0,Number(item?.viewerCount)||0);
 
-            const titleIsSource=
-              !!title&&!!sourceName&&
-              compactTitleIdentity(title)===compactTitleIdentity(sourceName);
             if(
               !title||
-              normalizeLiveText(title)==="dang truc tiep"||
-              titleIsSource||
               !sourceName||
               !sourceAvatar
             ){
@@ -2560,12 +2553,8 @@ Deno.serve(async(req:Request)=>{
                 id
               );
               if(exact){
-                if(
-                  !title||
-                  normalizeLiveText(title)==="dang truc tiep"||
-                  titleIsSource
-                ){
-                  title=cleanLiveTitle(exact?.title||"");
+                if(!title){
+                  title=clean(exact?.title||"",300);
                 }
                 if(!sourceName)sourceName=clean(exact?.sourceName||"",180);
                 if(!sourceAvatar)sourceAvatar=clean(exact?.sourceThumbnailUrl||"",1000);
@@ -2578,8 +2567,8 @@ Deno.serve(async(req:Request)=>{
               id,
               videoId:id,
               url:"/watch?v="+id,
-              title:title||sourceName||"Đang trực tiếp",
-              _displayTitle:title||sourceName||"Đang trực tiếp",
+              title,
+              _displayTitle:title,
               channelId:sid,
               uploaderId:sid,
               _sourceId:sid,
@@ -2612,7 +2601,7 @@ Deno.serve(async(req:Request)=>{
           })).filter(Boolean);
 
           verifiedLiveRowsCache=(await verifyCurrentLiveRows(
-            dedupeRows(edgeRows),
+            dedupeLiveRows(edgeRows),
             Math.max(64,edgeRows.length)
           )).sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
@@ -2717,7 +2706,7 @@ Deno.serve(async(req:Request)=>{
         const sid=channelId(row);
         if(!sid||!liveSourceById.has(sid))continue;
         const list=liveCandidateRowsById.get(sid)||[];
-        liveCandidateRowsById.set(sid,dedupeRows([...list,row]));
+        liveCandidateRowsById.set(sid,dedupeLiveRows([...list,row]));
       }
 
       const remainingSelected=selectedLiveSources;
@@ -2776,12 +2765,12 @@ Deno.serve(async(req:Request)=>{
       })).filter(Boolean);
 
       // STEP 3 — merge only after Source 1 and Source 2 have each been filtered.
-      const selectedLiveRows=dedupeRows([
+      const selectedLiveRows=dedupeLiveRows([
         ...verifiedSelectedFromSearch,
         ...selectedCheckedRows
       ]);
       verifiedLiveRowsCache=(await verifyCurrentLiveRows(
-        dedupeRows([
+        dedupeLiveRows([
           ...selectedLiveRows,
           ...verifiedExternalRows
         ]),
@@ -3575,7 +3564,7 @@ Deno.serve(async(req:Request)=>{
         if(!validChannelDisplayName(
           r?._sourceName||r?.uploaderName||r?.uploader||r?.channelName||""
         ))return false;
-        if(titleLooksBroken(r))return false;
+        if(scope!=="live"&&titleLooksBroken(r))return false;
         if(scope==="live"&&liveKeywordBlocked(r,liveKeywords))return false;
         // Do not filter by language. 1988 keeps the original language and only
         // applies source/title/content policy.
@@ -3583,7 +3572,7 @@ Deno.serve(async(req:Request)=>{
       });
 
       if(meta.kind!=="live")raw=sortRows(raw);
-      raw=(meta.kind==="live"?dedupeRows(raw):dedupePackageRows(raw))
+      raw=(meta.kind==="live"?dedupeLiveRows(raw):dedupePackageRows(raw))
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
       if(raw.length===0&&Array.isArray(current?.items)&&current.items.length){
@@ -3627,7 +3616,7 @@ Deno.serve(async(req:Request)=>{
       let packaged=raw;
 
       packaged=meta.kind==="live"
-        ?dedupeRows(packaged)
+        ?dedupeLiveRows(packaged)
         :dedupePackageRows(packaged);
 
       // Coverage above already prevents partial upstream failures from replacing
