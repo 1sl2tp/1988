@@ -8369,6 +8369,23 @@ html.tiktok-ui.tiktok-watch .rows{
           TIKTOK_LIVE_API+"/tiktok/live-scan?start=1&t="+Date.now(),
           {cache:"no-store"}
         );
+
+        // Compatibility with the currently deployed edge: until the new
+        // demand-cycle Worker is live, /sweep remains the demand-only fallback.
+        // It checks one bounded rotation batch and the visible-tab timer asks
+        // again about once per minute; no browser open means no sweep.
+        if(response.status===404){
+          const fallback=await fetch(
+            TIKTOK_LIVE_API+"/sweep?t="+Date.now(),
+            {cache:"no-store"}
+          );
+          if(!fallback.ok)throw new Error("tiktok_live_sweep_"+fallback.status);
+          await fallback.json().catch(()=>null);
+          if(!liveDemandActive("tiktok"))return false;
+          await refreshTikTokLiveFeed({paint:false,force:true});
+          return true;
+        }
+
         if(!response.ok)throw new Error("tiktok_live_scan_"+response.status);
         let state=await response.json();
 

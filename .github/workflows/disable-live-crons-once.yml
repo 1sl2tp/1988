@@ -1,0 +1,45 @@
+name: One-shot Disable LIVE Edge Crons
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/disable-live-crons-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  disable:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Disable and verify LIVE cron triggers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
+          for SCRIPT in 1988-youtube-live-state 1988-tiktok-live-state; do
+            echo "Disable schedules: $SCRIPT"
+            curl -fsSL \
+              -X PUT \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data '[]' \
+              "$API/$SCRIPT/schedules" > "/tmp/$SCRIPT-put.json"
+
+            jq -e '.success == true and (.result.schedules | length) == 0' "/tmp/$SCRIPT-put.json" >/dev/null
+
+            curl -fsSL \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$API/$SCRIPT/schedules" > "/tmp/$SCRIPT-get.json"
+
+            jq -e '.success == true and (.result.schedules | length) == 0' "/tmp/$SCRIPT-get.json" >/dev/null
+            jq '{success,schedules:.result.schedules}' "/tmp/$SCRIPT-get.json"
+          done
