@@ -80,7 +80,7 @@ let handle="";
 let liveItem=null;
 let videos=[];
 let account=null;
-const TIKWM_POSTS_API="https://www.tikwm.com/api/user/posts";
+const CHANNEL_VIDEOS_API=EDGE+"/tiktok/channel-videos";
 let vodOpenCount=0;
 let vodSeq=0;
 let playerMode="auto";
@@ -110,33 +110,25 @@ async function resolveHandleFromInput(raw){
     return "";
   }
 }
-function normalizeTikwmVideos(data,h){
-  const rows=
-    (Array.isArray(data?.data?.videos)&&data.data.videos)||
-    (Array.isArray(data?.data?.items)&&data.data.items)||
-    [];
-  return rows
+async function loadLatestFive(h){
+  const endpoint=new URL(CHANNEL_VIDEOS_API);
+  endpoint.searchParams.set("user",h);
+  endpoint.searchParams.set("count","5");
+  endpoint.searchParams.set("t",Date.now());
+  const data=await json(endpoint.toString(),12000);
+  if(data?.ok!==true)throw new Error(String(data?.error||"Không lấy được video"));
+  videos=(Array.isArray(data?.videos)?data.videos:[])
     .map(row=>({
       kind:"video",
-      handle:h,
-      id:String(row?.video_id||row?.aweme_id||row?.id||""),
-      title:String(row?.title||row?.desc||row?.description||""),
-      thumbnail:String(row?.cover||row?.origin_cover||row?.ai_dynamic_cover||""),
-      createTime:Number(row?.create_time||row?.createTime||0),
-      pageUrl:"https://www.tiktok.com/@"+h+"/video/"+String(row?.video_id||row?.aweme_id||row?.id||"")
+      handle:String(row?.handle||h),
+      id:String(row?.id||""),
+      title:String(row?.title||""),
+      thumbnail:String(row?.thumbnail||""),
+      createTime:Number(row?.createTime||0),
+      pageUrl:String(row?.pageUrl||("https://www.tiktok.com/@"+h+"/video/"+row?.id))
     }))
     .filter(row=>/^\d{8,}$/.test(row.id))
-    .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
     .slice(0,5);
-}
-async function loadLatestFive(h){
-  const endpoint=new URL(TIKWM_POSTS_API);
-  endpoint.searchParams.set("unique_id",h);
-  endpoint.searchParams.set("count","5");
-  endpoint.searchParams.set("cursor","0");
-  const data=await json(endpoint.toString(),12000);
-  if(Number(data?.code)!==0)throw new Error(String(data?.msg||("TikWM code "+data?.code)));
-  videos=normalizeTikwmVideos(data,h);
   renderVideos();
   return videos.length;
 }

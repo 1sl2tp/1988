@@ -9,17 +9,16 @@ for(const source of ['tikwm_std','tdown','ttdownloader','musicaldown','tikdown',
 }
 
 assert.doesNotMatch(demo,/onrender\.com/);
-assert.match(demo,/const TIKWM_POSTS_API="https:\/\/www\.tikwm\.com\/api\/user\/posts"/);
-assert.match(demo,/endpoint\.searchParams\.set\("unique_id",h\)/);
+assert.doesNotMatch(demo,/TIKWM_POSTS_API/);
+assert.match(demo,/const CHANNEL_VIDEOS_API=EDGE\+"\/tiktok\/channel-videos"/);
+assert.match(demo,/endpoint\.searchParams\.set\("user",h\)/);
 assert.match(demo,/endpoint\.searchParams\.set\("count","5"\)/);
-assert.match(demo,/videos=normalizeTikwmVideos\(data,h\)/);
+assert.match(demo,/data\?\.ok!==true/);
+assert.match(demo,/Array\.isArray\(data\?\.videos\)/);
 assert.match(demo,/\.slice\(0,5\)/);
 
 assert.match(demo,/EDGE\+"\/refresh\?user="/);
 assert.match(demo,/async function loadLiveNow\(h,\{force=false\}=\{\}\)/);
-assert.match(demo,/function removeLiveCache\(h\)/);
-assert.match(demo,/if\(force\)removeLiveCache\(h\)/);
-assert.match(demo,/if\(force&&playable\)playLive\(liveItem\)/);
 assert.match(demo,/const videoTask=loadLatestFive\(h\)/);
 assert.match(demo,/const liveTask=loadLiveNow\(h,\{force\}\)/);
 assert.match(demo,/Promise\.allSettled\(\[videoTask,liveTask\]\)/);
@@ -33,7 +32,7 @@ assert.match(demo,/https:\/\/downloader-api\.bhwa233\.com\/api\/parse\?url=/);
 
 assert.match(demo,/source:"tikwm_hd",autoFallback:true/);
 assert.match(demo,/source:"bhwa_get",force:true/);
-assert.match(demo,/TikWM có link nhưng phát lỗi · chuyển BHWA/);
-assert.match(demo,/TikWM mở media lỗi · chuyển BHWA/);
+assert.match(demo,/if\(force\)removeLiveCache\(h\)/);
+assert.match(demo,/if\(force&&playable\)playLive\(liveItem\)/);
 
-console.log('tiktok demo no-Render: fresh-check clears stale LIVE cache and auto-opens fresh stream');
+console.log('tiktok demo: no Render, latest-five via edge TikWM metadata, live via refresh, VOD TikWM/BHWA');

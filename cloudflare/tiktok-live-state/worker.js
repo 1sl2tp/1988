@@ -253,6 +253,75 @@ async function videoFingerprintSweep(env, selectedRows) {
   return { ...next.batch, pending: next.pending.length, persisted: materialChanged };
 }
 
+async function fetchTikwmLatestFive(rawHandle,count=5){
+  const handle=normalizeHandle(rawHandle);
+  if(!handle)return json({ok:false,error:"invalid_tiktok_handle"},400);
+
+  const endpoint=new URL("https://www.tikwm.com/api/user/posts");
+  endpoint.searchParams.set("unique_id",handle);
+  endpoint.searchParams.set("count",String(Math.max(1,Math.min(5,Number(count)||5))));
+  endpoint.searchParams.set("cursor","0");
+
+  try{
+    const r=await fetch(endpoint,{
+      method:"GET",
+      headers:{
+        "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        accept:"application/json,text/plain,*/*",
+        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5"
+      },
+      redirect:"follow"
+    });
+    if(!r.ok)return json({ok:false,handle,error:"tikwm_http_"+r.status},502);
+
+    const body=await r.json().catch(()=>null);
+    if(Number(body?.code)!==0){
+      return json({
+        ok:false,
+        handle,
+        error:"tikwm_"+String(body?.msg||body?.code||"error")
+      },502);
+    }
+
+    const data=body?.data||{};
+    const rows=
+      (Array.isArray(data?.videos)&&data.videos)||
+      (Array.isArray(data?.items)&&data.items)||
+      [];
+
+    const videos=rows
+      .map(row=>{
+        const id=normalizeVideoId(row?.video_id||row?.aweme_id||row?.id||"");
+        if(!id)return null;
+        return {
+          id,
+          handle,
+          title:String(row?.title||row?.desc||row?.description||"").slice(0,300),
+          thumbnail:String(row?.cover||row?.origin_cover||row?.ai_dynamic_cover||""),
+          createTime:Number(row?.create_time||row?.createTime||0),
+          pageUrl:"https://www.tiktok.com/@"+handle+"/video/"+id
+        };
+      })
+      .filter(Boolean)
+      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
+      .slice(0,5);
+
+    return json({
+      ok:true,
+      handle,
+      videos,
+      source:"tikwm-user-posts",
+      checkedAt:Date.now()
+    });
+  }catch(error){
+    return json({
+      ok:false,
+      handle,
+      error:"tikwm_fetch_"+String(error?.message||error||"error")
+    },502);
+  }
+}
+
 async function checkTikTok(handle) {
   const endpoint = new URL("https://www.tiktok.com/api-live/user/room");
   endpoint.searchParams.set("aid", "1988");
@@ -3030,6 +3099,12 @@ export default {
     }
     if (url.pathname === "/tiktok/video-stream" && (request.method === "GET" || request.method === "HEAD")) {
       return relayTikTokVideo(request);
+    }
+    if (url.pathname === "/tiktok/channel-videos" && request.method === "GET") {
+      return fetchTikwmLatestFive(
+        url.searchParams.get("user") || "",
+        url.searchParams.get("count") || "5"
+      );
     }
     if (url.pathname === "/refresh") return refreshOne(env, url.searchParams.get("user") || "");
     if (url.pathname === "/sweep") return json({ ok: true, ...(await sweep(env)) });
