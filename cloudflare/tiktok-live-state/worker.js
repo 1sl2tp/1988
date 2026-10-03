@@ -1703,7 +1703,7 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
   };
 }
 
-const VOD_RESOLVER_POOL=["tikwm","tdown","tiklydown","douyinwtf"];
+const VOD_RESOLVER_POOL=["tikwm","tdown","musicaldown","tikdown","ttdownloader"];
 function vodSourceOrder(preferred = "",id="") {
   if(preferred==="native")return ["native",...VOD_RESOLVER_POOL];
   if(preferred==="direct")return ["direct",...VOD_RESOLVER_POOL];
@@ -2018,67 +2018,60 @@ async function relayTikTokVideo(request) {
   let lastError = "";
   const failures=[];
 
-  // Rotate independent resolvers between consecutive videos, then fail over.
-  // All successful media responses still preserve native Range/206 semantics.
+  // One provider call per source per click. If a resolver or its returned
+  // media fails, invalidate only that resolver cache and immediately move to
+  // the next independent provider. Never call the same provider twice in the
+  // same request; this avoids unnecessary rate-limit pressure.
   for (const sourceName of order) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      let source;
-      try {
-        source = await resolveVodSourceByName(sourceName, handle, id, {
-          refresh: attempt === 1
-        });
-      } catch (error) {
-        lastError = sourceName + ":" + String(error?.message || error || "resolve_failed");
-        failures.push({source:sourceName,attempt:attempt+1,phase:"resolve",error:lastError});
-        break;
-      }
-
-      if (!/^https?:\/\//i.test(source.url)) {
-        lastError = sourceName + ":empty_url";
-        break;
-      }
-
-      let upstream;
-      try {
-        upstream = sourceName==="native"
-          ? await fetchTikTokNativeMediaTarget(source,request)
-          : await fetchTikTokMediaTarget(source.url, request, source.headers || {});
-      } catch (error) {
-        lastError = sourceName + ":" + String(error?.message || error || "fetch_failed");
-        failures.push({source:sourceName,attempt:attempt+1,phase:"fetch",error:lastError});
-        if (attempt === 0) continue;
-        break;
-      }
-
-      lastStatus = upstream.status;
-      const upstreamType=String(upstream.headers.get("content-type")||"").toLowerCase();
-      const mediaOk=tiktokMediaResponseLooksUsable(upstream);
-      if (mediaOk) {
-        return mediaRelayResponse(upstream, method, "cloudflare-" + sourceName);
-      }
-
-      try { await upstream.body?.cancel?.(); } catch {}
-      lastError =
-        sourceName +
-        (upstream.ok || upstream.status===206
-          ? ":invalid_content_type_"+(upstreamType||"empty")
-          : ":http_" + upstream.status);
-      failures.push({
-        source:sourceName,
-        attempt:attempt+1,
-        phase:"media",
-        status:upstream.status,
-        contentType:upstreamType,
-        error:lastError
-      });
-
-      // Signed URLs can expire. Refresh that resolver once, then move to the
-      // next independent source instead of retrying the same CDN indefinitely.
-      if ([401, 403, 404, 410, 416, 429].includes(upstream.status) && attempt === 0) {
-        continue;
-      }
-      break;
+    let source;
+    try {
+      source = await resolveVodSourceByName(sourceName, handle, id, {refresh:false});
+    } catch (error) {
+      lastError = sourceName + ":" + String(error?.message || error || "resolve_failed");
+      failures.push({source:sourceName,phase:"resolve",error:lastError});
+      continue;
     }
+
+    if (!/^https?:\/\//i.test(source.url)) {
+      lastError = sourceName + ":empty_url";
+      failures.push({source:sourceName,phase:"resolve",error:lastError});
+      await caches.default.delete(vodResolverCacheKey(sourceName,handle,id)).catch(()=>{});
+      continue;
+    }
+
+    let upstream;
+    try {
+      upstream = sourceName==="native"
+        ? await fetchTikTokNativeMediaTarget(source,request)
+        : await fetchTikTokMediaTarget(source.url, request, source.headers || {});
+    } catch (error) {
+      lastError = sourceName + ":" + String(error?.message || error || "fetch_failed");
+      failures.push({source:sourceName,phase:"fetch",error:lastError});
+      await caches.default.delete(vodResolverCacheKey(sourceName,handle,id)).catch(()=>{});
+      continue;
+    }
+
+    lastStatus = upstream.status;
+    const upstreamType=String(upstream.headers.get("content-type")||"").toLowerCase();
+    const mediaOk=tiktokMediaResponseLooksUsable(upstream);
+    if (mediaOk) {
+      return mediaRelayResponse(upstream, method, "cloudflare-" + sourceName);
+    }
+
+    try { await upstream.body?.cancel?.(); } catch {}
+    lastError =
+      sourceName +
+      (upstream.ok || upstream.status===206
+        ? ":invalid_content_type_"+(upstreamType||"empty")
+        : ":http_" + upstream.status);
+    failures.push({
+      source:sourceName,
+      phase:"media",
+      status:upstream.status,
+      contentType:upstreamType,
+      error:lastError
+    });
+    await caches.default.delete(vodResolverCacheKey(sourceName,handle,id)).catch(()=>{});
   }
 
   return json({
