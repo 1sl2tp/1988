@@ -44,6 +44,52 @@ for(const route of ['/tiktok/live-now','/tiktok/live-library']){
     route+' must return only LIVE rows with a currently verified live link');
 }
 
+
+const membershipStart=server.indexOf('async function setTikTokManagedMembership');
+const membershipEnd=server.indexOf('async function loadTikTokLiveStore',membershipStart);
+const membership=server.slice(membershipStart,membershipEnd);
+assert.doesNotMatch(
+  membership,
+  /yt1988_tiktok_live_selected/,
+  'selected membership must have one canonical table, not a compatibility mirror'
+);
+
+const livePersistStart=server.indexOf('async function persistTikTokLiveStore');
+const livePersistEnd=server.indexOf('function ensureTikTokLivePackageScan',livePersistStart);
+const livePersist=server.slice(livePersistStart,livePersistEnd);
+assert.doesNotMatch(
+  livePersist,
+  /items:rows\.map/,
+  'LIVE singleton package must not duplicate every channel row'
+);
+
+const videoPersistStart=server.indexOf('async function persistTikTokVideoStore');
+const videoPersistEnd=server.indexOf('async function refreshAllTikTokChannelProfiles',videoPersistStart);
+const videoPersist=server.slice(videoPersistStart,videoPersistEnd);
+assert.doesNotMatch(
+  videoPersist,
+  /channels:rows\.map/,
+  'video singleton package must stay summary-only'
+);
+
+const canonicalVideoStart=server.indexOf('function canonicalPackageVideo');
+const canonicalVideoEnd=server.indexOf('function buildTikTokCanonicalPackage',canonicalVideoStart);
+const canonicalVideo=server.slice(canonicalVideoStart,canonicalVideoEnd);
+assert.doesNotMatch(
+  canonicalVideo,
+  /playback\s*:/,
+  'browser library package must not contain rotating signed MP4 URLs'
+);
+
+const mp4PersistStart=server.indexOf('async function persistTikTokCanonicalMp4Source');
+const mp4PersistEnd=server.indexOf('function collectTikTokOriginPlayUrls',mp4PersistStart);
+const mp4Persist=server.slice(mp4PersistStart,mp4PersistEnd);
+assert.match(
+  mp4Persist,
+  /if\(packageMetaChanged\)await persistTikTokCanonicalPackage\(\)/,
+  'signed MP4 refresh must not rewrite the full UI package unless durable metadata changes'
+);
+
 console.log('tiktok-live-state-contract: assertions passed');
 
 
