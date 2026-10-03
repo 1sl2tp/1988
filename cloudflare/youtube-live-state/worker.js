@@ -149,32 +149,9 @@ function sourceSegmentMatches(value="",sourceName=""){
   return !!b&&a===b;
 }
 function cleanLiveDisplayTitle(value="",sourceName=""){
-  const original=clean(value,300);
-  if(!original)return "";
-
-  let title=original.replace(
-    /^(?:[^A-Za-zÀ-ỹ0-9]*)(?:(?:trực\s*tiếp)|(?:live\s*stream)|livestream|live)\b(?:[^A-Za-zÀ-ỹ0-9]*)/iu,
-    ""
-  ).trim();
-
-  const edgeSeparator="(?:\\s*(?:[|•·]|[-–—]|:)\\s*)";
-  for(let i=0;i<3;i++){
-    const leading=title.match(new RegExp("^(.{1,180}?)"+edgeSeparator+"(.+)$","u"));
-    if(!leading)break;
-    const head=clean(leading[1],180);
-    if(!genericLiveSegment(head)&&!sourceSegmentMatches(head,sourceName))break;
-    title=clean(leading[2],300);
-  }
-  for(let i=0;i<3;i++){
-    const trailing=title.match(new RegExp("^(.+?)"+edgeSeparator+"([^|•·:–—-]{1,180})$","u"));
-    if(!trailing)break;
-    const tail=clean(trailing[2],180);
-    if(!genericLiveSegment(tail)&&!sourceSegmentMatches(tail,sourceName))break;
-    title=clean(trailing[1],300);
-  }
-
-  if(genericLiveSegment(title)||sourceSegmentMatches(title,sourceName))return "";
-  return clean(title,300)||original;
+  // LIVE title is source data. Do not remove LIVE/TRỰC TIẾP markers,
+  // channel names, separators, emoji or any other content.
+  return clean(value,300);
 }
 
 function validChannelId(value){
@@ -301,7 +278,7 @@ function parseSearchLiveCandidates(html,origin){
     rows.push({
       channelId,
       videoId,
-      title:cleanLiveDisplayTitle(decodeJsonString(titleRaw),sourceName),
+      title:clean(decodeJsonString(titleRaw),300),
       sourceName,
       thumbnail:decodeJsonString(thumb),
       viewerCount:liveViewerCountFromHtml(chunk),
@@ -495,8 +472,7 @@ async function checkChannelLive(target){
       state?.sourceName||target?.sourceName,
       180
     );
-    const exactTitle=clean(state?.title,300);
-    const title=cleanLiveDisplayTitle(exactTitle,sourceName);
+    const title=clean(state?.title,300);
     return {
       ...target,
       known:true,
@@ -694,7 +670,7 @@ async function scanStep(env,{start=false}={}){
         sourceId:String(row.channelId),
         sourceName,
         sourceAvatar:clean(row.sourceAvatar,1000),
-        title:cleanLiveDisplayTitle(row.title,sourceName)||"Đang trực tiếp",
+        title:clean(row.title,300),
         thumbnail:clean(row.thumbnail,1000)||("https://i.ytimg.com/vi/"+row.videoId+"/hqdefault.jpg"),
         isLive:true,
         viewerCount:Math.max(0,Number(row?.viewerCount)||0),
