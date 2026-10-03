@@ -6531,8 +6531,81 @@ html.tiktok-ui.tiktok-watch .rows{
   const youtubeLiveViewerLookupPending=new Set();
   const youtubeLiveViewerLookupAt=new Map();
 
+  function parseLiveViewerCount(value=""){
+    const raw=String(value||"").replace(/\s+/g," ").trim();
+    if(!raw)return 0;
+    const normalized=raw
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase()
+      .replace(/đ/g,"d");
+    if(!/(dang xem|watching)/.test(normalized))return 0;
+
+    const match=normalized.match(/([\d.,]+)\s*(k|n|nghin|m|tr|trieu|b|ty)?/);
+    if(!match)return 0;
+
+    let numeric=String(match[1]||"");
+    const suffix=String(match[2]||"");
+    let n=0;
+    if(suffix){
+      n=Number(numeric.replace(",","."));
+    }else{
+      const parts=numeric.split(/[.,]/);
+      numeric=parts.length===2&&parts[1].length===3
+        ?parts.join("")
+        :numeric.replace(",",".");
+      n=Number(numeric);
+    }
+    if(!Number.isFinite(n)||n<=0)return 0;
+
+    const factor=
+      /^(k|n|nghin)$/.test(suffix)?1e3:
+      /^(m|tr|trieu)$/.test(suffix)?1e6:
+      /^(b|ty)$/.test(suffix)?1e9:
+      1;
+    return Math.max(0,Math.round(n*factor));
+  }
+
+  function liveViewerCountFromRow(row={},meta={}){
+    const textCandidates=[
+      row?.viewText,
+      row?.short_view_count,
+      row?.view_count_text,
+      row?.viewsText,
+      row?.liveViewCountText,
+      row?.concurrentViewersText
+    ];
+    for(const value of textCandidates){
+      const parsed=parseLiveViewerCount(value);
+      if(parsed>0)return parsed;
+    }
+
+    const direct=Math.max(
+      0,
+      Number(row?.concurrentViewers)||0,
+      Number(row?.viewerCount)||0,
+      Number(row?.liveViewers)||0,
+      Number(meta?.viewerCount)||0
+    );
+    if(direct>0)return direct;
+
+    // For a row that is explicitly LIVE, providers commonly expose the
+    // concurrent count through the generic views field.
+    const live=
+      row?.isLive===true||
+      meta?.isLive===true||
+      Number(row?.duration)===-1||
+      Number(row?.uploaded)===-1;
+    return live
+      ?Math.max(0,Number(row?.views)||Number(row?.viewCount)||Number(meta?.views)||0)
+      :0;
+  }
+
   async function hydrateMissingYoutubeLiveViewers({paint=true}={}){
-    if(!youtubeEdgeLiveReady||!window.YT1988_API?.search)return false;
+    if(
+      !youtubeEdgeLiveReady||
+      (!window.YT1988_API?.video&&!window.YT1988_API?.search)
+    )return false;
     const now=Date.now();
     const missing=youtubeEdgeLiveMetas
       .filter(meta=>{
@@ -6554,19 +6627,37 @@ html.tiktok-ui.tiktok-watch .rows{
       youtubeLiveViewerLookupPending.add(id);
       youtubeLiveViewerLookupAt.set(id,Date.now());
       try{
-        const query=[
-          String(meta?.sourceName||"").trim(),
-          String(meta?.title||"").trim()
-        ].filter(Boolean).join(" ");
-        if(!query)return;
+        let viewers=0;
 
-        const payload=await window.YT1988_API.search(query,"videos");
-        const exact=collectVideoRows(payload)
-          .find(row=>
-            String(row?.id||"").trim()===id&&
-            row?.isLive===true
-          );
-        const viewers=Math.max(0,Number(exact?.views)||0);
+        // Exact video lookup first: no fuzzy-title dependency and no chance of
+        // reading the viewer number from a different LIVE result.
+        if(window.YT1988_API?.video){
+          try{
+            const payload=await window.YT1988_API.video(id);
+            const raw=dataRow(payload);
+            const full=cardMetaFromRow(raw);
+            viewers=liveViewerCountFromRow(raw,full);
+          }catch{}
+        }
+
+        // Some upstream /streams responses omit concurrent viewers. Search is
+        // a secondary source because a LIVE search card often carries "watching".
+        if(!viewers&&window.YT1988_API?.search){
+          const query=[
+            String(meta?.sourceName||"").trim(),
+            String(meta?.title||"").trim()
+          ].filter(Boolean).join(" ");
+          if(query){
+            const payload=await window.YT1988_API.search(query,"videos");
+            const rawRows=collectVideoRows(payload);
+            const exact=rawRows.find(row=>
+              String(row?.id||"").trim()===id&&
+              row?.isLive===true
+            );
+            viewers=liveViewerCountFromRow(exact||{},exact||{});
+          }
+        }
+
         if(!viewers)return;
 
         meta.viewerCount=viewers;
