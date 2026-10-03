@@ -489,11 +489,21 @@ function rssBridgeTikTokVideos(body,rawHandle,count=5){
         handle,
         title:String(item?.title||"").slice(0,300),
         thumbnail,
-        createTime:0,
+        createTime:Number(item?.date_published||item?.date_modified||0)||0,
         pageUrl
       };
     })
     .filter(Boolean)
+    .sort((a,b)=>{
+      const at=Number(a.createTime||0),bt=Number(b.createTime||0);
+      if(at!==bt)return bt-at;
+      try{
+        const aa=BigInt(a.id),bb=BigInt(b.id);
+        return aa===bb?0:(aa>bb?-1:1);
+      }catch{
+        return String(b.id).localeCompare(String(a.id));
+      }
+    })
     .slice(0,wanted);
 }
 

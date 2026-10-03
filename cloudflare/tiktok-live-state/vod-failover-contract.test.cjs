@@ -53,4 +53,6 @@ assert.ok(worker.includes('endpoint.searchParams.set("bridge","TikTokBridge")'))
 assert.ok(worker.includes('endpoint.searchParams.set("username","@"+handle)'));
 assert.ok(worker.includes('endpoint.searchParams.set("format","Json")'));
 assert.ok(worker.includes('source:"rss-bridge-json"'));
+assert.ok(worker.includes('const aa=BigInt(a.id),bb=BigInt(b.id)'));
+assert.ok(worker.includes('source:"rss-bridge-json"'));
 console.log('tiktok VOD direct-url + failover contract ok');

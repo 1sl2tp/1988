@@ -31,7 +31,7 @@
     <section class="panel">
       <div class="head">Kênh / LIVE</div>
       <div class="body" id="liveBox"><div class="empty">Chưa kiểm tra.</div></div>
-      <div class="head">5 video gần nhất</div>
+      <div class="head">Video mới nhất</div>
       <div class="body" id="videosBox"><div class="empty">Chưa tải video.</div></div>
     </section>
     <section class="panel">
@@ -153,7 +153,7 @@ function renderVideos(rows){
 async function loadChannelVideos(h){
   const endpoint=new URL(EDGE+"/tiktok/channel-videos");
   endpoint.searchParams.set("user",h);
-  endpoint.searchParams.set("count","5");
+  endpoint.searchParams.set("count","1");
   endpoint.searchParams.set("t",Date.now());
   const data=await getJson(endpoint.toString(),15000);
   if(data?.ok!==true)throw new Error(String(data?.error||"Không lấy được video"));
@@ -194,7 +194,7 @@ async function checkLive(raw){
   streamUrlEl.value="";
   liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
   videosBox.className="body";
-  videosBox.innerHTML='<div class="empty">Đang lấy 5 video gần nhất…</div>';
+  videosBox.innerHTML='<div class="empty">Đang lấy video mới nhất…</div>';
   statusEl.textContent="@"+h+" · đang kiểm tra LIVE và video…";
   nowEl.textContent="Đang chờ kết quả…";
 
@@ -216,7 +216,7 @@ async function checkLive(raw){
 
   const videoTask=loadChannelVideos(h)
     .then(count=>{
-      videoText=count+" video";
+      videoText=count?"1 video mới nhất":"không có video";
       updateStatus();
     })
     .catch(error=>{
