@@ -21,6 +21,20 @@ const fixtures=[
 ];
 for(const [row,expected] of fixtures)test('filter '+JSON.stringify(row),()=>{assert.equal(client().isTooShortVideo(row),expected,'client');assert.equal(s.isTooShortVideo(row),expected,'server');});
 test('server normalization preserves formatted duration for filtering',()=>{assert.equal(s.isTooShortVideo(s.normalizeRow({id:'abcdefghijk',duration:'1:00'})),true);});
+test('LIVE preserves the exact source title and never dedupes different videoIds by title',()=>{
+ const original='🔴 TRỰC TIẾP | ChimSeDiNang AOE | Thiên Khôi CUP | SPartacus Gaming vs Thiên Khôi';
+ const row=s.normalizeRow(
+  {id:'abcdefghijk',title:original,isLive:true},
+  {id:'UCaaaaaaaaaaaaaaaaaaaaaa',name:'ChimSeDiNang AOE'}
+ );
+ assert.equal(row.title,original);
+ assert.equal(row._displayTitle,original);
+ assert.equal(s.dedupeLiveRows([
+  {id:'aaaaaaaaaaa',title:'TRỰC TIẾP'},
+  {id:'bbbbbbbbbbb',title:'TRỰC TIẾP'}
+ ]).length,2);
+});
+
 test('server rejects English titles without confusing Vietnamese the with English the',()=>{
  assert.equal(s.titleLooksEnglishOnly({title:'Saturday Intelligence Briefing'}),true);
  assert.equal(s.titleLooksEnglishOnly({title:'The Nazi Code-Breaking War That Spawned the Computer Age'}),true);
