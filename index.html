@@ -11177,6 +11177,245 @@ html.tiktok-ui.tiktok-watch .rows{
     return String(value||"").trim().replace(/\s+/g," ").toLocaleLowerCase("vi-VN");
   }
 
+  function youtubeSearchTarget(value=""){
+    let raw=String(value||"").trim();
+    if(!raw)return null;
+
+    // Accept copied YouTube links with or without protocol.
+    if(/^(?:www\.|m\.|music\.)?youtube\.com\//i.test(raw)){
+      raw="https://"+raw;
+    }else if(/^youtu\.be\//i.test(raw)){
+      raw="https://"+raw;
+    }else if(/^youtube-nocookie\.com\//i.test(raw)){
+      raw="https://"+raw;
+    }
+
+    let url=null;
+    try{url=new URL(raw)}catch{return null}
+
+    const host=url.hostname.toLowerCase().replace(/^www\./,"");
+    const youtubeHosts=new Set([
+      "youtube.com",
+      "m.youtube.com",
+      "music.youtube.com",
+      "youtu.be",
+      "youtube-nocookie.com"
+    ]);
+    if(!youtubeHosts.has(host))return null;
+
+    const path=url.pathname.replace(/\/+$/,"");
+    const parts=path.split("/").filter(Boolean);
+    const videoIdCandidate=(value)=>{
+      value=String(value||"").trim();
+      return /^[A-Za-z0-9_-]{11}$/.test(value)?value:"";
+    };
+
+    if(host==="youtu.be"){
+      const id=videoIdCandidate(parts[0]);
+      if(id)return {kind:"video",id,url:raw};
+    }
+
+    if(path==="/watch"){
+      const id=videoIdCandidate(url.searchParams.get("v"));
+      if(id)return {kind:"video",id,url:raw};
+      const list=String(url.searchParams.get("list")||"").trim();
+      if(list)return {kind:"playlist",id:list,url:raw};
+    }
+
+    if(["shorts","live","embed"].includes(String(parts[0]||"").toLowerCase())){
+      const id=videoIdCandidate(parts[1]);
+      if(id)return {kind:"video",id,url:raw};
+    }
+
+    if(String(parts[0]||"").toLowerCase()==="playlist"){
+      const list=String(url.searchParams.get("list")||"").trim();
+      if(list)return {kind:"playlist",id:list,url:raw};
+    }
+
+    if(String(parts[0]||"").toLowerCase()==="channel"&&parts[1]){
+      return {kind:"channel",id:String(parts[1]).trim(),url:raw};
+    }
+
+    if(/^@/.test(String(parts[0]||""))){
+      return {kind:"channel-query",query:String(parts[0]),url:raw};
+    }
+
+    if(["c","user"].includes(String(parts[0]||"").toLowerCase())&&parts[1]){
+      return {kind:"channel-query",query:String(parts[1]),url:raw};
+    }
+
+    // Some share links carry the video only in ?v= even outside /watch.
+    const queryVideo=videoIdCandidate(url.searchParams.get("v"));
+    if(queryVideo)return {kind:"video",id:queryVideo,url:raw};
+
+    const list=String(url.searchParams.get("list")||"").trim();
+    if(list)return {kind:"playlist",id:list,url:raw};
+    return null;
+  }
+
+  function richerYoutubeMeta(items=[]){
+    const rows=(Array.isArray(items)?items:[]).filter(Boolean);
+    if(!rows.length)return null;
+
+    const merged={...rows[0]};
+    for(const row of rows.slice(1)){
+      for(const [key,value] of Object.entries(row||{})){
+        if(
+          value!==undefined&&
+          value!==null&&
+          value!==""&&
+          (merged[key]===undefined||merged[key]===null||merged[key]==="")
+        ){
+          merged[key]=value;
+        }
+      }
+      if(row?.isLive===true)merged.isLive=true;
+      if(Number(row?.viewerCount)>Number(merged?.viewerCount||0)){
+        merged.viewerCount=Number(row.viewerCount)||0;
+        merged.viewsLabel=String(row?.viewsLabel||merged?.viewsLabel||"");
+      }
+      if(
+        String(row?.sourceAvatar||"").trim()&&
+        !String(merged?.sourceAvatar||"").trim()
+      ){
+        merged.sourceAvatar=String(row.sourceAvatar).trim();
+      }
+      if(
+        String(row?.sourceId||"").trim()&&
+        !String(merged?.sourceId||"").trim()
+      ){
+        merged.sourceId=String(row.sourceId).trim();
+      }
+    }
+
+    if(merged.isLive===true&&Number(merged?.viewerCount)>0&&!merged.viewsLabel){
+      merged.viewsLabel=compactLiveViewerCount(merged.viewerCount);
+    }
+    return merged;
+  }
+
+  function channelIdFromPayload(payload){
+    let found="";
+    const seen=new Set();
+    function visit(value,depth=0){
+      if(found||!value||depth>6)return;
+      if(Array.isArray(value)){
+        for(const item of value){
+          visit(item,depth+1);
+          if(found)break;
+        }
+        return;
+      }
+      if(typeof value!=="object")return;
+      if(seen.has(value))return;
+      seen.add(value);
+
+      const candidates=[
+        value?.channelId,
+        value?.uploaderId,
+        value?.id,
+        value?.url,
+        value?.uploaderUrl
+      ];
+      for(const candidate of candidates){
+        const raw=String(candidate||"").trim();
+        const direct=raw.match(/^(UC[A-Za-z0-9_-]{20,})$/)?.[1]||
+          raw.match(/\/channel\/(UC[A-Za-z0-9_-]{20,})/i)?.[1]||
+          "";
+        if(direct){found=direct;return}
+      }
+      for(const child of Object.values(value)){
+        if(child&&(Array.isArray(child)||typeof child==="object")){
+          visit(child,depth+1);
+          if(found)break;
+        }
+      }
+    }
+    visit(payload?.data??payload);
+    return found;
+  }
+
+  async function resolveYoutubeSearchTarget(target,rawQuery){
+    if(!target)return false;
+
+    if(target.kind==="video"){
+      const id=String(target.id||"").trim();
+      const calls=[];
+      if(window.YT1988_API?.videoMeta)calls.push(
+        window.YT1988_API.videoMeta(id).catch(()=>null)
+      );
+      if(window.YT1988_API?.video)calls.push(
+        window.YT1988_API.video(id).catch(()=>null)
+      );
+      if(!calls.length)return false;
+
+      const payloads=await Promise.all(calls);
+      const rows=payloads.flatMap(payload=>collectVideoRows(payload));
+      let meta=richerYoutubeMeta(
+        rows.filter(row=>String(row?.id||"").trim()===id)
+      );
+      if(!meta)return false;
+
+      // A pasted /live URL is a strong intent signal; still prefer actual API
+      // state when it is available.
+      if(/\/live\//i.test(String(target.url||""))&&meta.isLive!==false){
+        meta={...meta,isLive:true};
+      }
+      showSearchResults(rawQuery,[meta]);
+      return true;
+    }
+
+    if(target.kind==="playlist"){
+      if(!window.YT1988_API?.playlist)return false;
+      const payload=await window.YT1988_API.playlist(target.id);
+      const rows=collectVideoRows(payload);
+      if(!rows.length)return false;
+      showSearchResults(rawQuery,rows);
+      return true;
+    }
+
+    let sourceId="";
+    if(target.kind==="channel"){
+      sourceId=validSourceId(target.id);
+    }else if(target.kind==="channel-query"&&window.YT1988_API?.search){
+      const payload=await window.YT1988_API.search(target.query,"channels");
+      sourceId=validSourceId(channelIdFromPayload(payload));
+    }
+    if(!sourceId)return false;
+
+    let profilePayload=null;
+    if(window.YT1988_API?.channel){
+      profilePayload=await window.YT1988_API.channel(sourceId,true).catch(()=>null);
+    }
+
+    const data=dataRow(profilePayload)||{};
+    const sourceName=String(
+      data?.name||
+      data?.channelName||
+      data?.uploaderName||
+      target?.query||
+      "Kênh"
+    ).trim();
+    const sourceAvatar=String(
+      data?.avatarUrl||
+      data?.thumbnailUrl||
+      data?.avatar||
+      ""
+    ).trim();
+
+    const channelMeta={
+      provider:"youtube",
+      sourceId,
+      sourceName,
+      sourceAvatar
+    };
+    queueYoutubeChannelDirectory(channelMeta,"search-url-channel");
+
+    // A channel URL should open the channel feed directly rather than search
+    // the literal URL text.
+    return openChannelInApp(channelMeta);
+  }
+
   function rememberRecentSearch(query,results=[]){
     const key=normalizedSearchQuery(query);
     if(!key)return;
@@ -11283,6 +11522,24 @@ html.tiktok-ui.tiktok-watch .rows{
 
     const pendingToken=++searchPendingSeq;
     setSearchPending(true,pendingToken);
+
+    const youtubeTarget=youtubeSearchTarget(raw);
+    if(youtubeTarget){
+      const request=++feedRequest;
+      try{
+        const handled=await resolveYoutubeSearchTarget(youtubeTarget,raw);
+        if(request!==feedRequest)return;
+        if(handled){
+          rememberRecentSearch(key,feedMode==="search"?feedMetas:[]);
+          return;
+        }
+      }catch(_){
+        // Fall through to the normal YouTube search below. For malformed or
+        // temporarily unresolved URLs this still gives the user a useful result.
+      }finally{
+        if(request===feedRequest)setSearchPending(false,pendingToken);
+      }
+    }
 
     // Exact repeat: paint the previous result immediately.
     const hadCached=showCachedSearchIfAvailable(key);
