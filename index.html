@@ -1115,7 +1115,7 @@ main{
   z-index:2;
   width:100%;
   height:100%;
-  object-fit:cover;
+  object-fit:contain;
   background:#000;
   display:block;
   opacity:1;
@@ -1148,7 +1148,7 @@ main{
   z-index:4;
   width:100%;
   height:100%;
-  object-fit:cover;
+  object-fit:contain;
   background:#000;
   display:block;
   opacity:1;
@@ -3090,7 +3090,7 @@ html.tiktok-ui.tiktok-profile .rows{
 }
 .row.tiktok-profile-video .row-thumb{
   width:100%!important;
-  aspect-ratio:9/16!important;
+  aspect-ratio:var(--media-ratio)!important;
   height:auto!important;
   border-radius:0!important;
   overflow:hidden;
@@ -3820,7 +3820,7 @@ html.tiktok-ui .tiktok-account-handle{font-size:11px!important}
     grid-area:stage!important;
     width:min(var(--tiktok-watch-w),calc((100dvh - var(--top-boundary) - 38px) * .5625))!important;
     height:auto!important;
-    aspect-ratio:9/16!important;
+    aspect-ratio:var(--media-ratio)!important;
     max-height:calc(100dvh - var(--top-boundary) - 38px)!important;
     border-radius:14px!important;
   }
@@ -3973,7 +3973,7 @@ button.tiktok-watch-action-item{cursor:pointer}
     width:min(calc(100% - 2px),420px)!important;
     height:auto!important;
     max-height:none!important;
-    aspect-ratio:9/16!important;
+    aspect-ratio:var(--media-ratio)!important;
     justify-self:center!important;
     border-radius:14px!important;
   }
@@ -4017,6 +4017,60 @@ button.tiktok-watch-action-item{cursor:pointer}
   html.tiktok-ui.tiktok-watch .tiktok-account-rail{
     display:flex!important;
     grid-area:tiktok-accounts!important;
+  }
+}
+
+/* TikTok Watch navigation + exact source geometry. */
+.tiktok-watch-nav{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-bottom:4px;
+}
+.tiktok-watch-nav-button{
+  width:46px;height:46px;
+  border:0;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--yt-press);
+  color:var(--yt-text);
+  font:600 24px/1 Arial,sans-serif;
+  cursor:pointer;
+}
+.tiktok-watch-nav-button:hover{background:var(--yt-hover)}
+.tiktok-watch-nav-button:disabled{opacity:.28;cursor:default}
+.tiktok-watch-live-action{
+  min-width:48px;height:30px;padding:0 9px;
+  border-radius:6px;
+  display:grid;place-items:center;
+  background:#fe2c55;color:#fff;
+  font:800 11px/1 Roboto,Arial,sans-serif;
+}
+.tiktok-watch-live-pill{
+  position:absolute;left:7px;top:7px;z-index:4;
+  height:20px;padding:0 6px;border-radius:4px;
+  display:flex;align-items:center;
+  background:#fe2c55;color:#fff;
+  font:800 10px/20px Roboto,Arial,sans-serif;
+}
+.row.tiktok-watch-video .row-thumb{position:relative}
+@media(min-width:1000px){
+  html.tiktok-ui.tiktok-watch.landscape .media-col{
+    grid-template-columns:minmax(0,1fr) 58px!important;
+  }
+  html.tiktok-ui.tiktok-watch.landscape .stage{
+    width:min(100%,900px)!important;
+    max-width:900px!important;
+    height:auto!important;
+    aspect-ratio:var(--media-ratio)!important;
+  }
+}
+@media(max-width:999px){
+  html.tiktok-ui.tiktok-watch .stage{
+    aspect-ratio:var(--media-ratio)!important;
+  }
+  html.tiktok-ui.tiktok-watch.landscape .stage{
+    width:100%!important;
+    max-width:none!important;
   }
 }
 </style>
@@ -4307,6 +4361,9 @@ button.tiktok-watch-action-item{cursor:pointer}
   let tiktokChannelPage=1;
   let tiktokWorkspaceHandle="";
   let tiktokWorkspaceView="profile";
+  let tiktokWatchSequence=[];
+  let tiktokWatchMoveLockedUntil=0;
+  let tiktokWatchTouchStart=null;
   const TIKTOK_CHANNEL_PAGE_SIZE=18;
   let tiktokLibraryVersion=-1;
   let tiktokLibraryFetchPromise=null;
@@ -8324,16 +8381,6 @@ button.tiktok-watch-action-item{cursor:pointer}
       ""
     ).trim();
 
-    const latest=(Array.isArray(channel?.videos)?channel.videos:[])
-      .slice()
-      .sort((a,b)=>Number(b?.createTime||0)-Number(a?.createTime||0))[0]||null;
-    const latestCover=String(
-      latest?.cover?.url||
-      latest?.cover?.sourceUrl||
-      latest?.cover?.storedUrl||
-      ""
-    ).trim();
-
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
     const currentName=String(meta?.sourceName||"").trim();
     if(
@@ -8350,19 +8397,10 @@ button.tiktok-watch-action-item{cursor:pointer}
       meta.sourceAvatar=profileAvatar;
     }
 
-    const currentCover=String(meta?.livePreview||meta?.thumbnail||"").trim();
-    const coverLooksLikeAvatar=
-      currentCover&&String(meta?.sourceAvatar||"").trim()&&
-      currentCover===String(meta.sourceAvatar).trim();
-
-    if((!meta?.hasLiveCover||coverLooksLikeAvatar)&&latestCover){
-      meta.livePreview=latestCover;
-      meta.thumbnail=latestCover;
-    }
-
+    // LIVE imagery must stay LIVE-origin. If the edge has no LIVE cover,
+    // fall back only to the canonical avatar; never substitute a VOD cover.
     meta.livePreviewFallbacks=[...new Set([
       ...(Array.isArray(meta?.livePreviewFallbacks)?meta.livePreviewFallbacks:[]),
-      latestCover,
       String(meta?.sourceAvatar||"").trim(),
       profileAvatar
     ].filter(Boolean))];
@@ -9476,12 +9514,11 @@ button.tiktok-watch-action-item{cursor:pointer}
           :9/16
       );
     const kind=mediaLayoutKindFromRatio(sourceRatio);
-    const ratio=kind==="portrait"?9/16:16/9;
     current={
       id,
       kind,
-      ratio,
-      detectedRatio:ratio,
+      ratio:sourceRatio,
+      detectedRatio:sourceRatio,
       label:String(meta?.title||""),
       provider:"tiktok",
       type:"media"
@@ -9520,11 +9557,7 @@ button.tiktok-watch-action-item{cursor:pointer}
           ?Number(video.videoWidth)/Number(video.videoHeight)
           :0;
       if(detected>0){
-        const detectedKind=mediaLayoutKindFromRatio(detected);
-        current.detectedRatio=detected;
-        current.kind=detectedKind;
-        current.ratio=detectedKind==="portrait"?9/16:16/9;
-        applyMediaLayoutSelection(detectedKind,{relayout:true});
+        commitCurrentAspect(id,detected,{relayout:true,provider:"tiktok"});
       }
     };
     video.oncanplay=()=>{
@@ -9544,7 +9577,7 @@ button.tiktok-watch-action-item{cursor:pointer}
     video.onended=()=>{
       if(String(current?.id||"")!==id)return;
       player.classList.remove("tiktok-playing","tiktok-media-playing");
-      queueMicrotask(()=>playNextFeedVideo());
+      queueMicrotask(()=>moveTikTokWatch(1)||playNextFeedVideo());
     };
     video.onerror=()=>{
       if(String(current?.id||"")!==id)return;
@@ -10611,6 +10644,75 @@ button.tiktok-watch-action-item{cursor:pointer}
       .find(meta=>String(meta?.handle||"").trim().replace(/^@/,"").toLowerCase()===key)||null;
   }
 
+  function tiktokLivePlayableHere(meta={}){
+    if(meta?.isLive!==true||meta?.playable!==true)return false;
+    if(!isAppleMobileBrowser())return true;
+    if(String(meta?.hlsUrl||"").trim()&&nativeHlsSupported(tiktokLiveVideo))return true;
+    return Boolean(String(meta?.streamUrl||"").trim()&&mpegtsLiveSupported());
+  }
+
+  function tiktokSmartWatchSequence(){
+    const live=(Array.isArray(tiktokLiveMetas)?tiktokLiveMetas:[])
+      .filter(tiktokLivePlayableHere)
+      .slice()
+      .sort((a,b)=>Number(b?.viewerCount||0)-Number(a?.viewerCount||0));
+    const liveHandles=new Set(
+      live.map(meta=>String(meta?.handle||"").trim().replace(/^@/,"").toLowerCase())
+    );
+    const latest=(Array.isArray(tiktokVideoMetas)?tiktokVideoMetas:[])
+      .filter(meta=>{
+        const handle=String(meta?.handle||"").trim().replace(/^@/,"").toLowerCase();
+        return handle&&!liveHandles.has(handle);
+      })
+      .slice()
+      .sort((a,b)=>Number(b?.uploaded||0)-Number(a?.uploaded||0));
+    return [...live,...latest];
+  }
+
+  function prepareTikTokWatchSequence(meta={}){
+    const id=String(meta?.id||"").trim();
+    if(
+      tiktokWorkspaceView==="watch"&&
+      tiktokWatchSequence.some(item=>String(item?.id||"").trim()===id)
+    )return tiktokWatchSequence;
+
+    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
+    let next=
+      feedMode==="tiktok-profile"&&meta?.isLive!==true
+        ?tiktokChannelVideosFor(handle)
+        :tiktokSmartWatchSequence();
+
+    if(id&&!next.some(item=>String(item?.id||"").trim()===id)){
+      next=[meta,...next];
+    }
+    tiktokWatchSequence=next.filter(Boolean);
+    return tiktokWatchSequence;
+  }
+
+  function moveTikTokWatch(step=1){
+    if(
+      !root.classList.contains("tiktok-watch")||
+      String(current?.provider||currentMeta?.provider||"").toLowerCase()!=="tiktok"
+    )return false;
+    const now=Date.now();
+    if(now<tiktokWatchMoveLockedUntil)return false;
+
+    const list=Array.isArray(tiktokWatchSequence)?tiktokWatchSequence:[];
+    const id=String(current?.id||currentMeta?.id||"").trim();
+    const index=list.findIndex(meta=>String(meta?.id||"").trim()===id);
+    const nextIndex=index+Number(step||0);
+    if(index<0||nextIndex<0||nextIndex>=list.length)return false;
+
+    const next=list[nextIndex];
+    if(!next)return false;
+    tiktokWatchMoveLockedUntil=now+420;
+    const opened=openMedia(next);
+    if(opened&&matchMedia("(max-width:999px)").matches){
+      requestAnimationFrame(()=>window.scrollTo({top:0,behavior:"auto"}));
+    }
+    return opened;
+  }
+
   function tiktokProfileIdentity(handle=""){
     handle=String(handle||"").trim().replace(/^@/,"");
     const canonical=channelLibraryEntry("tiktok",handle);
@@ -10761,13 +10863,17 @@ button.tiktok-watch-action-item{cursor:pointer}
 
   function tiktokWatchVideoMarkup(meta,index=0){
     const thumb=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
-    const facts=[meta?.viewsLabel,meta?.publishedLabel].filter(Boolean).join(" · ");
+    const isLive=meta?.isLive===true;
+    const facts=isLive
+      ?[meta?.viewsLabel,"Đang trực tiếp"].filter(Boolean).join(" · ")
+      :[meta?.viewsLabel,meta?.publishedLabel].filter(Boolean).join(" · ");
     return (
-      '<article class="row tiktok-watch-video'+(String(meta?.id||"")===String(current?.id||"")?' selected':'')+
+      '<article class="row tiktok-watch-video'+(isLive?' is-live':'')+(String(meta?.id||"")===String(current?.id||"")?' selected':'')+
         '" tabindex="0" data-video-id="'+escapeHtml(meta?.id||"")+'" data-provider="tiktok" data-source-id="'+escapeHtml(meta?.sourceId||"")+
         '" data-title="'+escapeHtml(String(meta?.title||"").toLowerCase())+'" data-source="'+escapeHtml(String(meta?.sourceName||"").toLowerCase())+'">'+
         '<div class="row-thumb">'+
           (thumb?'<img src="'+escapeHtml(thumb)+'" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async">':"")+
+          (isLive?'<span class="tiktok-watch-live-pill">LIVE</span>':'')+
         '</div>'+
         '<div class="row-details"><div class="row-copy">'+
           '<div class="row-title">'+escapeHtml(meta?.title||"")+'</div>'+
@@ -10862,7 +10968,10 @@ button.tiktok-watch-action-item{cursor:pointer}
   function renderTikTokWatchPanel(meta={}){
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
     const identity=tiktokProfileIdentity(handle);
-    const videos=tiktokChannelVideosFor(handle);
+    const videos=
+      Array.isArray(tiktokWatchSequence)&&tiktokWatchSequence.length
+        ?tiktokWatchSequence
+        :tiktokChannelVideosFor(handle);
     feedMetas=videos;
     feedMode="tiktok-watch";
     tiktokWorkspaceHandle=handle;
@@ -10893,10 +11002,19 @@ button.tiktok-watch-action-item{cursor:pointer}
       const like=String(meta?.likesLabel||"").trim();
       const comments=String(meta?.commentsLabel||"").trim();
       const shares=String(meta?.sharesLabel||"").trim();
+      const currentIndex=videos.findIndex(video=>String(video?.id||"")===String(meta?.id||""));
+      const canPrev=currentIndex>0;
+      const canNext=currentIndex>=0&&currentIndex<videos.length-1;
       tiktokWatchActions.hidden=false;
       tiktokWatchActions.innerHTML=
-        '<div class="tiktok-watch-action-item"><span class="tiktok-watch-action-icon">♡</span><span>'+escapeHtml(like||"Thích")+'</span></div>'+
-        '<div class="tiktok-watch-action-item"><span class="tiktok-watch-action-icon">◌</span><span>'+escapeHtml(comments||"Bình luận")+'</span></div>'+
+        '<div class="tiktok-watch-nav" aria-label="Chuyển video">'+
+          '<button class="tiktok-watch-nav-button" type="button" data-tiktok-watch-nav="-1" aria-label="Video trước" '+(canPrev?'':'disabled')+'>↑</button>'+
+          '<button class="tiktok-watch-nav-button" type="button" data-tiktok-watch-nav="1" aria-label="Video tiếp theo" '+(canNext?'':'disabled')+'>↓</button>'+
+        '</div>'+
+        (meta?.isLive
+          ?'<div class="tiktok-watch-action-item is-live"><span class="tiktok-watch-live-action">LIVE</span><span>'+escapeHtml(String(meta?.viewsLabel||"Đang trực tiếp"))+'</span></div>'
+          :'<div class="tiktok-watch-action-item"><span class="tiktok-watch-action-icon">♡</span><span>'+escapeHtml(like||"Thích")+'</span></div>'+
+           '<div class="tiktok-watch-action-item"><span class="tiktok-watch-action-icon">◌</span><span>'+escapeHtml(comments||"Bình luận")+'</span></div>')+
         '<button class="tiktok-watch-action-item tiktok-watch-share" type="button" data-tiktok-watch-share="1"><span class="tiktok-watch-action-icon">↗</span><span>'+escapeHtml(shares||"Chia sẻ")+'</span></button>';
     }
     rows.dataset.renderSignature="tiktok-watch:"+handle+":"+String(current?.id||"")+":"+videos.map(v=>v.id).join(",");
@@ -10905,6 +11023,7 @@ button.tiktok-watch-action-item{cursor:pointer}
 
   function enterTikTokWatchMode(meta={}){
     if(String(meta?.provider||"").toLowerCase()!=="tiktok")return false;
+    prepareTikTokWatchSequence(meta);
     tiktokWorkspaceHandle=String(meta?.handle||"").trim().replace(/^@/,"");
     setTikTokWorkspaceView("watch");
     returnPlayerToMainStage();
@@ -10916,6 +11035,7 @@ button.tiktok-watch-action-item{cursor:pointer}
   }
 
   function exitTikTokWatch(){
+    tiktokWatchSequence=[];
     if(tiktokWatchActions){
       tiktokWatchActions.hidden=true;
       tiktokWatchActions.innerHTML="";
@@ -10945,6 +11065,18 @@ button.tiktok-watch-action-item{cursor:pointer}
     ]);
 
     renderTikTokAccountRail();
+
+    const explicitHandle=String(handle||"").trim().replace(/^@/,"");
+    if(matchMedia("(max-width:656px)").matches&&!explicitHandle){
+      const smart=tiktokSmartWatchSequence();
+      if(smart.length){
+        tiktokWatchSequence=smart;
+        const firstLive=smart.find(meta=>meta?.isLive===true&&tiktokLivePlayableHere(meta));
+        const firstVod=smart.find(meta=>meta?.isLive!==true);
+        if(firstLive&&openMedia(firstLive))return true;
+        if(firstVod&&openMedia(firstVod))return true;
+      }
+    }
 
     const wanted=String(handle||tiktokWorkspaceHandle||"").trim().replace(/^@/,"");
     const validWanted=wanted&&tiktokLibraryChannelForHandle(wanted);
@@ -13232,6 +13364,13 @@ button.tiktok-watch-action-item{cursor:pointer}
   });
 
   tiktokWatchActions?.addEventListener("click",async event=>{
+    const nav=event.target.closest("[data-tiktok-watch-nav]");
+    if(nav&&!nav.disabled){
+      event.preventDefault();
+      event.stopPropagation();
+      moveTikTokWatch(Number(nav.dataset.tiktokWatchNav)||0);
+      return;
+    }
     const share=event.target.closest("[data-tiktok-watch-share]");
     if(!share)return;
     event.preventDefault();
@@ -13251,6 +13390,50 @@ button.tiktok-watch-action-item{cursor:pointer}
     event.stopPropagation();
     exitTikTokWatch();
   });
+
+  window.addEventListener("wheel",event=>{
+    if(
+      !root.classList.contains("tiktok-watch")||
+      String(current?.provider||"").toLowerCase()!=="tiktok"||
+      event.target.closest?.(".tiktok-watch-videos,.searchbox,input,textarea,select")
+    )return;
+    if(Math.abs(Number(event.deltaY)||0)<34)return;
+    event.preventDefault();
+    moveTikTokWatch(event.deltaY>0?1:-1);
+  },{passive:false});
+
+  document.addEventListener("keydown",event=>{
+    if(
+      !root.classList.contains("tiktok-watch")||
+      String(current?.provider||"").toLowerCase()!=="tiktok"||
+      event.target.closest?.("input,textarea,select,[contenteditable='true']")
+    )return;
+    if(event.key!=="ArrowUp"&&event.key!=="ArrowDown")return;
+    event.preventDefault();
+    moveTikTokWatch(event.key==="ArrowDown"?1:-1);
+  });
+
+  mediaCol?.addEventListener("touchstart",event=>{
+    if(!root.classList.contains("tiktok-watch")||String(current?.provider||"").toLowerCase()!=="tiktok")return;
+    const touch=event.touches?.[0];
+    if(!touch)return;
+    tiktokWatchTouchStart={x:touch.clientX,y:touch.clientY,at:Date.now()};
+  },{passive:true});
+
+  mediaCol?.addEventListener("touchend",event=>{
+    if(!tiktokWatchTouchStart||!root.classList.contains("tiktok-watch")){
+      tiktokWatchTouchStart=null;
+      return;
+    }
+    const touch=event.changedTouches?.[0];
+    const start=tiktokWatchTouchStart;
+    tiktokWatchTouchStart=null;
+    if(!touch)return;
+    const dx=touch.clientX-start.x;
+    const dy=touch.clientY-start.y;
+    if(Date.now()-start.at>900||Math.abs(dy)<54||Math.abs(dy)<Math.abs(dx)*1.2)return;
+    moveTikTokWatch(dy<0?1:-1);
+  },{passive:true});
 
   document.getElementById("rows").addEventListener("click",event=>{
     const openLive=event.target.closest("[data-tiktok-open-live]");
