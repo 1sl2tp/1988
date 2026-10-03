@@ -38,7 +38,7 @@ const SEARCH_QUERIES=[
 function cors(){
   return {
     "access-control-allow-origin":"*",
-    "access-control-allow-methods":"GET,OPTIONS",
+    "access-control-allow-methods":"GET,POST,OPTIONS",
     "access-control-allow-headers":"content-type",
     "cache-control":"no-store"
   };
@@ -825,6 +825,88 @@ async function scanStep(env,{start=false}={}){
   await env.YOUTUBE_LIVE.delete(CYCLE_KEY);
   return {...next,done:true,cycleId:cycle.id,changed};
 }
+async function syncSourceChannel(env,channelId){
+  const id=validChannelId(channelId);
+  if(!id)return {ok:false,edge:true,error:"invalid_channel"};
+
+  const state=await fetchJson(STATE_URL,8000);
+  const base=stateTargets(state);
+  const previous=await loadSnapshot(env);
+  const previousItems=Array.isArray(previous?.items)?previous.items:[];
+  const previousRow=previousItems.find(row=>
+    validChannelId(row?.channelId||row?.sourceId)===id
+  )||null;
+  const nextItems=previousItems.filter(row=>
+    validChannelId(row?.channelId||row?.sourceId)!==id
+  );
+
+  let outcome="removed";
+  let probe=null;
+
+  if(!base.blocked.has(id)&&base.selected.includes(id)){
+    const meta=base.meta.get(id)||{};
+    probe=await checkChannelLive({
+      channelId:id,
+      sourceName:clean(meta?.sourceName||previousRow?.sourceName,180),
+      sourceAvatar:clean(meta?.sourceAvatar||previousRow?.sourceAvatar,1000),
+      videoId:validVideoId(previousRow?.videoId||""),
+      title:"",
+      thumbnail:clean(previousRow?.thumbnail,1000),
+      origin:"selected"
+    });
+
+    // Unknown upstream result must preserve last-known-good for this one row.
+    if(probe?.known===false){
+      return {
+        ok:true,edge:true,channelId:id,changed:false,preserved:true,
+        reason:"probe_unknown"
+      };
+    }
+
+    if(
+      probe?.known===true&&
+      probe?.live===true&&
+      probe?.verifiedLive===true&&
+      probe?.verifiedOwner===true&&
+      !liveKeywordBlocked(probe,base.liveKeywords)
+    ){
+      nextItems.push(probe);
+      outcome="live";
+    }else{
+      outcome="offline";
+    }
+  }else if(base.blocked.has(id)){
+    outcome="blocked";
+  }else{
+    outcome="not_selected";
+  }
+
+  nextItems.sort((a,b)=>String(a.channelId).localeCompare(String(b.channelId)));
+  const changed=snapshotMaterial(previousItems)!==snapshotMaterial(nextItems);
+  const next={
+    ok:true,
+    edge:true,
+    version:Number(previous?.version||0)+(changed?1:0),
+    changedAt:changed?Date.now():Number(previous?.changedAt||0),
+    checkedAt:changed?Date.now():Number(previous?.checkedAt||0),
+    selected:base.selected.length,
+    discovered:Number(previous?.discovered||0),
+    checked:Number(previous?.checked||0),
+    live:nextItems.length,
+    items:nextItems
+  };
+
+  if(changed){
+    await env.YOUTUBE_LIVE.put(SNAPSHOT_KEY,JSON.stringify(next));
+    await wakeLivePackage();
+  }
+
+  return {
+    ok:true,edge:true,channelId:id,changed,outcome,
+    selected:base.selected.length,live:nextItems.length
+  };
+}
+
 async function liveNow(env){
   const snapshot=await loadSnapshot(env);
   return {
@@ -846,6 +928,9 @@ export default {
     const url=new URL(request.url);
     if(url.pathname==="/health")return json({ok:true,service:"1988-youtube-live-state",mode:"demand-only-discover-and-wake-package"});
     if(url.pathname==="/youtube/live-now")return json(await liveNow(env));
+    if(url.pathname==="/youtube/live-source-sync"){
+      return json(await syncSourceChannel(env,url.searchParams.get("channelId")||""));
+    }
     if(url.pathname==="/youtube/live-scan"){
       const start=url.searchParams.get("start")==="1";
       return json(await scanStep(env,{start}));
