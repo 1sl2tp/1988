@@ -1,5 +1,5 @@
-name: Probe TikTok VOD Resolver Pool
-# manual-probe-trigger: 2026-10-04 extra explicit VOD resolvers
+name: Probe TikTok TDown Direct
+# manual-probe-trigger: 2026-10-04 tdown-direct-cors
 
 on:
   push:
@@ -14,26 +14,18 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe resolver pool through production edge
+      - name: Probe TDown direct API
         shell: bash
         run: |
           set -u
-          EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev'
-          USER='geely.daily'
-          ID='7689814919914458374'
-          for SOURCE in tikwm tdown musicaldown tikdown ttdownloader tiklydown douyinwtf; do
-            echo "===== $SOURCE ====="
-            URL="$EDGE/tiktok/video-stream?user=$USER&id=$ID&source=$SOURCE"
-            rm -f "/tmp/$SOURCE.h" "/tmp/$SOURCE.bin"
-            curl -sS --max-time 40 -r 0-65535 -D "/tmp/$SOURCE.h" "$URL" -o "/tmp/$SOURCE.bin" || true
-            STATUS=$(awk 'toupper($1) ~ /^HTTP\// {s=$2} END{print s}' "/tmp/$SOURCE.h" 2>/dev/null || true)
-            TYPE=$(awk -F': ' 'tolower($1)=="content-type"{gsub("\r","",$2);t=$2} END{print t}' "/tmp/$SOURCE.h" 2>/dev/null || true)
-            MEDIA=$(awk -F': ' 'tolower($1)=="x-1988-media"{gsub("\r","",$2);t=$2} END{print t}' "/tmp/$SOURCE.h" 2>/dev/null || true)
-            RANGE=$(awk -F': ' 'tolower($1)=="content-range"{gsub("\r","",$2);t=$2} END{print t}' "/tmp/$SOURCE.h" 2>/dev/null || true)
-            BYTES=$(wc -c <"/tmp/$SOURCE.bin" 2>/dev/null || echo 0)
-            echo "status=$STATUS type=$TYPE media=$MEDIA range=$RANGE bytes=$BYTES"
-            file "/tmp/$SOURCE.bin" || true
-            if [ "$TYPE" = "application/json; charset=utf-8" ] || [ "$TYPE" = "application/json" ]; then
-              head -c 1200 "/tmp/$SOURCE.bin"; echo
-            fi
-          done
+          PAGE='https://www.tiktok.com/@giadinhnhaman/video/7691953502813293832'
+          URL="https://tdownv4.sl-bjs.workers.dev/?down=$(python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["PAGE"], safe=""))' PAGE="$PAGE")"
+          echo "URL=$URL"
+          rm -f /tmp/tdown.h /tmp/tdown.body
+          curl -sS --max-time 20 -D /tmp/tdown.h "$URL" -o /tmp/tdown.body || true
+          echo "===== HEADERS ====="
+          cat /tmp/tdown.h
+          echo "===== BODY ====="
+          head -c 3000 /tmp/tdown.body; echo
+          echo "===== OPTIONS ====="
+          curl -sS --max-time 20 -i -X OPTIONS "$URL"             -H 'Origin: https://yt.taphoa.xyz'             -H 'Access-Control-Request-Method: GET'             -H 'Access-Control-Request-Headers: content-type' | head -c 4000
