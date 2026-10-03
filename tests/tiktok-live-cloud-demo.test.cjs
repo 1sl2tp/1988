@@ -8,7 +8,7 @@ assert.match(demo,/\/refresh\?user=/);
 assert.match(demo,/\/tiktok\/live-now/);
 assert.match(demo,/\/tiktok\/channel-videos\?refresh=0&user=/);
 assert.match(demo,/\/tiktok\/video-stream\?user=/);
-assert.match(demo,/source=\\"\+encodeURIComponent\(source\)/);
+assert.match(demo,/source="+encodeURIComponent\(source\)/);
 assert.match(demo,/mpegts\.createPlayer\(\{type:"flv",isLive:true/);
 assert.doesNotMatch(demo,/\/sweep/);
 assert.doesNotMatch(demo,/resolveTikTokLiveEdge/);
