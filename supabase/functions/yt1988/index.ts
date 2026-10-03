@@ -289,6 +289,152 @@ function decodeXmlText(value: string) {
     .trim();
 }
 
+
+function extractJsonObjectAfterKey(html: string, key: string) {
+  const marker = '"' + key + '":';
+  let at = html.indexOf(marker);
+  if (at < 0) return null;
+  at = html.indexOf("{", at + marker.length);
+  if (at < 0) return null;
+
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let i = at; i < html.length; i++) {
+    const ch = html[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') quoted = false;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = true;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(html.slice(at, i + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+
+function youtubeText(value: any) {
+  if (typeof value === "string") return value.replace(/\s+/g, " ").trim();
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.simpleText === "string") return youtubeText(value.simpleText);
+  if (typeof value.content === "string") return youtubeText(value.content);
+  if (Array.isArray(value.runs)) {
+    return value.runs.map((row: any) => youtubeText(row?.text || "")).join("").trim();
+  }
+  return "";
+}
+
+function youtubeCount(value: any) {
+  const text = youtubeText(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/,/g, "")
+    .trim();
+  if (!text) return 0;
+  const m = text.match(/([0-9]+(?:\.[0-9]+)?)\s*([KMB])?/i);
+  if (!m) return 0;
+  const base = Number(m[1]) || 0;
+  const unit = String(m[2] || "").toUpperCase();
+  const factor = unit === "B" ? 1e9 : unit === "M" ? 1e6 : unit === "K" ? 1e3 : 1;
+  return Math.max(0, Math.round(base * factor));
+}
+
+function youtubeBestThumbnail(value: any) {
+  const rows = Array.isArray(value?.thumbnails) ? value.thumbnails : [];
+  const sorted = rows
+    .map((row: any) => ({
+      url: String(row?.url || "").trim(),
+      area: (Number(row?.width) || 0) * (Number(row?.height) || 0)
+    }))
+    .filter((row: any) => row.url)
+    .sort((a: any, b: any) => b.area - a.area);
+  const url = String(sorted[0]?.url || "");
+  return url.startsWith("//") ? "https:" + url : url;
+}
+
+async function youtubeWebChannelProfile(id: string) {
+  const cacheKey = "youtube-profile:" + id;
+  const cached = getUpstreamCache(cacheKey, 15 * 60 * 1000);
+  if (cached) return cached.data;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  try {
+    const endpoint = new URL("https://www.youtube.com/channel/" + id + "/about");
+    endpoint.searchParams.set("hl", "en");
+    endpoint.searchParams.set("gl", "US");
+    const res = await fetch(endpoint, {
+      signal: controller.signal,
+      cache: "no-store",
+      headers: {
+        "accept": "text/html,application/xhtml+xml",
+        "accept-language": "en-US,en;q=0.9",
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+      }
+    });
+    if (!res.ok) throw new Error("youtube_profile_http_" + res.status);
+    const html = await res.text();
+
+    const metadata = extractJsonObjectAfterKey(html, "channelMetadataRenderer") || {};
+    const about = extractJsonObjectAfterKey(html, "aboutChannelViewModel") || {};
+    const header = extractJsonObjectAfterKey(html, "pageHeaderRenderer") || {};
+
+    const aboutChannelId = String(about?.channelId || "").trim();
+    if (aboutChannelId && aboutChannelId !== id) {
+      throw new Error("youtube_profile_channel_mismatch");
+    }
+
+    const profileUrl = String(
+      about?.canonicalChannelUrl ||
+      metadata?.vanityChannelUrl ||
+      metadata?.channelUrl ||
+      "https://www.youtube.com/channel/" + id
+    ).trim();
+
+    let handle = "";
+    try {
+      const pathname = new URL(profileUrl).pathname;
+      handle = decodeURIComponent(pathname.split("/").filter(Boolean)[0] || "").replace(/^@/, "");
+    } catch {
+      handle = String(profileUrl.match(/youtube\.com\/@([^/?#]+)/i)?.[1] || "").trim();
+    }
+
+    const headerJson = JSON.stringify(header);
+    const verifiedKnown = Object.keys(header).length > 0;
+    const verified = verifiedKnown
+      ? /BADGE_STYLE_TYPE_VERIFIED|CHECK_CIRCLE_THICK/.test(headerJson)
+      : undefined;
+
+    const profile = {
+      name: youtubeText(metadata?.title) || youtubeText(header?.pageTitle),
+      avatarUrl: youtubeBestThumbnail(metadata?.avatar),
+      subscriberCount: youtubeCount(about?.subscriberCountText),
+      subscriberText: youtubeText(about?.subscriberCountText),
+      videoCount: youtubeCount(about?.videoCountText),
+      viewCount: youtubeCount(about?.viewCountText),
+      description: youtubeText(about?.description) || youtubeText(metadata?.description),
+      handle,
+      profileUrl,
+      verified,
+      verifiedKnown
+    };
+
+    setUpstreamCache(cacheKey, "youtube-web-profile", profile);
+    return profile;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function youtubeRssChannel(id: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
@@ -1231,8 +1377,18 @@ Deno.serve(async (req) => {
     } else if (action === "channel") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "channel")) return json({ ok: false, error: "invalid_channel" }, 400, 0);
-      const result = await pipedChannel(id);
-      return json({ ok: true, source: result.source, data: result.data }, 200, 60);
+      const wantsProfile = url.searchParams.get("profile") === "1";
+      const [result, profile] = await Promise.all([
+        pipedChannel(id),
+        wantsProfile
+          ? youtubeWebChannelProfile(id).catch(() => null)
+          : Promise.resolve(null)
+      ]);
+      return json({
+        ok: true,
+        source: result.source,
+        data: profile ? { ...result.data, ...profile } : result.data
+      }, 200, wantsProfile ? 300 : 60);
     } else if (action === "channel_next") {
       const id = String(url.searchParams.get("id") || "").trim();
       const nextpage = String(url.searchParams.get("nextpage") || "");
