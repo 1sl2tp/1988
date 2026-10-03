@@ -827,3 +827,20 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Deploy 1988 Player run `37148473894`: SUCCESS.
 - Frontend contracts, build, deploy và custom-domain verify: PASS.
 - Rollback: revert code commit trên nếu cần khôi phục UI TikTok.
+
+
+## 2026-10-04 — TikTok LIVE Cloud demo tối giản
+
+- Branch: `main`.
+- Base: `351410ed661a570dd4ad03f9b3d82e4ba754003c`.
+- Code commit: `a81055a6d01d19ba73f6a58ea5bfac1814c75a15`.
+- Tạo `tiktok-live-cloud-demo.html`: chỉ danh sách LIVE + player.
+- Cloudflare room/status check lấy luôn FLV/HLS trong cùng response và lưu vào snapshot.
+- `/tiktok/live-now` chỉ đọc snapshot; bỏ resolver/probe LIVE vòng hai khỏi đường hiển thị.
+- Demo mở snapshot ngay, sau đó một bounded `/sweep`; click phát FLV bằng mpegts.js hoặc HLS native.
+- Nếu snapshot cũ chưa có link, click chỉ targeted-refresh đúng handle một lần.
+- Worker run `37148726520`: SUCCESS; zero schedules PASS.
+- Pages run `37148726425`: SUCCESS; demo/frontend contracts + custom-domain verify PASS.
+- MAIN TikTok vẫn bị khóa bằng `TIKTOK_UI_ENABLED=false`; demo độc lập.
+- Demo URL: `https://yt.taphoa.xyz/tiktok-live-cloud-demo.html`.
+- Rollback: revert `a81055a6d01d19ba73f6a58ea5bfac1814c75a15`.

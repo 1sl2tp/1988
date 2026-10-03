@@ -86,6 +86,44 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.21. TikTok LIVE Cloud demo tối giản
+
+Thời gian: **2026-10-04**.
+
+Yêu cầu:
+- tạo một trang demo riêng, không đưa TikTok trở lại MAIN;
+- Cloud check kênh LIVE, giữ luôn link media từ cùng response;
+- trang demo hiện danh sách LIVE và click là phát ngay;
+- không profile, không VOD, không resolver LIVE vòng hai.
+
+Patch:
+- code commit `a81055a6d01d19ba73f6a58ea5bfac1814c75a15`;
+- demo: `/tiktok-live-cloud-demo.html`;
+- Cloudflare `checkTikTok()` khi `status=2` lấy luôn FLV/HLS/title/cover/avatar/viewers;
+- KV snapshot giữ `streamUrl/hlsUrl`;
+- `/tiktok/live-now` chỉ đọc snapshot, không gọi `resolveTikTokLiveEdge()`;
+- demo paint snapshot trước, chạy đúng một bounded `/sweep`, rồi đọc lại snapshot;
+- click card dùng link có sẵn; nếu card snapshot cũ chưa có link thì targeted `/refresh?user=` đúng kênh đó một lần;
+- player FLV dùng `mpegts.js`; HLS dùng native khi trình duyệt hỗ trợ.
+
+Production verify:
+- Deploy TikTok Live State Edge run `37148726520`: **SUCCESS**;
+- zero LIVE schedules enforcement: **PASS**;
+- Deploy 1988 Player run `37148726425`: **SUCCESS**;
+- frontend/demo contracts + build/deploy/custom-domain verify: **PASS**.
+
+Resource rule:
+- demand-only; không cron;
+- không Render media;
+- không scan nền khi không mở demo;
+- không resolver/probe LIVE vòng hai trước khi render.
+
+MAIN:
+- `TIKTOK_UI_ENABLED=false` vẫn giữ nguyên; demo là đường riêng theo yêu cầu.
+
+Rollback:
+- revert `a81055a6d01d19ba73f6a58ea5bfac1814c75a15`.
+
 ### 3.20. MAIN frontend hiện tại: gỡ TikTok khỏi giao diện
 
 Thời gian: **2026-10-04**.
