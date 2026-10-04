@@ -288,3 +288,13 @@ assert.match(server,/source:'yt-dlp\+browser-grid'/,
   'deficient yt-dlp result must merge browser-discovered video links');
 assert.match(server,/function mergeTikTokVideoLists\(/,
   'video sources must dedupe by video ID before canonical persistence');
+
+
+assert.match(server,/async function fetchTikTokChannelVideosBrowserApi\(/,
+  'browser API fallback must exist for channels with fewer than 10 discovered videos');
+assert.match(server,/\/api\/post\/item_list\/\?'/,
+  'browser API fallback must call only TikTok post-list JSON in browser context');
+assert.match(server,/credentials:'include'/,
+  'browser API fallback must reuse TikTok browser cookies');
+assert.match(server,/source:'yt-dlp\+browser-api'/,
+  'deficient yt-dlp result must merge browser-API discovered video links');

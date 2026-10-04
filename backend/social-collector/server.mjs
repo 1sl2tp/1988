@@ -6748,29 +6748,15 @@ async function fetchTikTokVideoFingerprint(rawHandle,knownSecUid=''){
   }
 }
 
-function tiktokVideoIdCreateTime(id){
-  try{
-    const value=BigInt(String(id||''));
-    return Number(value>>32n);
-  }catch{return 0;}
-}
-function parseCompactTikTokCount(value){
-  const text=String(value||'').trim().replace(/,/g,'');
-  const m=text.match(/^([0-9]+(?:\.[0-9]+)?)([KMB])?$/i);
-  if(!m)return 0;
-  const n=Number(m[1]||0);
-  const mult={K:1e3,M:1e6,B:1e9}[String(m[2]||'').toUpperCase()]||1;
-  return Number.isFinite(n)?Math.round(n*mult):0;
-}
-
-async function fetchTikTokChannelVideosBrowser(rawHandle,limit=TIKTOK_VIDEO_PER_CHANNEL){
+async function fetchTikTokChannelVideosBrowserApi(rawHandle,rawSecUid,limit=TIKTOK_VIDEO_PER_CHANNEL){
   const handle=normalizeTikTokHandle(rawHandle);
-  if(!handle)return [];
+  const secUid=String(rawSecUid||'').trim();
+  if(!handle||!secUid)return [];
   let page=null;
   try{
     const browser=await getBrowser();
     page=await browser.newPage();
-    await page.setViewport({width:1100,height:760,deviceScaleFactor:1});
+    await page.setViewport({width:900,height:600,deviceScaleFactor:1});
     await page.setUserAgent(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
@@ -6781,86 +6767,60 @@ async function fetchTikTokChannelVideosBrowser(rawHandle,limit=TIKTOK_VIDEO_PER_
     const cookies=cookieParams(stored?.state?.cookies||[]);
     if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
 
-    await page.setRequestInterception(true);
-    page.on('request',request=>{
-      const type=request.resourceType();
-      if(type==='image'||type==='media'||type==='font'){
-        request.abort().catch(()=>{});
-      }else{
-        request.continue().catch(()=>{});
-      }
-    });
-
-    await page.goto('https://www.tiktok.com/@'+handle,{
+    // Static same-origin page: no TikTok feed/media is loaded. The only useful
+    // network request after this is one JSON post/item_list fetch.
+    await page.goto('https://www.tiktok.com/robots.txt',{
       waitUntil:'domcontentloaded',
-      timeout:12_000
-    });
-    await sleep(1200);
+      timeout:10_000
+    }).catch(()=>{});
 
-    const readCards=async()=>page.evaluate(({handle,limit})=>{
-      const countNumber=value=>{
-        const text=String(value||'').trim().replace(/,/g,'');
-        const m=text.match(/^([0-9]+(?:\.[0-9]+)?)([KMB])?$/i);
-        if(!m)return 0;
-        const n=Number(m[1]||0);
-        const mult={K:1e3,M:1e6,B:1e9}[String(m[2]||'').toUpperCase()]||1;
-        return Number.isFinite(n)?Math.round(n*mult):0;
-      };
-      const seen=new Set();
-      const out=[];
-      for(const anchor of document.querySelectorAll('a[href*="/video/"]')){
-        const href=String(anchor.href||anchor.getAttribute('href')||'');
-        const match=href.match(/\/video\/(\d{8,})/);
-        const id=String(match?.[1]||'');
-        if(!id||seen.has(id))continue;
-        seen.add(id);
-        const card=anchor.closest('[data-e2e="user-post-item"]')||anchor.parentElement||anchor;
-        const img=card.querySelector?.('img')||anchor.querySelector?.('img')||null;
-        const viewsNode=
-          card.querySelector?.('[data-e2e="video-views"]')||
-          card.querySelector?.('strong')||
-          null;
-        const title=String(
-          img?.getAttribute?.('alt')||
-          anchor.getAttribute?.('aria-label')||
-          anchor.getAttribute?.('title')||
-          ''
-        ).trim();
-        const cover=String(img?.getAttribute?.('src')||img?.getAttribute?.('data-src')||'').trim();
-        out.push({
-          id,
-          url:'https://www.tiktok.com/@'+handle+'/video/'+id,
-          title,
-          cover,
-          playCount:countNumber(viewsNode?.textContent||'')
+    const payload=await page.evaluate(async({secUid,count})=>{
+      try{
+        const query=new URLSearchParams({
+          aid:'1988',
+          count:String(count),
+          cursor:'0',
+          from_page:'user',
+          secUid
         });
-        if(out.length>=limit)break;
+        const r=await fetch('/api/post/item_list/?'+query.toString(),{
+          method:'GET',
+          credentials:'include',
+          headers:{accept:'application/json,text/plain,*/*'}
+        });
+        const text=await r.text();
+        let body=null;
+        try{body=JSON.parse(text)}catch{}
+        return {ok:r.ok,status:r.status,body};
+      }catch(error){
+        return {ok:false,status:0,error:String(error?.message||error||'browser_api_failed')};
       }
-      return out;
-    },{handle,limit});
+    },{secUid,count:Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,Number(limit)||TIKTOK_VIDEO_PER_CHANNEL))});
 
-    let rows=await readCards();
-    if(rows.length<limit){
-      await page.evaluate(()=>window.scrollTo(0,Math.min(document.body.scrollHeight,2200))).catch(()=>{});
-      await sleep(900);
-      rows=await readCards();
-    }
+    const body=payload?.body||{};
+    const rawItems=
+      (Array.isArray(body?.itemList)&&body.itemList)||
+      (Array.isArray(body?.item_list)&&body.item_list)||
+      (Array.isArray(body?.data?.itemList)&&body.data.itemList)||
+      (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
+      (Array.isArray(body?.items)&&body.items)||
+      [];
 
-    const videos=(Array.isArray(rows)?rows:[])
-      .map(row=>normalizeTikTokPostItem(handle,{
-        id:row?.id,
-        desc:row?.title||'',
-        createTime:tiktokVideoIdCreateTime(row?.id),
-        cover:row?.cover||'',
-        stats:{playCount:parseCompactTikTokCount(row?.playCount)||Number(row?.playCount||0)}
-      }))
+    const videos=rawItems
+      .map(row=>normalizeTikTokPostItem(handle,row))
       .filter(Boolean)
+      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
       .slice(0,Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,Number(limit)||TIKTOK_VIDEO_PER_CHANNEL)));
 
-    console.log('[tiktok-browser-videos]',handle,'videos='+videos.length,'blocked=image,media,font');
+    console.log(
+      '[tiktok-browser-api-videos]',
+      handle,
+      'status='+Number(payload?.status||0),
+      'videos='+videos.length
+    );
     return videos;
   }catch(error){
-    console.log('[tiktok-browser-videos] miss',handle,compactText(error?.message||error,120));
+    console.log('[tiktok-browser-api-videos] miss',handle,compactText(error?.message||error,120));
     return [];
   }finally{
     if(page)await page.close().catch(()=>{});
@@ -6954,7 +6914,7 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
   // Some TikTok profiles expose only one entry to yt-dlp while the browser grid
   // contains more. Only deficient channels pay this browser cost.
-  const browserVideos=await fetchTikTokChannelVideosBrowser(handle,TIKTOK_VIDEO_PER_CHANNEL);
+  const browserVideos=await fetchTikTokChannelVideosBrowserApi(handle,secUid,TIKTOK_VIDEO_PER_CHANNEL);
   const mergedBrowser=mergeTikTokVideoLists(ytdlp?.videos||[],browserVideos,TIKTOK_VIDEO_PER_CHANNEL);
   if(mergedBrowser.length>(Array.isArray(ytdlp?.videos)?ytdlp.videos.length:0)){
     return {
@@ -6965,7 +6925,7 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
       latestVideoId:String(mergedBrowser[0]?.id||''),
       hasMore:false,
       cursor:'',
-      source:'yt-dlp+browser-grid',
+      source:'yt-dlp+browser-api',
       profile:ytdlp?.profile||null
     };
   }
