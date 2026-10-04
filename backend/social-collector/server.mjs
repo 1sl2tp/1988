@@ -6885,6 +6885,16 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
       profile:ytdlp?.profile||null
     };
   }
+  if(!mergedBrowser.length){
+    // Zero-video repair fallback: TikWM user/posts can still return the public
+    // post list when TikTok Web API, yt-dlp and the browser endpoint are all
+    // blocked for this handle. This is metadata only; no MP4 bytes cross Render.
+    const tikwm=await fetchTikwmChannelVideos(handle,TIKTOK_VIDEO_PER_CHANNEL).catch(()=>null);
+    if(tikwm?.known&&Array.isArray(tikwm.videos)&&tikwm.videos.length){
+      console.log('[tiktok-video-zero-fallback]',handle,'videos='+tikwm.videos.length);
+      return tikwm;
+    }
+  }
   if(ytdlp?.known)return ytdlp;
 
   // One last API attempt if yt-dlp discovered a secUid.

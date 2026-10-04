@@ -321,3 +321,8 @@ assert.match(selectedMembershipRoute,/await persistTikTokSelectedMembership\(han
   'add/remove must persist canonical selected membership');
 assert.match(server,/if\(url\.searchParams\.get\('wait'\)==='1'&&task\)await task/,
   'manual one-channel video refresh must be able to wait for targeted completion');
+
+assert.match(server,/const tikwm=await fetchTikwmChannelVideos\(handle,TIKTOK_VIDEO_PER_CHANNEL\)\.catch\(\(\)=>null\)/,
+  'zero-video channel refresh must fall back to TikWM public post metadata');
+assert.match(server,/\[tiktok-video-zero-fallback\]/,
+  'zero-video TikWM fallback must stay observable with one compact log line');
