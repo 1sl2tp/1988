@@ -23,4 +23,15 @@ assert.doesNotMatch(app,/sourceSearchAlternates\(q\)/);
 assert.doesNotMatch(app,/source_video_timeout/);
 assert.doesNotMatch(app,/preview_video_timeout/);
 
+// Edge provider fallback is bounded and sequential. One committed action may
+// try one preferred Piped provider plus at most two fallbacks.
+const edge=fs.readFileSync(path.join(root,'supabase','functions','yt1988','index.ts'),'utf8');
+assert.match(edge,/const MAX_PIPED_ATTEMPTS = 3/);
+assert.match(edge,/async function sequentialPiped\(/);
+assert.match(edge,/if \(attempts >= MAX_PIPED_ATTEMPTS\) break/);
+assert.match(edge,/orderedPipedCandidates\(\)/);
+assert.match(edge,/API_FAILURE_TTL_MS = 60 \* 1000/);
+assert.doesNotMatch(edge,/async function raceApis\(/);
+assert.doesNotMatch(edge,/const winner = await Promise\.any\(\s*candidates\.map/);
+
 console.log('search resource contract ok');
