@@ -235,8 +235,18 @@ function renderLiveList(){
   liveBox.querySelectorAll("[data-live-h]").forEach(btn=>btn.addEventListener("click",()=>{
     const h=btn.dataset.liveH||"";
     if(!h)return;
-    if(h===handle){replayLive();return}
+    const cached=sessionLiveStates.get(h)||null;
     input.value="https://www.tiktok.com/@"+h+"/live";
+    if(cached&&(cached.streamUrl||cached.hlsUrl)){
+      handle=h;
+      currentLiveState=cached;
+      currentLiveStateAt=Date.now();
+      playLive(cached);
+      loadChannelLibrary(h).catch(()=>{});
+      refreshLiveState(h).catch(()=>{});
+      renderLiveList();
+      return;
+    }
     checkLive(h);
   }));
   renderChannels();
@@ -330,8 +340,11 @@ function renderState(state,stateHandle=handle){
   }
   const profile=h===handle?(currentChannelLibrary?.profile||{}):(sessionChannels.get(h)||{});
   rememberChannel(h,profile);
+  const retained=sessionLiveStates.get(h)||null;
   if(playable)sessionLiveStates.set(h,{...state,handle:h});
-  else if(!live)sessionLiveStates.delete(h);
+  else if(retained&&(retained.streamUrl||retained.hlsUrl)){
+    sessionLiveStates.set(h,retained);
+  }else if(!live)sessionLiveStates.delete(h);
   renderLiveList();
 }
 async function playLive(state){
@@ -381,7 +394,7 @@ function liveStateFresh(){
 async function refreshLiveState(h){
   if(liveRefreshPromise)return liveRefreshPromise;
   liveRefreshPromise=getJson(
-    EDGE+"/lookup?user="+encodeURIComponent(h)+"&t="+Date.now(),
+    EDGE+"/refresh?user="+encodeURIComponent(h)+"&t="+Date.now(),
     15000
   ).then(state=>{
     renderState(state,h);

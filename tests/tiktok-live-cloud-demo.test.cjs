@@ -9,7 +9,7 @@ assert.match(demo,/Đang phát/);
 assert.doesNotMatch(demo,/max-height:34vh/);
 assert.doesNotMatch(demo,/max-height:calc\(100vh - 150px\)/);
 assert.doesNotMatch(demo,/TikTok LIVE Direct Demo|Dán link LIVE|Chưa có LIVE|Chọn LIVE|Link phát LIVE|>LIVE</);
-assert.match(demo,/EDGE\+"\/lookup\?user="/);
+assert.match(demo,/EDGE\+"\/refresh\?user="/);
 assert.match(demo,/LIBRARY\+"\/tiktok\/library"/);
 assert.match(demo,/async function loadLive\(h\)/);
 assert.match(demo,/let currentLiveState=null/);
@@ -89,3 +89,8 @@ console.log('tiktok demo: canonical one-channel library + Cloudflare LIVE + dire
 assert.match(demo,/let currentChannelLibrary=null/);
 assert.match(demo,/currentChannelLibrary\?\.profile/);
 assert.match(demo,/result\.count\+\" video thư viện\"/);
+
+assert.match(demo,/const cached=sessionLiveStates\.get\(h\)\|\|null/);
+assert.match(demo,/cached&&\(cached\.streamUrl\|\|cached\.hlsUrl\)/);
+assert.match(demo,/const retained=sessionLiveStates\.get\(h\)\|\|null/);
+assert.match(demo,/retained&&\(retained\.streamUrl\|\|retained\.hlsUrl\)/);

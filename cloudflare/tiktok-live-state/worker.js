@@ -62,9 +62,44 @@ function normalizeHandle(value) {
 }
 function canonicalMaterial(snapshot) {
   const rows = Object.entries(snapshot?.channels || {})
-    .map(([handle, row]) => [handle, Number(row?.status || 0), String(row?.roomId || "")])
+    .map(([handle, row]) => [
+      handle,
+      Number(row?.status || 0),
+      String(row?.roomId || ""),
+      String(row?.streamUrl || ""),
+      String(row?.hlsUrl || "")
+    ])
     .sort((a, b) => a[0].localeCompare(b[0]));
   return JSON.stringify(rows);
+}
+function snapshotHasPlayableLive(row){
+  return Boolean(Number(row?.status)===2&&(row?.streamUrl||row?.hlsUrl));
+}
+function snapshotLiveRow(state,prev={},now=Date.now()){
+  const streamUrl=String(state?.streamUrl||"");
+  const hlsUrl=String(state?.hlsUrl||"");
+  const playable=Boolean(streamUrl||hlsUrl);
+  const changed=
+    Number(prev?.status||0)!==2||
+    String(prev?.roomId||"")!==String(state?.roomId||"")||
+    String(prev?.streamUrl||"")!==streamUrl||
+    String(prev?.hlsUrl||"")!==hlsUrl;
+  return {
+    status:2,
+    roomId:String(state?.roomId||prev?.roomId||""),
+    changedAt:changed?now:Number(prev?.changedAt||0),
+    source:String(state?.source||"tiktok-user-room"),
+    streamUrl,
+    hlsUrl,
+    streamType:String(state?.streamType||(streamUrl?"flv":(hlsUrl?"hls":""))),
+    title:String(state?.title||prev?.title||""),
+    sourceName:String(state?.sourceName||prev?.sourceName||""),
+    preview:String(state?.preview||prev?.preview||""),
+    cover:String(state?.cover||prev?.cover||state?.preview||""),
+    avatar:String(state?.avatar||prev?.avatar||""),
+    viewerCount:Number(state?.viewerCount||0),
+    playable
+  };
 }
 async function loadSnapshot(env) {
   const row = await env.TIKTOK_LIVE.get(SNAPSHOT_KEY, "json").catch(() => null);
@@ -649,25 +684,30 @@ async function sweep(env) {
     const handle = normalizeHandle(rawHandle);
     if (!handle || !selectedSet.has(handle.toLowerCase())) continue;
     nextChannels[handle.toLowerCase()] = {
-      status: Number(row?.status || 0) || 0,
-      roomId: String(row?.roomId || ""),
-      changedAt: Number(row?.changedAt || 0),
-      source: String(row?.source || "")
+      status:Number(row?.status||0)||0,
+      roomId:String(row?.roomId||""),
+      changedAt:Number(row?.changedAt||0),
+      source:String(row?.source||""),
+      streamUrl:String(row?.streamUrl||""),
+      hlsUrl:String(row?.hlsUrl||""),
+      streamType:String(row?.streamType||""),
+      title:String(row?.title||""),
+      sourceName:String(row?.sourceName||""),
+      preview:String(row?.preview||""),
+      cover:String(row?.cover||row?.preview||""),
+      avatar:String(row?.avatar||""),
+      viewerCount:Number(row?.viewerCount||0),
+      playable:snapshotHasPlayableLive(row)
     };
   }
 
-  const livePriority = selected
-    .filter((h) => Number(nextChannels[h.toLowerCase()]?.status) === 2)
-    .slice(0, LIVE_PRIORITY_MAX);
-
-  const cold = selected.filter((h) => !livePriority.some((x) => x.toLowerCase() === h.toLowerCase()));
-  const partitions = Math.max(1, Math.ceil(Math.max(1, cold.length) / Math.max(1, BATCH_SIZE - livePriority.length)));
+  const retainedLive = selected.filter((h) => snapshotHasPlayableLive(nextChannels[h.toLowerCase()]));
+  const cold = selected.filter((h) => !retainedLive.some((x) => x.toLowerCase() === h.toLowerCase()));
+  const partitions = Math.max(1, Math.ceil(Math.max(1, cold.length) / BATCH_SIZE));
   const minute = Math.floor(Date.now() / 60000);
   const slot = minute % partitions;
-  const coldBatchSize = Math.max(1, BATCH_SIZE - livePriority.length);
-  const coldStart = slot * coldBatchSize;
-  const coldBatch = cold.slice(coldStart, coldStart + coldBatchSize);
-  const targets = [...new Set([...livePriority, ...coldBatch])].slice(0, BATCH_SIZE);
+  const coldStart = slot * BATCH_SIZE;
+  const targets = cold.slice(coldStart, coldStart + BATCH_SIZE);
 
   const results = await mapLimit(targets, 6, async (handle) => ({ handle, state: await checkTikTok(handle) }));
   let known = 0;
@@ -678,20 +718,45 @@ async function sweep(env) {
 
   for (const { handle, state } of results) {
     const key = handle.toLowerCase();
-    if (state?.known && (state.status === 2 || state.status === 4)) {
+    const prev = nextChannels[key] || {};
+    if (state?.known && state.status === 2) {
       known += 1;
-      if (state.status === 2) live += 1;
-      else offline += 1;
-      const prev = nextChannels[key] || {};
-      const changed = Number(prev.status || 0) !== state.status || String(prev.roomId || "") !== String(state.roomId || "");
-      nextChannels[key] = {
-        status: state.status,
-        roomId: String(state.roomId || ""),
-        changedAt: changed ? now : Number(prev.changedAt || 0),
-        source: String(state.source || "tiktok-user-room")
-      };
+      live += 1;
+      if (state.streamUrl || state.hlsUrl) {
+        nextChannels[key] = snapshotLiveRow(state,prev,now);
+      } else if (!snapshotHasPlayableLive(prev)) {
+        nextChannels[key] = {
+          status:2,
+          roomId:String(state.roomId||""),
+          changedAt:Number(prev.changedAt||now),
+          source:String(state.source||"tiktok-user-room"),
+          streamUrl:"",
+          hlsUrl:"",
+          streamType:"",
+          playable:false
+        };
+      }
+      // If TikTok says LIVE but omits media this time, keep the last good URL.
+    } else if (state?.known && state.status === 4) {
+      known += 1;
+      offline += 1;
+      if (!snapshotHasPlayableLive(prev)) {
+        const changed = Number(prev.status || 0) !== 4 || String(prev.roomId || "") !== String(state.roomId || "");
+        nextChannels[key] = {
+          status:4,
+          roomId:String(state.roomId||""),
+          changedAt:changed?now:Number(prev.changedAt||0),
+          source:String(state.source||"tiktok-user-room"),
+          streamUrl:"",
+          hlsUrl:"",
+          streamType:"",
+          playable:false
+        };
+      }
+      // A later offline answer is not strong enough to erase a known-good LIVE URL.
     } else {
       unknown += 1;
+      // Unknown/API failure also keeps the last known-good LIVE row untouched.
     }
   }
 
@@ -1172,62 +1237,35 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
 }
 async function liveNow(env) {
   const snapshot = await loadSnapshot(env);
-  const liveHandles = Object.entries(snapshot.channels || {})
-    .filter(([, row]) => Number(row?.status) === 2)
-    .map(([handle]) => handle)
-    .sort();
-
-  if (!liveHandles.length) {
-    return {
-      ok: true,
-      edge: true,
-      realtime: true,
-      checkedAt: Number(snapshot.lastSweepAt || snapshot.changedAt || 0),
-      total: Array.isArray(snapshot.selected) ? snapshot.selected.length : 0,
-      live: 0,
-      items: []
-    };
-  }
-
-  let render = { items: [] };
-  try {
-    const r = await fetch(RENDER_API + "/tiktok/live-now?t=" + Date.now(), {
-      headers: { accept: "application/json" }
-    });
-    if (r.ok) render = await r.json();
-  } catch {}
-
-  const byHandle = new Map(
-    (Array.isArray(render?.items) ? render.items : [])
-      .map((item) => [String(item?.handle || "").toLowerCase(), item])
-  );
-
-  const items = liveHandles.map((handle) => {
-    const item = byHandle.get(handle);
-    if (item) return { ...item, live: true, detectedLive: true, edgeConfirmed: true };
-    return {
+  const items = Object.entries(snapshot.channels || {})
+    .filter(([, row]) => snapshotHasPlayableLive(row))
+    .map(([handle,row]) => ({
       handle,
-      live: true,
-      detectedLive: true,
-      edgeConfirmed: true,
-      playable: false,
-      type: "",
-      sourceSig: "",
-      streamUrl: "",
-      proxyUrl: "",
-      status: "live",
-      probeState: "live",
-      lastSeenAt: Number(snapshot.channels?.[handle]?.changedAt || snapshot.changedAt || 0)
-    };
-  });
+      live:true,
+      detectedLive:true,
+      edgeConfirmed:true,
+      playable:true,
+      type:String(row?.streamType||((row?.streamUrl)?"flv":"hls")),
+      streamUrl:String(row?.streamUrl||""),
+      hlsUrl:String(row?.hlsUrl||""),
+      sourceSig:String(row?.streamUrl||row?.hlsUrl||""),
+      title:String(row?.title||""),
+      sourceName:String(row?.sourceName||("@"+handle)),
+      preview:String(row?.preview||row?.cover||""),
+      cover:String(row?.cover||row?.preview||""),
+      avatar:String(row?.avatar||""),
+      viewerCount:Number(row?.viewerCount||0),
+      lastSeenAt:Number(row?.changedAt||snapshot.changedAt||0)
+    }))
+    .sort((a,b)=>a.handle.localeCompare(b.handle));
 
   return {
-    ok: true,
-    edge: true,
-    realtime: true,
-    checkedAt: Number(snapshot.lastSweepAt || snapshot.changedAt || 0),
-    total: Array.isArray(snapshot.selected) ? snapshot.selected.length : 0,
-    live: items.length,
+    ok:true,
+    edge:true,
+    realtime:true,
+    checkedAt:Number(snapshot.lastSweepAt||snapshot.changedAt||0),
+    total:Array.isArray(snapshot.selected)?snapshot.selected.length:0,
+    live:items.length,
     items
   };
 }
@@ -2594,24 +2632,54 @@ async function refreshOne(env, rawHandle) {
   if (!handle) return json({ ok: false, error: "invalid_tiktok_handle" }, 400);
   const state = await checkTikTok(handle);
   const snapshot = await loadSnapshot(env);
-  if (state.known && (state.status === 2 || state.status === 4)) {
-    const key = handle.toLowerCase();
-    const prev = snapshot.channels?.[key] || {};
-    const changed = Number(prev.status || 0) !== state.status || String(prev.roomId || "") !== String(state.roomId || "");
-    if (changed) {
-      snapshot.channels = { ...(snapshot.channels || {}) };
-      snapshot.channels[key] = {
-        status: state.status,
-        roomId: String(state.roomId || ""),
-        changedAt: Date.now(),
-        source: String(state.source || "tiktok-user-room")
+  const key = handle.toLowerCase();
+  const prev = snapshot.channels?.[key] || {};
+  let nextRow = prev;
+
+  if (state?.known && state.status === 2) {
+    if (state.streamUrl || state.hlsUrl) nextRow = snapshotLiveRow(state,prev,Date.now());
+    else if (!snapshotHasPlayableLive(prev)) {
+      nextRow = {
+        status:2,
+        roomId:String(state.roomId||""),
+        changedAt:Number(prev.changedAt||Date.now()),
+        source:String(state.source||"tiktok-user-room"),
+        streamUrl:"",
+        hlsUrl:"",
+        streamType:"",
+        playable:false
       };
-      snapshot.changedAt = Date.now();
-      snapshot.version = Number(snapshot.version || 0) + 1;
-      await env.TIKTOK_LIVE.put(SNAPSHOT_KEY, JSON.stringify(snapshot));
     }
+  } else if (state?.known && state.status === 4 && !snapshotHasPlayableLive(prev)) {
+    nextRow = {
+      status:4,
+      roomId:String(state.roomId||""),
+      changedAt:Date.now(),
+      source:String(state.source||"tiktok-user-room"),
+      streamUrl:"",
+      hlsUrl:"",
+      streamType:"",
+      playable:false
+    };
   }
-  return json({ ok: true, handle, ...state, checkedAt: Date.now() });
+
+  const before = JSON.stringify(prev);
+  const after = JSON.stringify(nextRow);
+  if (after !== before) {
+    snapshot.channels = { ...(snapshot.channels || {}), [key]: nextRow };
+    snapshot.changedAt = Date.now();
+    snapshot.version = Number(snapshot.version || 0) + 1;
+    await env.TIKTOK_LIVE.put(SNAPSHOT_KEY, JSON.stringify(snapshot));
+  }
+
+  const retained=snapshotHasPlayableLive(nextRow);
+  return json({
+    ok:true,
+    handle,
+    ...(retained?{...nextRow,known:true,live:true}:{...state}),
+    checkedAt:Date.now(),
+    retained
+  });
 }
 
 function originVideoId(value){
