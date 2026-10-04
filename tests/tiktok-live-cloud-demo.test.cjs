@@ -68,6 +68,8 @@ assert.match(demo,/data-remove-channel/);
 assert.match(demo,/const catalogChannels=new Map\(\)/);
 assert.match(demo,/function renderCatalogLatestVideos\(\)/);
 assert.match(demo,/const sessionLiveStates=new Map\(\)/);
+assert.match(demo,/\.filter\(\(\[h\]\)=>sessionChannels\.has\(h\)\)/);
+assert.match(demo,/h&&sessionChannels\.has\(h\)&&Number\(row\?\.status\)===2/);
 assert.match(demo,/function moveVideo\(delta\)/);
 assert.match(demo,/playerStage\.addEventListener\("wheel"/);
 assert.match(demo,/playerStage\.addEventListener\("touchend"/);

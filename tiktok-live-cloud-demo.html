@@ -217,7 +217,10 @@ function renderChannels(){
   }));
 }
 function renderLiveList(){
-  const rows=[...sessionLiveStates.entries()].map(([h,state])=>({h,state})).reverse();
+  const rows=[...sessionLiveStates.entries()]
+    .filter(([h])=>sessionChannels.has(h))
+    .map(([h,state])=>({h,state}))
+    .reverse();
   liveCount.textContent=String(rows.length);
   if(!rows.length){liveBox.innerHTML='<div class="empty">Chưa có kênh đang phát.</div>';renderChannels();return}
   liveBox.innerHTML=rows.map(({h,state})=>{
@@ -731,7 +734,7 @@ async function loadInitialCatalog(){
     sessionLiveStates.clear();
     for(const [rawHandle,row] of Object.entries(snapshot?.channels||{})){
       const h=String(rawHandle||"").replace(/^@/,"");
-      if(h&&Number(row?.status)===2){
+      if(h&&sessionChannels.has(h)&&Number(row?.status)===2){
         sessionLiveStates.set(h,{...row,handle:h,status:2});
       }
     }
