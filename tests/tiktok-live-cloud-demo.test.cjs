@@ -5,6 +5,10 @@ const demo=fs.readFileSync('tiktok-live-cloud-demo.html','utf8');
 
 assert.match(demo,/TikTok LIVE Direct Demo/);
 assert.match(demo,/Danh sách video/);
+assert.match(demo,/Đang phát/);
+assert.doesNotMatch(demo,/max-height:34vh/);
+assert.doesNotMatch(demo,/max-height:calc\(100vh - 150px\)/);
+assert.doesNotMatch(demo,/>LIVE</);
 assert.match(demo,/EDGE\+"\/lookup\?user="/);
 assert.match(demo,/LIBRARY\+"\/tiktok\/library"/);
 assert.match(demo,/async function loadLive\(h\)/);

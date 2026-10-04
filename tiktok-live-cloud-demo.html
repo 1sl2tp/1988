@@ -14,13 +14,13 @@
 .grid{display:grid;grid-template-columns:minmax(220px,260px) minmax(260px,330px) minmax(0,1fr);grid-template-areas:"source videos player";gap:12px;align-items:start}
 .leftstack{grid-area:source;display:grid;gap:12px;align-self:start}.videopanel{grid-area:videos}.playerpanel{grid-area:player;position:sticky;top:70px}
 .panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden;min-width:0}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a;display:flex;align-items:center;justify-content:space-between;gap:8px}.body{padding:8px}
-.headbadge{font-size:11px;color:#bbb;background:#232329;border-radius:999px;padding:4px 8px;font-weight:700}.listbody{max-height:34vh;overflow:auto;overscroll-behavior:contain}
+.headbadge{font-size:11px;color:#bbb;background:#232329;border-radius:999px;padding:4px 8px;font-weight:700}.listbody{overflow:visible}
 .livecard,.channelcard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:9px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover,.channelcard:hover{background:#222228}.livecard.active,.channelcard.active{outline:2px solid #25f4ee;background:#202026}.avatar{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#2a2a2f;flex:0 0 auto}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}.channelstatus{margin-left:auto;font-size:10px;color:#8f8f98}
-.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px;max-height:calc(100vh - 150px);overflow:auto;overscroll-behavior:contain}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.videoitem.active{outline:2px solid #fe2c55;background:#242429}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
+.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px;overflow:visible}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.videoitem.active{outline:2px solid #fe2c55;background:#242429}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
 .mediaframe{position:absolute;inset:12px 74px 12px 12px;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center;transition:left .18s,right .18s,width .18s,transform .18s}
 .player.shape-portrait .mediaframe{top:12px;bottom:12px;left:50%;right:auto;width:min(52%,430px);transform:translateX(-50%)}
 .player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:12px 74px 12px 12px;width:auto;transform:none}
-.livebadge{position:absolute;left:18px;top:18px;z-index:5;background:#fe2c55;color:#fff;border-radius:5px;padding:5px 8px;font-size:11px;font-weight:900;display:none}.player.mode-live .livebadge{display:block}
+.livebadge{position:absolute;left:18px;top:18px;z-index:5;width:10px;height:10px;border-radius:50%;background:#fe2c55;box-shadow:0 0 0 4px #fe2c5533;display:none}.player.mode-live .livebadge{display:block}
 video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
 .actionrail{position:absolute;right:14px;bottom:26px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:13px}
 .actionbtn{width:48px;height:48px;border:0;border-radius:50%;background:#252529;color:#fff;display:grid;place-items:center;font-size:22px;cursor:pointer;box-shadow:0 3px 14px #0008}
@@ -37,12 +37,11 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 .streamrow{margin-top:8px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:7px 8px;font-size:11px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 10px;cursor:pointer}.now{padding:7px 2px 0;font-size:12px;color:#aaa;min-height:24px}
 @media(max-width:1180px) and (min-width:761px){
   .grid{grid-template-columns:minmax(230px,280px) minmax(0,1fr);grid-template-areas:"source player" "videos player"}
-  .videos{max-height:38vh}
 }
 @media(max-width:760px){
   .page{padding:8px}
   .grid{grid-template-columns:1fr;grid-template-areas:"player" "source" "videos"}
-  .playerpanel{position:static}.leftstack{grid-template-columns:1fr 1fr}.listbody{max-height:240px}.videos{max-height:none}
+  .playerpanel{position:static}.leftstack{grid-template-columns:1fr 1fr}
   .player{height:min(76vh,720px);min-height:440px;max-height:none;border-radius:0;margin:0 -8px}
   .mediaframe,.player.shape-portrait .mediaframe,.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:0;width:auto;transform:none;border-radius:0}
   .actionrail{right:10px;bottom:22px}
@@ -68,7 +67,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
   <div class="grid">
     <div class="leftstack">
       <section class="panel">
-        <div class="head"><span>Đang LIVE</span><span class="headbadge" id="liveCount">0</span></div>
+        <div class="head"><span>Đang phát</span><span class="headbadge" id="liveCount">0</span></div>
         <div class="body listbody" id="liveBox"><div class="empty">Chưa có LIVE.</div></div>
       </section>
       <section class="panel">
@@ -85,7 +84,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
       <div class="body">
         <div class="player shape-auto" id="playerStage">
   <div class="mediaframe"><video id="video" playsinline controls></video></div>
-  <div class="livebadge">LIVE</div>
+  <div class="livebadge" aria-label="Đang phát"></div>
   <div class="gesturehint">Vuốt / cuộn để chuyển video</div>
   <div class="navrail">
     <button class="navbtn" type="button" id="prevMedia" aria-label="Video trước">↑</button>
@@ -197,7 +196,7 @@ function renderChannels(){
     '<button type="button" class="channelcard'+(row.handle===handle?' active':'')+'" data-channel="'+esc(row.handle)+'">'+
       (row.avatar?'<img class="avatar" loading="lazy" src="'+esc(row.avatar)+'" alt="">':'<div class="avatar"></div>')+
       '<div class="meta"><div class="name">'+esc(row.name)+'</div><div class="sub">@'+esc(row.handle)+'</div></div>'+
-      '<span class="channelstatus">'+(sessionLiveStates.has(row.handle)?'LIVE':'')+'</span></button>'
+      '<span class="channelstatus">'+(sessionLiveStates.has(row.handle)?'●':'')+'</span></button>'
   ).join("");
   channelsBox.querySelectorAll("[data-channel]").forEach(btn=>btn.addEventListener("click",()=>{
     const h=btn.dataset.channel||"";
@@ -217,7 +216,7 @@ function renderLiveList(){
     const viewer=Number(state?.viewerCount||0);
     return '<button type="button" class="livecard'+(h===handle&&currentMediaMode==="live"?' active':'')+'" data-live-h="'+esc(h)+'">'+
       (avatar?'<img class="avatar" src="'+esc(avatar)+'" alt="">':'<div class="avatar"></div>')+
-      '<div class="meta"><div class="name">'+esc(name)+'</div><div class="sub">@'+esc(h)+(viewer?' · '+compactCount(viewer)+' đang xem':'')+'</div><span class="pill">LIVE</span></div></button>';
+      '<div class="meta"><div class="name">'+esc(name)+'</div><div class="sub">@'+esc(h)+(viewer?' · '+compactCount(viewer)+' đang xem':'')+'</div><span class="pill">●</span></div></button>';
   }).join("");
   liveBox.querySelectorAll("[data-live-h]").forEach(btn=>btn.addEventListener("click",()=>{
     const h=btn.dataset.liveH||"";
@@ -237,7 +236,7 @@ function applyMediaShape(width,height){
     playerShape.textContent=portrait?"Video dọc":"Video ngang";
   }else{
     playerStage.classList.add("shape-auto");
-    playerShape.textContent=currentMediaMode==="live"?"LIVE · chờ tỷ lệ":"Đang xác định";
+    playerShape.textContent=currentMediaMode==="live"?"Trực tiếp · chờ tỷ lệ":"Đang xác định";
   }
 }
 function rowDimensions(row){
@@ -257,7 +256,7 @@ function updateNav(){
 function setMediaChrome(row,mode="vod"){
   currentMediaMode=mode;
   playerStage.classList.toggle("mode-live",mode==="live");
-  playerKind.textContent=mode==="live"?"Video LIVE":mode==="vod"?"Video":"Media";
+  playerKind.textContent=mode==="live"?"Trực tiếp":mode==="vod"?"Video":"Media";
   const dims=rowDimensions(row);
   applyMediaShape(dims.width,dims.height);
   const profile=currentChannelLibrary?.profile||{};
@@ -330,7 +329,7 @@ async function playLive(state){
   const stream=flv||hls;
   streamUrlEl.value=stream;
   if(!stream){
-    nowEl.textContent="LIVE nhưng chưa có link phát.";
+    nowEl.textContent="Đang phát nhưng chưa có link phát.";
     return false;
   }
 
@@ -388,13 +387,13 @@ async function replayLive(){
     return true;
   }
 
-  nowEl.textContent="@"+handle+" · đang làm mới link LIVE…";
+  nowEl.textContent="@"+handle+" · đang làm mới link trực tiếp…";
   try{
     const state=await refreshLiveState(handle);
     if(Number(state?.status)===2&&(state?.streamUrl||state?.hlsUrl)){
       return playLive(state);
     }
-    nowEl.textContent="Kênh hiện không LIVE.";
+    nowEl.textContent="Kênh hiện không phát trực tiếp.";
   }catch(error){
     nowEl.textContent="Không làm mới được LIVE: "+String(error?.message||error);
   }
@@ -596,7 +595,7 @@ document.addEventListener("keydown",e=>{
 });
 
 async function loadInitialCatalog(){
-  statusEl.textContent="Đang nạp danh sách kênh, LIVE và video mới nhất…";
+  statusEl.textContent="Đang nạp danh sách kênh, trực tiếp và video mới nhất…";
   const [libraryResult,liveResult]=await Promise.allSettled([
     getJson(LIBRARY+"/tiktok/library?t="+Date.now(),15000),
     getJson(EDGE+"/state?t="+Date.now(),10000)
@@ -644,7 +643,7 @@ async function loadInitialCatalog(){
   const channelTotal=sessionChannels.size;
   const liveTotal=sessionLiveStates.size;
   statusEl.textContent=channelTotal
-    ? channelTotal+" kênh · "+liveTotal+" LIVE · "+latestVideos.length+" video mới nhất"
+    ? channelTotal+" kênh · "+liveTotal+" đang phát · "+latestVideos.length+" video mới nhất"
     : "Chưa nạp được thư viện TikTok.";
 }
 
@@ -669,12 +668,12 @@ async function loadChannelLibrary(h){
 async function loadLive(h){
   const state=await refreshLiveState(h);
   if(Number(state?.status)!==2){
-    nowEl.textContent="Kênh hiện không LIVE.";
+    nowEl.textContent="Kênh hiện không phát trực tiếp.";
     return false;
   }
   const playable=Boolean(state?.streamUrl||state?.hlsUrl);
   if(!playable){
-    nowEl.textContent="Đang LIVE nhưng response chưa có stream URL.";
+    nowEl.textContent="Đang phát trực tiếp nhưng chưa có stream URL.";
     return false;
   }
   await playLive(state);
@@ -704,23 +703,23 @@ async function checkLive(raw){
   stopPlayer();
   streamUrlEl.value="";
   renderChannels();
-  if(!sessionLiveStates.size)liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
+  if(!sessionLiveStates.size)liveBox.innerHTML='<div class="empty">Đang kiểm tra trực tiếp @'+esc(h)+'…</div>';
   videosBox.className="body";
   videosBox.innerHTML='<div class="empty">Đang đọc thư viện kênh…</div>';
-  statusEl.textContent="@"+h+" · đang đọc thư viện và kiểm tra LIVE…";
+  statusEl.textContent="@"+h+" · đang đọc thư viện và kiểm tra trực tiếp…";
   nowEl.textContent="Đang chờ kết quả…";
 
-  let liveText="LIVE đang kiểm tra";
+  let liveText="đang kiểm tra trực tiếp";
   let videoText="thư viện đang tải";
   const updateStatus=()=>statusEl.textContent="@"+h+" · "+liveText+" · "+videoText;
 
   const liveTask=loadLive(h)
     .then(isLive=>{
-      liveText=isLive?"đang LIVE":"không LIVE";
+      liveText=isLive?"đang phát":"không phát trực tiếp";
       updateStatus();
     })
     .catch(error=>{
-      liveText="LIVE lỗi";
+      liveText="kiểm tra trực tiếp lỗi";
       sessionLiveStates.delete(h);
       renderLiveList();
       updateStatus();
