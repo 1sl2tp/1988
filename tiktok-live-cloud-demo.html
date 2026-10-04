@@ -16,7 +16,7 @@
 .panel{background:#101012;border:1px solid #202024;border-radius:9px;overflow:hidden;min-width:0}.head{padding:7px 9px;font-size:13px;font-weight:800;border-bottom:1px solid #202024;display:flex;align-items:center;justify-content:space-between;gap:6px}.body{padding:5px}
 .headbadge{font-size:10px;color:#aaa;background:#202025;border-radius:999px;padding:2px 6px;font-weight:700}.listbody{overflow:visible}
 .livecard,.channelcard{width:100%;border:0;background:transparent;color:#fff;border-radius:7px;padding:6px;text-align:left;display:flex;gap:7px;align-items:center;cursor:pointer;min-height:48px}.livecard:hover,.channelcard:hover{background:#19191d}.livecard.active,.channelcard.active{background:#202025;box-shadow:inset 3px 0 0 #fe2c55}.channelrow{display:grid;grid-template-columns:minmax(0,1fr) 27px;gap:3px;align-items:stretch}.removebtn{border:0;border-radius:7px;background:transparent;color:#666;font-size:17px;cursor:pointer}.removebtn:hover{background:#24191c;color:#fff}.avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#242429;flex:0 0 auto}.meta{min-width:0}.name{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:10px;color:#8f8f98;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pill{display:inline-block;margin-top:3px;background:#fe2c55;width:7px;height:7px;padding:0;border-radius:50%;font-size:0}.channelstatus{margin-left:auto;font-size:9px;color:#fe2c55}
-.empty{color:#777;padding:12px 6px;text-align:center;font-size:11px}.videos{display:grid;gap:3px;overflow:visible}.videoitem{width:100%;border:0;display:grid;grid-template-columns:54px minmax(0,1fr);gap:7px;align-items:center;padding:5px;border-radius:7px;background:transparent;color:#fff;text-align:left;cursor:pointer}.videoitem:hover{background:#19191d}.videoitem.active{background:#202025;box-shadow:inset 3px 0 0 #fe2c55}.thumb{width:54px;height:72px;object-fit:cover;border-radius:5px;background:#202025}.vtitle{font-size:11px;font-weight:700;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:9px;color:#777;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.player{position:relative;background:#000;border-radius:8px;overflow:hidden;height:min(72vh,680px);min-height:460px;touch-action:pan-x;overscroll-behavior:contain;user-select:none}
+.empty{color:#777;padding:12px 6px;text-align:center;font-size:11px}.refreshvideos{margin-top:8px;border:0;border-radius:8px;background:#25252b;color:#fff;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer}.refreshvideos:disabled{opacity:.55;cursor:default}.videos{display:grid;gap:3px;overflow:visible}.videoitem{width:100%;border:0;display:grid;grid-template-columns:54px minmax(0,1fr);gap:7px;align-items:center;padding:5px;border-radius:7px;background:transparent;color:#fff;text-align:left;cursor:pointer}.videoitem:hover{background:#19191d}.videoitem.active{background:#202025;box-shadow:inset 3px 0 0 #fe2c55}.thumb{width:54px;height:72px;object-fit:cover;border-radius:5px;background:#202025}.vtitle{font-size:11px;font-weight:700;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:9px;color:#777;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.player{position:relative;background:#000;border-radius:8px;overflow:hidden;height:min(72vh,680px);min-height:460px;touch-action:pan-x;overscroll-behavior:contain;user-select:none}
 .mediaframe{position:absolute;inset:0 56px 0 0;border-radius:0;overflow:hidden;background:#000;display:grid;place-items:center;transition:left .18s,right .18s,width .18s,transform .18s}
 .player.shape-portrait .mediaframe{top:0;bottom:0;left:50%;right:auto;width:min(54%,420px);transform:translateX(-54%)}
 .player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:0 56px 0 0;width:auto;transform:none}
@@ -450,7 +450,16 @@ function renderVideos(rows){
   if(currentMediaMode==="vod"&&currentVideoIndex>=videos.length)currentVideoIndex=-1;
   updateNav();
   if(!videos.length){
-    videosBox.innerHTML='<div class="empty">Kênh chưa trả video.</div>';
+    if(currentChannelListHandle){
+      videosBox.innerHTML=
+        '<div class="empty">Kênh chưa có video.<br>'+
+        '<button type="button" class="refreshvideos" id="refreshVideosBtn">Cập nhật video</button></div>';
+      document.getElementById("refreshVideosBtn")?.addEventListener("click",()=>{
+        refreshChannelVideos(currentChannelListHandle);
+      });
+    }else{
+      videosBox.innerHTML='<div class="empty">Chưa có video.</div>';
+    }
     return;
   }
   videosBox.className="body videos";
@@ -650,14 +659,13 @@ function renderCatalogLatestVideos(){
   return latest;
 }
 
-async function setChannelSelected(rawHandle,selected,sourceUrl=""){
+async function setChannelSelected(rawHandle,selected){
   const h=parseHandle(rawHandle);
   if(!h)throw new Error("Link hoặc tên kênh TikTok không hợp lệ.");
-  const evidence=selected?String(sourceUrl||"").trim():"";
   const r=await fetch(LIBRARY+"/tiktok/selected-channel",{
     method:"POST",
     headers:{"content-type":"application/json"},
-    body:JSON.stringify({handle:h,selected,sourceUrl:evidence}),
+    body:JSON.stringify({handle:h,selected}),
     cache:"no-store"
   });
   const body=await r.json().catch(()=>null);
@@ -672,7 +680,7 @@ async function addChannel(){
   addChannelBtn.disabled=true;
   statusEl.textContent="@"+h+" · đang thêm kênh…";
   try{
-    const result=await setChannelSelected(h,true,rawInput);
+    const result=await setChannelSelected(h,true);
     let channel=null;
     try{
       const data=await getJson(LIBRARY+"/tiktok/library?user="+encodeURIComponent(h)+"&t="+Date.now(),12000);
@@ -821,6 +829,32 @@ async function loadInitialCatalog(){
   statusEl.textContent=channelTotal
     ? channelTotal+" kênh · "+liveTotal+" đang phát · "+latestVideos.length+" video mới nhất"
     : "Chưa nạp được thư viện TikTok.";
+}
+
+async function refreshChannelVideos(rawHandle){
+  const h=parseHandle(rawHandle);
+  if(!h)return;
+  const btn=document.getElementById("refreshVideosBtn");
+  if(btn)btn.disabled=true;
+  statusEl.textContent="@"+h+" · đang cập nhật video…";
+  try{
+    const endpoint=new URL(LIBRARY+"/tiktok/channel-videos");
+    endpoint.searchParams.set("user",h);
+    endpoint.searchParams.set("refresh","1");
+    endpoint.searchParams.set("full","1");
+    endpoint.searchParams.set("wait","1");
+    endpoint.searchParams.set("t",Date.now());
+    await getJson(endpoint.toString(),45000);
+    const result=await loadChannelLibrary(h);
+    statusEl.textContent=result.count
+      ? "@"+h+" · đã cập nhật "+result.count+" video."
+      : "@"+h+" · cập nhật xong nhưng vẫn chưa có video.";
+  }catch(error){
+    statusEl.textContent="Không cập nhật được video: "+String(error?.message||error);
+  }finally{
+    const currentBtn=document.getElementById("refreshVideosBtn");
+    if(currentBtn)currentBtn.disabled=false;
+  }
 }
 
 async function loadChannelLibrary(h){
