@@ -3436,33 +3436,32 @@ async function searchSourceChannels(query){
     if(byId.size)publish();
   }
 
-  // Same stateless/fresh path as main search and the right preview pane.
-  const fresh=Date.now();
-  const videoJob=api("search",{
-    q,
-    filter:"videos",
-    _fresh:fresh
-  },4200).then(response=>consume(response?.data?.items,"video")).catch(()=>{});
+  // L0: publish matching channels already in the local/library data first.
+  for(const row of managedChannelLibrary()){
+    const nameNorm=normalizeSearchText(sourceMetaFor(row).name||row.name);
+    if(nameNorm.includes(qNorm))addCandidate(row,"local");
+  }
+  if(byId.size)publish();
 
-  const channelJob=api("search",{
-    q,
-    filter:"channels",
-    _fresh:fresh+1
-  },3400).then(response=>consume(response?.data?.items,"channel")).catch(()=>{});
+  // L2 only after an explicit committed search: one mixed YouTube request first.
+  try{
+    const response=await api("search",{
+      q,
+      filter:"all"
+    },4200);
+    consume(response?.data?.items,"video");
+  }catch{}
 
-  await Promise.allSettled([videoJob,channelJob]);
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-  // Mixed search is the first fallback. It often contains the right uploader
-  // even when a direct channel-name lookup does not (e.g. artist alias cases).
+  // One bounded fallback only when neither local data nor mixed search found a channel.
   if(!byId.size){
     try{
       const response=await api("search",{
         q,
-        filter:"all",
-        _fresh:Date.now()
-      },3800);
-      consume(response?.data?.items,"video");
+        filter:"channels"
+      },3400);
+      consume(response?.data?.items,"channel");
     }catch{}
   }
 
@@ -3530,15 +3529,27 @@ async function searchSourceChannels(query){
 }
 function scheduleSourceSearch(){
   clearTimeout(sourceSearchTimer);
+  sourceSearchTimer=0;
   sourceSearchSeq++;
   sourceRemoteResults=[];
   const q=clean(sourceSearch?.value||"");
   if(clearSourceSearch)clearSourceSearch.hidden=!q;
-  if(sourceSearchStatus)sourceSearchStatus.textContent=q.length>=2?"Đang chờ tìm trên YouTube…":"";
-  renderSourceLibrary();
 
-  if(q.length<2)return;
-  sourceSearchTimer=setTimeout(()=>void searchSourceChannels(q),120);
+  const qNorm=normalizeSearchText(q);
+  const localMatches=q.length>=2
+    ?managedChannelLibrary().filter(row=>
+        normalizeSearchText(sourceMetaFor(row).name||row.name).includes(qNorm)
+      )
+    :[];
+
+  if(sourceSearchStatus){
+    sourceSearchStatus.textContent=q.length<2
+      ?""
+      :(localMatches.length
+        ?"Có "+localMatches.length+" kênh trong thư viện · Enter để tìm YouTube"
+        :"Chưa có trong thư viện · Enter để tìm YouTube");
+  }
+  renderSourceLibrary();
 }
 
 function sourceCandidateFromVideo(row={}){
@@ -4084,51 +4095,26 @@ async function searchPreviewVideos(query){
 
   const stillCurrent=()=>seq===sourcePreviewSearchSeq&&!sourcesSheet?.hidden;
 
-  // Use the same proven path as the main/Kira search: every submit gets fresh,
-  // stateless backend requests. youtubei.js is not allowed to race or suppress
-  // these results.
-  const fresh=Date.now();
+  // L0: seed the committed result with local channels first.
+  const qNorm=normalizeSearchText(q);
+  for(const row of managedChannelLibrary()){
+    const nameNorm=normalizeSearchText(sourceMetaFor(row).name||row.name);
+    if(nameNorm.includes(qNorm))addChannel(row);
+  }
+  if(channelMap.size)publish();
 
-  const videoJob=api("search",{
-    q,
-    filter:"videos",
-    _fresh:fresh
-  },4200).then(response=>{
-    if(!stillCurrent())return;
-    addVideos(response?.data?.items);
-    if(videoMap.size||channelMap.size)publish();
-  }).catch(()=>{});
-
-  const channelJob=api("search",{
-    q,
-    filter:"channels",
-    _fresh:fresh+1
-  },3400).then(response=>{
-    if(!stillCurrent())return;
-    for(const row of Array.isArray(response?.data?.items)?response.data.items:[]){
-      addChannel(row);
-      if(channelMap.size>=12)break;
-    }
-    if(videoMap.size||channelMap.size)publish();
-  }).catch(()=>{});
-
-  await Promise.allSettled([videoJob,channelJob]);
-  if(!stillCurrent())return;
-
-  // If one backend surface is temporarily empty, retry through YouTube's mixed
-  // search surface before ever showing "Không có kết quả phù hợp".
-  if(!videoMap.size&&!channelMap.size){
-    try{
-      const response=await api("search",{
-        q,
-        filter:"all",
-        _fresh:Date.now()
-      },3800);
-      if(!stillCurrent())return;
+  // L2 after commit: a single mixed YouTube search normally provides both
+  // video rows and channel identities. Avoid the old videos+channels fan-out.
+  try{
+    const response=await api("search",{
+      q,
+      filter:"all"
+    },4200);
+    if(stillCurrent()){
       addMixedRows(response?.data?.items);
       if(videoMap.size||channelMap.size)publish();
-    }catch{}
-  }
+    }
+  }catch{}
 
   if(!stillCurrent())return;
 
@@ -4199,15 +4185,20 @@ function schedulePreviewVideoSearch(){
     return;
   }
 
-  // Right-side search is global YouTube search. Never prepend the selected
-  // channel name and never restrict results to the currently previewed source.
+  // L0 only while typing: show channels already present in the local library.
+  const qNorm=normalizeSearchText(q);
+  const localChannels=managedChannelLibrary()
+    .filter(row=>normalizeSearchText(sourceMetaFor(row).name||row.name).includes(qNorm))
+    .slice(0,12);
+
   sourcePreviewSearchRows=new Map();
-  sourcePreviewSearchChannels=new Map();
+  sourcePreviewSearchChannels=new Map(localChannels.map(row=>[row.id,sourceMetaFor(row)]));
   sourcePreviewRenderSignature="";
-  if(sourcePreviewList){
-    sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm kênh và video…</div>';
+  renderSourcePreviewVideos({force:true});
+
+  if(!localChannels.length&&sourcePreviewList){
+    sourcePreviewList.innerHTML='<div class="source-empty">Chưa có trong thư viện · Enter để tìm YouTube</div>';
   }
-  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),120);
 }
 
 function revealAddedSource(id){
