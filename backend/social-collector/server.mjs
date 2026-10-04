@@ -6748,6 +6748,141 @@ async function fetchTikTokVideoFingerprint(rawHandle,knownSecUid=''){
   }
 }
 
+function tiktokVideoIdCreateTime(id){
+  try{
+    const value=BigInt(String(id||''));
+    return Number(value>>32n);
+  }catch{return 0;}
+}
+function parseCompactTikTokCount(value){
+  const text=String(value||'').trim().replace(/,/g,'');
+  const m=text.match(/^([0-9]+(?:\.[0-9]+)?)([KMB])?$/i);
+  if(!m)return 0;
+  const n=Number(m[1]||0);
+  const mult={K:1e3,M:1e6,B:1e9}[String(m[2]||'').toUpperCase()]||1;
+  return Number.isFinite(n)?Math.round(n*mult):0;
+}
+
+async function fetchTikTokChannelVideosBrowser(rawHandle,limit=TIKTOK_VIDEO_PER_CHANNEL){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return [];
+  let page=null;
+  try{
+    const browser=await getBrowser();
+    page=await browser.newPage();
+    await page.setViewport({width:1100,height:760,deviceScaleFactor:1});
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+
+    const stored=await loadSession('tiktok').catch(()=>null);
+    const cookies=cookieParams(stored?.state?.cookies||[]);
+    if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
+
+    await page.setRequestInterception(true);
+    page.on('request',request=>{
+      const type=request.resourceType();
+      if(type==='image'||type==='media'||type==='font'){
+        request.abort().catch(()=>{});
+      }else{
+        request.continue().catch(()=>{});
+      }
+    });
+
+    await page.goto('https://www.tiktok.com/@'+handle,{
+      waitUntil:'domcontentloaded',
+      timeout:12_000
+    });
+    await sleep(1200);
+
+    const readCards=async()=>page.evaluate(({handle,limit})=>{
+      const countNumber=value=>{
+        const text=String(value||'').trim().replace(/,/g,'');
+        const m=text.match(/^([0-9]+(?:\.[0-9]+)?)([KMB])?$/i);
+        if(!m)return 0;
+        const n=Number(m[1]||0);
+        const mult={K:1e3,M:1e6,B:1e9}[String(m[2]||'').toUpperCase()]||1;
+        return Number.isFinite(n)?Math.round(n*mult):0;
+      };
+      const seen=new Set();
+      const out=[];
+      for(const anchor of document.querySelectorAll('a[href*="/video/"]')){
+        const href=String(anchor.href||anchor.getAttribute('href')||'');
+        const match=href.match(/\/video\/(\d{8,})/);
+        const id=String(match?.[1]||'');
+        if(!id||seen.has(id))continue;
+        seen.add(id);
+        const card=anchor.closest('[data-e2e="user-post-item"]')||anchor.parentElement||anchor;
+        const img=card.querySelector?.('img')||anchor.querySelector?.('img')||null;
+        const viewsNode=
+          card.querySelector?.('[data-e2e="video-views"]')||
+          card.querySelector?.('strong')||
+          null;
+        const title=String(
+          img?.getAttribute?.('alt')||
+          anchor.getAttribute?.('aria-label')||
+          anchor.getAttribute?.('title')||
+          ''
+        ).trim();
+        const cover=String(img?.getAttribute?.('src')||img?.getAttribute?.('data-src')||'').trim();
+        out.push({
+          id,
+          url:'https://www.tiktok.com/@'+handle+'/video/'+id,
+          title,
+          cover,
+          playCount:countNumber(viewsNode?.textContent||'')
+        });
+        if(out.length>=limit)break;
+      }
+      return out;
+    },{handle,limit});
+
+    let rows=await readCards();
+    if(rows.length<limit){
+      await page.evaluate(()=>window.scrollTo(0,Math.min(document.body.scrollHeight,2200))).catch(()=>{});
+      await sleep(900);
+      rows=await readCards();
+    }
+
+    const videos=(Array.isArray(rows)?rows:[])
+      .map(row=>normalizeTikTokPostItem(handle,{
+        id:row?.id,
+        desc:row?.title||'',
+        createTime:tiktokVideoIdCreateTime(row?.id),
+        cover:row?.cover||'',
+        stats:{playCount:parseCompactTikTokCount(row?.playCount)||Number(row?.playCount||0)}
+      }))
+      .filter(Boolean)
+      .slice(0,Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,Number(limit)||TIKTOK_VIDEO_PER_CHANNEL)));
+
+    console.log('[tiktok-browser-videos]',handle,'videos='+videos.length,'blocked=image,media,font');
+    return videos;
+  }catch(error){
+    console.log('[tiktok-browser-videos] miss',handle,compactText(error?.message||error,120));
+    return [];
+  }finally{
+    if(page)await page.close().catch(()=>{});
+  }
+}
+
+function mergeTikTokVideoLists(primary,fallback,limit=TIKTOK_VIDEO_PER_CHANNEL){
+  const seen=new Set();
+  const out=[];
+  for(const row of [...(Array.isArray(primary)?primary:[]),...(Array.isArray(fallback)?fallback:[])]){
+    const id=String(row?.id||'');
+    if(!/^\d{8,}$/.test(id)||seen.has(id))continue;
+    seen.add(id);
+    out.push(row);
+  }
+  out.sort((a,b)=>
+    Number(b?.createTime||0)-Number(a?.createTime||0)||
+    String(b?.id||'').localeCompare(String(a?.id||''))
+  );
+  return out.slice(0,Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,Number(limit)||TIKTOK_VIDEO_PER_CHANNEL)));
+}
+
 async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
@@ -6812,8 +6947,29 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
   // Fallback/enrichment path.
   const ytdlp=await fetchTikTokChannelVideosYtdlp(handle,secUid);
-  if(ytdlp?.known)return ytdlp;
+  if(ytdlp?.known&&Array.isArray(ytdlp.videos)&&ytdlp.videos.length>=TIKTOK_VIDEO_PER_CHANNEL){
+    return ytdlp;
+  }
   secUid=String(ytdlp?.secUid||secUid||'').trim();
+
+  // Some TikTok profiles expose only one entry to yt-dlp while the browser grid
+  // contains more. Only deficient channels pay this browser cost.
+  const browserVideos=await fetchTikTokChannelVideosBrowser(handle,TIKTOK_VIDEO_PER_CHANNEL);
+  const mergedBrowser=mergeTikTokVideoLists(ytdlp?.videos||[],browserVideos,TIKTOK_VIDEO_PER_CHANNEL);
+  if(mergedBrowser.length>(Array.isArray(ytdlp?.videos)?ytdlp.videos.length:0)){
+    return {
+      known:true,
+      handle,
+      secUid,
+      videos:mergedBrowser,
+      latestVideoId:String(mergedBrowser[0]?.id||''),
+      hasMore:false,
+      cursor:'',
+      source:'yt-dlp+browser-grid',
+      profile:ytdlp?.profile||null
+    };
+  }
+  if(ytdlp?.known)return ytdlp;
 
   // One last API attempt if yt-dlp discovered a secUid.
   if(secUid&&secUid!==String(knownSecUid||'').trim()){
