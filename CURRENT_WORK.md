@@ -129,6 +129,23 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không đổi Supabase/Render/Cloudflare/polling.
 - Rollback: `19df37e726559514f212611e3d9b3341a3e05047`.
 
+
+## 2.0.6. TikTok demo — xóa kênh đồng bộ ngay danh sách tìm trực tiếp
+
+Thời gian: **2026-10-04**.
+
+- Triệu chứng: xóa một kênh khỏi danh sách selected nhưng Cloudflare `/state` có thể còn snapshot cũ tới lần demand sweep kế tiếp, nên kênh đã xóa có thể xuất hiện lại trong danh sách `Đang phát` khi reload.
+- Source of truth vẫn là `yt1988_tiktok_channels.selected`; endpoint add/remove đã ghi canonical membership targeted.
+- Fix UI: danh sách đang phát chỉ render handle còn tồn tại trong `sessionChannels` canonical selected list đã nạp từ `/tiktok/library`.
+- Khi nạp `/state`, chỉ nhận row `status=2` nếu handle vẫn selected; snapshot cũ không được phép làm sống lại kênh đã xóa.
+- Khi bấm xóa, UI vẫn xóa ngay khỏi `sessionChannels`, `sessionLiveStates`, `catalogChannels`; lần LIVE demand tiếp theo Cloudflare đọc selected membership mới nên cũng không quét kênh đó nữa.
+- Không gọi `/sweep` chỉ vì xóa kênh, không full-scan 171 kênh, không thêm polling/write.
+- Commit: `2a1f654779b5bbd8163ace65a4fb83ee8432402e`.
+- Deploy run `37167058683`: **SUCCESS**; frontend contract/build/Pages/custom-domain verify PASS.
+- Fix trước đó giữ row kênh không nhảy vị trí khi click: `f629adc4ed6b080b2ac77b03de384f42853e042a`.
+- Data impact: chỉ membership mutation do user action; không thay schema/runtime.
+- Rollback: `f629adc4ed6b080b2ac77b03de384f42853e042a`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

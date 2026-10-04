@@ -1,3 +1,13 @@
+## 2026-10-04 — Xóa kênh đồng bộ ngay danh sách Đang phát
+
+- Cloudflare `/state` có thể giữ snapshot cũ đến demand sweep sau, nhưng canonical selected membership đã đổi ngay.
+- UI giờ lọc mọi row đang phát qua `sessionChannels` selected list; kênh đã xóa không xuất hiện lại sau reload.
+- Remove vẫn xóa local state ngay; next demand sweep tự đọc selected mới, không cần full-scan lúc xóa.
+- Không thêm polling/sweep/write nền.
+- Commit `2a1f654779b5bbd8163ace65a4fb83ee8432402e`; deploy `37167058683` SUCCESS.
+- Fix click-row trước đó: `f629adc4ed6b080b2ac77b03de384f42853e042a`.
+- Rollback `f629adc4ed6b080b2ac77b03de384f42853e042a`.
+
 ## 2026-10-04 — Fix danh sách video bị đẩy xuống dưới 171 kênh
 
 - Ở width ~1040px, breakpoint <=1180px đổi sang 2 cột nên `Danh sách video` nằm hàng dưới cột source.
