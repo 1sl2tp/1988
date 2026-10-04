@@ -323,3 +323,12 @@ assert.match(server,/if\(!identity\?\.secUid&&!identity\?\.userId&&!videoEvidenc
   'invalid handles still must not be persisted');
 assert.match(server,/source:'validated-video-url'/,
   'validated video evidence may seed only the targeted channel video state');
+
+assert.match(server,/const canonicalKnown=tiktokCanonicalChannels\.get\(key\)\|\|null/,
+  're-add must reuse known canonical channel identity before external profile calls');
+assert.match(server,/identity=await fetchTikwmProfileIdentity\(handle\)\.catch\(\(\)=>null\)/,
+  'add-channel must fall back to TikWM profile identity when TikTok profile endpoints miss');
+assert.match(server,/const identityEvidence=Boolean\(/,
+  'profile identity evidence may use exact-handle nickname\/avatar when secUid is unavailable');
+assert.match(server,/identity\.nickname\|\|[\s\S]{0,80}identity\.avatar/,
+  'valid public profile metadata must count as exact handle evidence');

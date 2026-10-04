@@ -9988,32 +9988,68 @@ const server=http.createServer(async(req,res)=>{
       // exact TikTok account first; use the browser-backed user-detail lookup
       // only as a fallback when the direct public endpoint cannot verify it.
       if(selected){
-        let identity=await fetchTikTokUserDetail(handle).catch(()=>null);
-        if(!identity?.secUid&&!identity?.userId){
+        // Re-adding a previously known canonical channel must not depend on
+        // TikTok profile endpoints being healthy at this exact moment.
+        const canonicalKnown=tiktokCanonicalChannels.get(key)||null;
+        let identity=(
+          canonicalKnown&&(
+            canonicalKnown.user_id||
+            canonicalKnown.sec_uid||
+            canonicalKnown.display_name||
+            canonicalKnown.avatar_source_url
+          )
+        )?{
+          userId:String(canonicalKnown.user_id||''),
+          secUid:String(canonicalKnown.sec_uid||''),
+          nickname:String(canonicalKnown.display_name||''),
+          avatar:String(canonicalKnown.avatar_source_url||''),
+          followerCount:Number(canonicalKnown.follower_count||0),
+          followingCount:Number(canonicalKnown.following_count||0),
+          heartCount:Number(canonicalKnown.heart_count||0),
+          videoCount:Number(canonicalKnown.video_count||0),
+          source:'canonical'
+        }:null;
+
+        if(!identity){
+          identity=await fetchTikTokUserDetail(handle).catch(()=>null);
+        }
+        if(!identity?.secUid&&!identity?.userId&&!identity?.nickname&&!identity?.avatar){
           const profiles=await browserTikTokProfileIdentities([handle]).catch(()=>new Map());
           identity=profiles.get(key)||null;
         }
+        if(!identity?.secUid&&!identity?.userId&&!identity?.nickname&&!identity?.avatar){
+          identity=await fetchTikwmProfileIdentity(handle).catch(()=>null);
+        }
+
+        const identityEvidence=Boolean(
+          identity&&(
+            identity.secUid||
+            identity.userId||
+            identity.nickname||
+            identity.avatar
+          )
+        );
 
         // A pasted TikTok video URL is valid evidence for an explicit add action
-        // when profile endpoints are temporarily blocked. Validate the exact
+        // when every profile source is temporarily blocked. Validate the exact
         // handle+video pair once through the existing TikWM metadata resolver.
         let videoEvidence=null;
-        if(!identity?.secUid&&!identity?.userId&&sourceUrl){
+        if(!identityEvidence&&sourceUrl){
           videoEvidence=await validateTikTokVideoEvidence(sourceUrl,handle);
         }
 
-        if(!identity?.secUid&&!identity?.userId&&!videoEvidence){
+        if(!identityEvidence&&!videoEvidence){
           json(res,404,{ok:false,error:'tiktok_channel_not_found',handle});
           return;
         }
 
-        if(identity?.secUid||identity?.userId){
+        if(identityEvidence){
           tiktokProfileIdentityCache.set(key,{
             at:Date.now(),
             data:{
               ...identity,
               videoId:String(identity?.videoId||videoEvidence?.id||''),
-              source:String(identity?.source||'validated-user-detail')
+              source:String(identity?.source||'validated-profile')
             }
           });
         }else if(videoEvidence){
