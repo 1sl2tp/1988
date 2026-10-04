@@ -8,14 +8,13 @@
 > Sau repair/deploy phải cập nhật `NHAT_KY.md` và Google Sheet **1988 - Vận hành kết nối bảo trì**.
 > Chưa verify production + chưa cập nhật tài liệu thì chưa được coi là “xong”.
 
-Web tổng hợp YouTube/TikTok theo hướng mobile-first.
+Web tổng hợp YouTube theo hướng mobile-first.
 
 ## Kiến trúc production
 
 - Frontend/code delivery: GitHub Pages tại `https://yt.taphoa.xyz/`.
 - Canonical data/state/current package: Supabase.
 - Realtime detection/edge cache: Cloudflare Workers.
-- TikTok heavy resolver/session: Render `1988-tiktok-session`.
 - Browser: IndexedDB/RAM cache + render.
 - Contract đầy đủ: [README_HOST_ARCHITECTURE.md](./README_HOST_ARCHITECTURE.md).
 
@@ -24,7 +23,6 @@ Web tổng hợp YouTube/TikTok theo hướng mobile-first.
 UI không tự ghép identity riêng ở từng màn hình.
 
 - YouTube canonical: `yt1988_channel_directory`.
-- TikTok canonical: `yt1988_tiktok_channels`.
 - API đọc:
   - MAIN/Cloudflare: `yt1988-state?view=manifest|lite`;
   - `/sources/`: `view=library` + IndexedDB cache.
@@ -72,3 +70,11 @@ Rule dùng chung bắt buộc: `1sl2tp/infrastructure/rules/02-EXTERNAL-DATA-SIN
 - Cloudflare chỉ edge/realtime/cache; Render chỉ resolver/session; browser chỉ cache.
 - Không dịch chuyển channel/source/package canonical sang KV/Render/GitHub JSON.
 - Cache/session ngoại vi phải có TTL hoặc overwrite/version contract và rebuild được từ canonical/source.
+
+
+## Runtime đã nghỉ
+
+- TikTok runtime đã được loại khỏi Supabase/Cloudflare production.
+- Không có TikTok cron/Worker/KV/deploy workflow trong kiến trúc hiện hành.
+- Render `1988-tiktok-session` và static site `1988-site` là orphan provider-side; không được coi là runtime production và không được thêm wake/deploy mới vào chúng.
+- Các one-shot incident/probe workflows cũ đã được xoá khỏi repo sau khi hoàn thành.
