@@ -9,13 +9,13 @@
 <style>
 *{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}
 .top{position:sticky;top:0;z-index:5;padding:12px;background:#111;border-bottom:1px solid #26262a}
-.search{max-width:980px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}
+.search{max-width:1100px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}.search .secondary{background:#25252b}.search button:disabled{opacity:.55;cursor:default}
 .page{max-width:1540px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
 .grid{display:grid;grid-template-columns:minmax(220px,260px) minmax(260px,330px) minmax(0,1fr);grid-template-areas:"source videos player";gap:12px;align-items:start}
 .leftstack{grid-area:source;display:grid;gap:12px;align-self:start}.videopanel{grid-area:videos}.playerpanel{grid-area:player;position:sticky;top:70px}
 .panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden;min-width:0}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a;display:flex;align-items:center;justify-content:space-between;gap:8px}.body{padding:8px}
 .headbadge{font-size:11px;color:#bbb;background:#232329;border-radius:999px;padding:4px 8px;font-weight:700}.listbody{overflow:visible}
-.livecard,.channelcard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:9px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover,.channelcard:hover{background:#222228}.livecard.active,.channelcard.active{outline:2px solid #25f4ee;background:#202026}.avatar{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#2a2a2f;flex:0 0 auto}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}.channelstatus{margin-left:auto;font-size:10px;color:#8f8f98}
+.livecard,.channelcard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:9px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover,.channelcard:hover{background:#222228}.livecard.active,.channelcard.active{outline:2px solid #25f4ee;background:#202026}.channelrow{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:6px;align-items:stretch}.removebtn{border:0;border-radius:10px;background:#1b1b20;color:#999;font-size:20px;cursor:pointer}.removebtn:hover{background:#2a1d21;color:#fff}.avatar{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#2a2a2f;flex:0 0 auto}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}.channelstatus{margin-left:auto;font-size:10px;color:#8f8f98}
 .empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px;overflow:visible}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.videoitem.active{outline:2px solid #fe2c55;background:#242429}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
 .mediaframe{position:absolute;inset:12px 74px 12px 12px;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center;transition:left .18s,right .18s,width .18s,transform .18s}
 .player.shape-portrait .mediaframe{top:12px;bottom:12px;left:50%;right:auto;width:min(52%,430px);transform:translateX(-50%)}
@@ -58,8 +58,9 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 <!-- local-video-player-contract -->
 <div class="top">
   <form class="search" id="form">
-    <input id="input" value="https://www.tiktok.com/@tu.thuong_lay_minh_1/live" placeholder="Dán link TikTok...">
-    <button>Kiểm tra</button>
+    <input id="input" value="https://www.tiktok.com/@tu.thuong_lay_minh_1/live" placeholder="Dán link hoặc @tên_kênh TikTok...">
+    <button type="submit">Mở</button>
+    <button type="button" class="secondary" id="addChannelBtn">+ Thêm kênh</button>
   </form>
 </div>
 <div class="page">
@@ -117,6 +118,7 @@ const LIBRARY="https://one988-tiktok-session.onrender.com";
 const form=document.getElementById("form");
 const input=document.getElementById("input");
 const statusEl=document.getElementById("status");
+const addChannelBtn=document.getElementById("addChannelBtn");
 const liveBox=document.getElementById("liveBox");
 const channelsBox=document.getElementById("channelsBox");
 const videosBox=document.getElementById("videosBox");
@@ -156,6 +158,8 @@ let wheelLocked=false;
 let touchStartY=null;
 const sessionChannels=new Map();
 const sessionLiveStates=new Map();
+const catalogChannels=new Map();
+let currentChannelListHandle="";
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function compactCount(v){
@@ -191,18 +195,25 @@ function renderChannels(){
     String(a.name||a.handle).localeCompare(String(b.name||b.handle),'vi')
   );
   channelCount.textContent=String(rows.length);
-  if(!rows.length){channelsBox.innerHTML='<div class="empty">Chưa mở kênh.</div>';return}
+  if(!rows.length){channelsBox.innerHTML='<div class="empty">Chưa có kênh.</div>';return}
   channelsBox.innerHTML=rows.map(row=>
-    '<button type="button" class="channelcard'+(row.handle===handle?' active':'')+'" data-channel="'+esc(row.handle)+'">'+
-      (row.avatar?'<img class="avatar" loading="lazy" src="'+esc(row.avatar)+'" alt="">':'<div class="avatar"></div>')+
-      '<div class="meta"><div class="name">'+esc(row.name)+'</div><div class="sub">@'+esc(row.handle)+'</div></div>'+
-      '<span class="channelstatus">'+(sessionLiveStates.has(row.handle)?'●':'')+'</span></button>'
+    '<div class="channelrow">'+
+      '<button type="button" class="channelcard'+(row.handle===handle?' active':'')+'" data-channel="'+esc(row.handle)+'">'+
+        (row.avatar?'<img class="avatar" loading="lazy" src="'+esc(row.avatar)+'" alt="">':'<div class="avatar"></div>')+
+        '<div class="meta"><div class="name">'+esc(row.name)+'</div><div class="sub">@'+esc(row.handle)+'</div></div>'+
+        '<span class="channelstatus">'+(sessionLiveStates.has(row.handle)?'●':'')+'</span>'+
+      '</button>'+
+      '<button type="button" class="removebtn" data-remove-channel="'+esc(row.handle)+'" aria-label="Xóa kênh khỏi danh sách" title="Xóa kênh">×</button>'+
+    '</div>'
   ).join("");
   channelsBox.querySelectorAll("[data-channel]").forEach(btn=>btn.addEventListener("click",()=>{
     const h=btn.dataset.channel||"";
-    if(!h||h===handle)return;
+    if(!h)return;
     input.value="https://www.tiktok.com/@"+h+"/live";
     checkLive(h);
+  }));
+  channelsBox.querySelectorAll("[data-remove-channel]").forEach(btn=>btn.addEventListener("click",()=>{
+    removeChannel(btn.dataset.removeChannel||"");
   }));
 }
 function renderLiveList(){
@@ -594,6 +605,92 @@ document.addEventListener("keydown",e=>{
   if(e.key==="ArrowUp"){e.preventDefault();moveVideo(-1)}
 });
 
+function renderCatalogLatestVideos(){
+  const latest=[];
+  for(const [h,channel] of catalogChannels.entries()){
+    const newest=Array.isArray(channel?.videos)?channel.videos[0]:null;
+    if(newest?.id)latest.push({...newest,handle:h});
+  }
+  latest.sort((a,b)=>Number(b?.createTime||0)-Number(a?.createTime||0));
+  currentChannelListHandle="";
+  renderVideos(latest);
+  return latest;
+}
+
+async function setChannelSelected(rawHandle,selected){
+  const h=parseHandle(rawHandle);
+  if(!h)throw new Error("Link hoặc tên kênh TikTok không hợp lệ.");
+  const r=await fetch(LIBRARY+"/tiktok/selected-channel",{
+    method:"POST",
+    headers:{"content-type":"application/json"},
+    body:JSON.stringify({handle:h,selected}),
+    cache:"no-store"
+  });
+  const body=await r.json().catch(()=>null);
+  if(!r.ok||body?.ok!==true)throw new Error(String(body?.error||("HTTP "+r.status)));
+  return body;
+}
+
+async function addChannel(){
+  const h=parseHandle(input.value);
+  if(!h){statusEl.textContent="Không nhận ra kênh TikTok.";return}
+  addChannelBtn.disabled=true;
+  statusEl.textContent="@"+h+" · đang thêm kênh…";
+  try{
+    const result=await setChannelSelected(h,true);
+    let channel=null;
+    try{
+      const data=await getJson(LIBRARY+"/tiktok/library?user="+encodeURIComponent(h)+"&t="+Date.now(),12000);
+      channel=data?.channel||null;
+    }catch{}
+    if(channel){
+      catalogChannels.set(h,channel);
+      const profile=channel.profile||{};
+      sessionChannels.set(h,{handle:h,name:String(profile.name||("@"+h)),avatar:avatarUrl(profile)});
+    }else{
+      sessionChannels.set(h,{handle:h,name:"@"+h,avatar:""});
+    }
+    if(result?.live)sessionLiveStates.set(h,{handle:h,status:2});
+    renderChannels();
+    renderLiveList();
+    if(!currentChannelListHandle)renderCatalogLatestVideos();
+    input.value="https://www.tiktok.com/@"+h+"/live";
+    statusEl.textContent=result?.duplicate?"@"+h+" · kênh đã có trong danh sách.":"@"+h+" · đã thêm kênh.";
+  }catch(error){
+    statusEl.textContent="Không thêm được kênh: "+String(error?.message||error);
+  }finally{
+    addChannelBtn.disabled=false;
+  }
+}
+
+async function removeChannel(rawHandle){
+  const h=parseHandle(rawHandle);
+  if(!h)return;
+  statusEl.textContent="@"+h+" · đang xóa khỏi danh sách…";
+  try{
+    await setChannelSelected(h,false);
+    sessionChannels.delete(h);
+    sessionLiveStates.delete(h);
+    catalogChannels.delete(h);
+    if(handle===h){
+      handle="";
+      currentLiveState=null;
+      currentLiveStateAt=0;
+      currentChannelLibrary=null;
+      currentMediaMode="idle";
+      currentChannelListHandle="";
+      stopPlayer();
+      setMediaChrome({title:"Chưa có media"},"idle");
+    }
+    renderChannels();
+    renderLiveList();
+    if(!currentChannelListHandle||currentChannelListHandle===h)renderCatalogLatestVideos();
+    statusEl.textContent="@"+h+" · đã xóa khỏi danh sách.";
+  }catch(error){
+    statusEl.textContent="Không xóa được kênh: "+String(error?.message||error);
+  }
+}
+
 async function loadInitialCatalog(){
   statusEl.textContent="Đang nạp danh sách kênh, trực tiếp và video mới nhất…";
   const [libraryResult,liveResult]=await Promise.allSettled([
@@ -606,6 +703,7 @@ async function loadInitialCatalog(){
     const payload=libraryResult.value||{};
     const channels=Array.isArray(payload.channels)?payload.channels:[];
     sessionChannels.clear();
+    catalogChannels.clear();
     for(const channel of channels){
       const h=String(channel?.handle||"").replace(/^@/,"");
       if(!h)continue;
@@ -615,10 +713,12 @@ async function loadInitialCatalog(){
         name:String(profile?.name||("@"+h)),
         avatar:avatarUrl(profile)
       });
+      catalogChannels.set(h,channel);
       const newest=Array.isArray(channel?.videos)?channel.videos[0]:null;
       if(newest?.id)latestVideos.push({...newest,handle:h});
     }
     latestVideos.sort((a,b)=>Number(b?.createTime||0)-Number(a?.createTime||0));
+    currentChannelListHandle="";
     renderChannels();
     renderVideos(latestVideos);
   }else{
@@ -655,7 +755,9 @@ async function loadChannelLibrary(h){
     throw new Error(String(data?.error||"Không lấy được thư viện kênh"));
   }
   currentChannelLibrary=data.channel;
+  catalogChannels.set(h,data.channel);
   rememberChannel(h,data.channel.profile||{});
+  currentChannelListHandle=h;
   const videos=Array.isArray(data.channel.videos)?data.channel.videos:[];
   renderVideos(videos);
   return {
@@ -745,6 +847,7 @@ form.addEventListener("submit",e=>{
   e.preventDefault();
   checkLive(input.value);
 });
+addChannelBtn.addEventListener("click",()=>addChannel());
 video.addEventListener("loadedmetadata",()=>{
   applyMediaShape(video.videoWidth,video.videoHeight);
 });
