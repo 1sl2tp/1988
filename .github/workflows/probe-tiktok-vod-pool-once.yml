@@ -1,4 +1,4 @@
-name: Probe TikWM Single Video Exact
+name: Probe TikTok Canonical Channel Once
 on:
   push:
     branches: [main]
@@ -12,25 +12,26 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe exact TikWM resolver and edge redirect
+      - name: Verify one-channel production library
         shell: bash
         run: |
-          set -u
-          H='tu.thuong_lay_minh_1'
-          ID='7680871454702882069'
-          PAGE="https://www.tiktok.com/@${H}/video/${ID}"
-          EDGE="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-direct?user=${H}&id=${ID}"
-
-          echo '=== TIKWM API ==='
-          curl -sS --max-time 20 -G 'https://www.tikwm.com/api/'             --data-urlencode "url=${PAGE}"             -H 'Referer: https://www.tikwm.com/'             -H 'User-Agent: Mozilla/5.0'             -D /tmp/tikwm.h -o /tmp/tikwm.body || true
-          cat /tmp/tikwm.h
-          echo
-          head -c 8000 /tmp/tikwm.body
-          echo
-
-          echo '=== EDGE 302 ==='
-          curl -sS --max-time 20 "$EDGE" -D /tmp/edge.h -o /tmp/edge.body || true
-          cat /tmp/edge.h
-          echo
-          cat /tmp/edge.body
-          echo
+          set -euo pipefail
+          URL='https://one988-tiktok-session.onrender.com/tiktok/library?user=tu.thuong_lay_minh_1'
+          curl -fsS --max-time 30 "$URL" -o /tmp/channel.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/channel.json'))
+          assert p.get('ok') is True, p
+          assert p.get('schema') == 'tiktok-channel-v1', p.get('schema')
+          assert p.get('handle') == 'tu.thuong_lay_minh_1', p.get('handle')
+          c=p.get('channel') or {}
+          profile=c.get('profile') or {}
+          videos=c.get('videos') or []
+          assert isinstance(videos,list)
+          assert len(videos) <= 10
+          print('ok=1')
+          print('name='+str(profile.get('name') or ''))
+          print('followers='+str(profile.get('followers') or 0))
+          print('videos='+str(len(videos)))
+          print('ids='+','.join(str(x.get('id') or '') for x in videos))
+          PY
