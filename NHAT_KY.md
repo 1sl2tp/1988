@@ -1,3 +1,14 @@
+## 2026-10-04 — TikTok LIVE giữ link đã phát hiện
+
+- Root cause: edge snapshot cũ bỏ stream URL và cho status=4 ở sweep sau ghi đè LIVE đã phát hiện.
+- Sửa thành last-known-good: status=2 + streamUrl/hlsUrl được lưu ở KV snapshot; offline/unknown/media-missing về sau không được xóa row playable này.
+- `/refresh` targeted persist link; UI phát cached link trước rồi refresh nền.
+- `/tiktok/live-now` dùng trực tiếp snapshot Cloudflare, bỏ Render hop.
+- Known playable LIVE không bị recheck mỗi sweep; batch 40 tập trung vào kênh chưa có playable LIVE.
+- Không cron, không media probe, không full-scan.
+- Commit `e2e61906d1addf3dcc0f65926001f742f4c2a0e4`; Pages `37167416524` SUCCESS; Edge `37167416541` SUCCESS; zero schedules PASS.
+- Rollback `dfdf37237b2b73c0cdf250e0ef616c9dae6c291b`.
+
 ## 2026-10-04 — Xóa kênh đồng bộ ngay danh sách Đang phát
 
 - Cloudflare `/state` có thể giữ snapshot cũ đến demand sweep sau, nhưng canonical selected membership đã đổi ngay.

@@ -146,6 +146,25 @@ Thời gian: **2026-10-04**.
 - Data impact: chỉ membership mutation do user action; không thay schema/runtime.
 - Rollback: `f629adc4ed6b080b2ac77b03de384f42853e042a`.
 
+
+## 2.0.7. TikTok LIVE — giữ last-known-good link, không xóa vì API quét sau khác kết quả
+
+Thời gian: **2026-10-04**.
+
+- Triệu chứng: danh sách trực tiếp thiếu item và nhiều item `status=2` nhưng không còn link; nguyên nhân chính là edge snapshot trước đây chỉ lưu `status/roomId`, bỏ `streamUrl/hlsUrl`, và lần sweep sau trả `status=4` có thể ghi đè một LIVE đã phát hiện trước đó.
+- Quy tắc đã khóa lại: **một lần TikTok trả `status=2` + media URL thì URL đó là last-known-good và phải được giữ ở Cloudflare snapshot**.
+- Sweep sau nếu TikTok trả offline/unknown hoặc status=2 nhưng thiếu media: không được xóa/ghi đè last-known-good playable row.
+- Snapshot material hash giờ gồm cả `streamUrl/hlsUrl`; link mới/thay đổi được persist dù status/roomId không đổi.
+- Known LIVE có link không còn chiếm slot recheck mỗi sweep; sweep dành batch cho các kênh chưa có playable LIVE, giúp vòng phát hiện kênh mới nhanh hơn trong cùng giới hạn batch 40.
+- `/refresh?user=<handle>` targeted giờ persist chính link từ response TikTok trực tiếp và nếu API sau trả khác thì trả lại retained playable state.
+- `/tiktok/live-now` đọc trực tiếp edge snapshot; bỏ Render hop cho LIVE list/link.
+- UI đổi targeted refresh từ `/lookup` sang `/refresh`; bấm một item đã có cached link thì phát ngay link giữ lại trước, refresh nền sau. Refresh âm tính không xóa cached playable item.
+- Không thêm cron, không HEAD/GET probe media, không full-scan vì một click, không media bytes qua Supabase/Render.
+- Commit code: `e2e61906d1addf3dcc0f65926001f742f4c2a0e4`.
+- Deploy Pages run `37167416524`: SUCCESS; deploy TikTok Edge run `37167416541`: SUCCESS; edge contracts PASS và schedule count tiếp tục = 0.
+- Production direct endpoint probe từ môi trường công cụ hiện tại không thực hiện được do DNS tool sandbox, nhưng deploy/runtime verification trong workflows đều PASS.
+- Rollback: `dfdf37237b2b73c0cdf250e0ef616c9dae6c291b`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
