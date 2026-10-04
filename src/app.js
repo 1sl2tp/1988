@@ -28,7 +28,6 @@ disableNativeHoverHints();
 
 
 const BASE="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
-const SEARCH_BASE="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-search";
 const SUPABASE_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE";
 const MEDIA_SERVICE="https://one988-media.onrender.com";
 
@@ -10605,33 +10604,19 @@ async function sourceExternalSearch(query,filter="all",timeoutMs=4200){
   const cached=sourceExternalSearchCache.get(key);
   if(cached&&Date.now()-cached.at<cached.ttl)return cached.value;
 
-  const url=new URL(SEARCH_BASE);
-  url.searchParams.set("q",q);
-  url.searchParams.set("filter",String(filter||"all"));
-
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),timeoutMs);
-  try{
-    const res=await fetch(url.toString(),{
-      cache:"default",
-      signal:controller.signal
-    });
-    const body=await res.json().catch(()=>null);
-    if(!res.ok||body?.ok===false)throw new Error(body?.error||("HTTP "+res.status));
-
-    const items=Array.isArray(body?.data?.items)?body.data.items:[];
-    sourceExternalSearchCache.set(key,{
-      at:Date.now(),
-      ttl:items.length?SOURCE_EXTERNAL_SEARCH_TTL:SOURCE_EXTERNAL_EMPTY_TTL,
-      value:body
-    });
-    if(sourceExternalSearchCache.size>40){
-      sourceExternalSearchCache.delete(sourceExternalSearchCache.keys().next().value);
-    }
-    return body;
-  }finally{
-    clearTimeout(timer);
+  // Reuse the existing yt1988 Edge owner. The important resource guardrail is
+  // that this helper is called only after committed search, never per keystroke.
+  const body=await api("search",{q,filter},timeoutMs);
+  const items=Array.isArray(body?.data?.items)?body.data.items:[];
+  sourceExternalSearchCache.set(key,{
+    at:Date.now(),
+    ttl:items.length?SOURCE_EXTERNAL_SEARCH_TTL:SOURCE_EXTERNAL_EMPTY_TTL,
+    value:body
+  });
+  if(sourceExternalSearchCache.size>40){
+    sourceExternalSearchCache.delete(sourceExternalSearchCache.keys().next().value);
   }
+  return body;
 }
 
 async function backgroundSources(id){
