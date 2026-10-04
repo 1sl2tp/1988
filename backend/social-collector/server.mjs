@@ -28,6 +28,7 @@ const LEGACY_TIKTOK_FEED_COLLECT=String(process.env.LEGACY_TIKTOK_FEED_COLLECT||
 const RENDER_LIVE_BACKGROUND_SWEEP=String(process.env.RENDER_LIVE_BACKGROUND_SWEEP||'0')==='1';
 // Emergency pause is opt-in only. Normal startup must keep TikTok open.
 const TIKTOK_UPDATES_PAUSED=String(process.env.TIKTOK_UPDATES_PAUSED||'0')==='1';
+const TIKTOK_MAINTENANCE=String(process.env.TIKTOK_MAINTENANCE||'0')==='1';
 const TZ='Asia/Ho_Chi_Minh';
 
 const PLATFORMS=new Set(['tiktok']);
@@ -9800,14 +9801,20 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/health'){
     json(res,200,{
       ok:true,
+      paused:TIKTOK_MAINTENANCE,
       service:'1988-social-collector',
       browser:Boolean(browserPromise),
       queueDepth,
       autoCollect:AUTO_COLLECT,
-      lastRuns:Object.fromEntries(lastRuns),
-      login:tiktokQrLogin.snapshot(),
+      lastRuns:TIKTOK_MAINTENANCE?{}:Object.fromEntries(lastRuns),
+      login:TIKTOK_MAINTENANCE?{status:'paused'}:tiktokQrLogin.snapshot(),
       now:nowIso(),
     });
+    return;
+  }
+
+  if(TIKTOK_MAINTENANCE){
+    json(res,503,{ok:false,paused:true,error:'tiktok_temporarily_paused'});
     return;
   }
 
@@ -11077,7 +11084,12 @@ const server=http.createServer(async(req,res)=>{
 });
 
 server.listen(PORT,'0.0.0.0',()=>{
-  console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED);
+  console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED,'maintenance='+TIKTOK_MAINTENANCE);
+
+  if(TIKTOK_MAINTENANCE){
+    console.log('[collector] TikTok maintenance mode: no upstream or Supabase startup work');
+    return;
+  }
 
   // TikTok image mirroring is retired. Do not touch Supabase Storage at startup.
 
