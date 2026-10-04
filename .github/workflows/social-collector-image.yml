@@ -6,11 +6,6 @@ concurrency:
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "backend/social-collector/**"
-      - ".github/workflows/social-collector-image.yml"
 
 permissions:
   contents: read

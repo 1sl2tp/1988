@@ -6,11 +6,6 @@ concurrency:
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "cloudflare/tiktok-live-state/**"
-      - ".github/workflows/deploy-tiktok-live-state-edge.yml"
 
 permissions:
   contents: read
