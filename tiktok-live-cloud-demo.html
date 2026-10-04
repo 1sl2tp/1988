@@ -185,15 +185,15 @@ function rememberChannel(h,profile={}){
     name:String(profile?.name||prev.name||("@"+h)),
     avatar:avatarUrl(profile)||prev.avatar||""
   };
-  sessionChannels.delete(h);
+  // Update the existing row in place so clicking/refreshing a channel never
+  // changes its position in the channel list.
   sessionChannels.set(h,next);
   renderChannels();
 }
 function renderChannels(){
-  const rows=[...sessionChannels.values()].sort((a,b)=>
-    Number(sessionLiveStates.has(b.handle))-Number(sessionLiveStates.has(a.handle))||
-    String(a.name||a.handle).localeCompare(String(b.name||b.handle),'vi')
-  );
+  // Preserve canonical/insertion order. Re-sorting on LIVE/profile changes
+  // made the clicked row jump elsewhere, which looked like it disappeared.
+  const rows=[...sessionChannels.values()];
   channelCount.textContent=String(rows.length);
   if(!rows.length){channelsBox.innerHTML='<div class="empty">Chưa có kênh.</div>';return}
   channelsBox.innerHTML=rows.map(row=>
