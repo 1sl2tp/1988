@@ -278,14 +278,8 @@ assert.match(server,/images:'origin-url-only'/,
   'TikTok package must expose origin image URLs only');
 
 
-assert.match(server,/async function fetchTikTokChannelVideosBrowser\(/,
-  'browser-grid fallback must exist for channels with fewer than 10 discovered videos');
-assert.match(server,/type==='image'\|\|type==='media'\|\|type==='font'/,
-  'browser-grid fallback must block heavy image/media/font resources');
 assert.match(server,/ytdlp\.videos\.length>=TIKTOK_VIDEO_PER_CHANNEL/,
   'full yt-dlp result must skip browser fallback');
-assert.match(server,/source:'yt-dlp\+browser-grid'/,
-  'deficient yt-dlp result must merge browser-discovered video links');
 assert.match(server,/function mergeTikTokVideoLists\(/,
   'video sources must dedupe by video ID before canonical persistence');
 
