@@ -1,3 +1,14 @@
+## 2026-10-04 — Fix thêm TikTok channel từ video URL
+
+- Lỗi: URL video hợp lệ vẫn `tiktok_channel_not_found` vì add endpoint chỉ tin profile `secUid/userId`, trong khi TikTok profile lookup có thể tạm rỗng/block.
+- Frontend gửi thêm `sourceUrl` gốc.
+- Backend chỉ khi profile lookup fail mới parse exact TikTok video URL, yêu cầu handle trùng và validate video qua bounded TikWM resolve trước khi ghi selected.
+- Không accept handle tùy ý; invalid evidence vẫn 404.
+- Code `e09a820c4b7d3d132744b6903d2915b83c888b97`; backend image run `37168120851` SUCCESS.
+- Frontend deploy `55878927e1771f430a8412e3e0579114d64ecfa6`; Pages run `37168174796` SUCCESS.
+- Runtime Render cần xác nhận workspace nếu service không auto-deploy image mới; không tự chọn giữa 2 workspace kết nối.
+- Rollback `1840ad190ef9f3857c20b44cb1771c9d0f672b86`.
+
 ## 2026-10-04 — TikTok UI gọn + sửa LIVE/no-link + card kênh bị ẩn
 
 - Thu gọn toàn bộ demo theo TikTok: header/panel/card/avatar/video list/action rail/player.

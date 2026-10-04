@@ -184,6 +184,24 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không đổi Supabase/Render/Cloudflare code, không thêm writer/cron.
 - Rollback UI: `c4372fc0d5c329fed24a9578654795a0cd7a8b7b`.
 
+
+## 2.0.9. TikTok demo — thêm kênh từ URL video khi profile lookup bị chặn
+
+Thời gian: **2026-10-04**.
+
+- Triệu chứng: dán URL video hợp lệ như `https://www.tiktok.com/@<handle>/video/<id>` rồi bấm `+ Thêm kênh` có thể trả `tiktok_channel_not_found`.
+- Root cause: frontend chỉ gửi `handle`; Render `/tiktok/selected-channel` bắt buộc `fetchTikTokUserDetail`/browser profile phải trả `secUid/userId`. Một tài khoản có video hợp lệ vẫn bị từ chối nếu profile endpoint TikTok tạm block/rỗng.
+- Fix frontend: giữ nguyên URL người dùng dán và gửi thêm `sourceUrl` cùng `handle` khi add.
+- Fix Render: nếu profile identity lookup thất bại và `sourceUrl` là URL TikTok video đúng cùng handle, parse `handle + videoId` và validate đúng URL đó bằng **một fallback bounded TikWM metadata resolve**. Chỉ sau khi resolver trả media URL mới cho phép selected membership.
+- Nếu không có identity và không có video evidence hợp lệ thì vẫn trả `tiktok_channel_not_found`; không nới thành accept handle tùy ý.
+- Video evidence chỉ seed đúng channel/video vừa dán; không cache identity rỗng suốt profile TTL, để lần refresh sau vẫn có thể bổ sung secUid/avatar/profile.
+- Canonical selected source of truth vẫn là `yt1988_tiktok_channels.selected`; không đổi schema.
+- Code commit: `e09a820c4b7d3d132744b6903d2915b83c888b97`; frontend contract cleanup/deploy commit: `55878927e1771f430a8412e3e0579114d64ecfa6`.
+- Backend image workflow `37168120851`: **SUCCESS**, contract test + GHCR image push PASS.
+- Frontend verified workflow `37168174796`: **SUCCESS**, contract/build/Pages/custom-domain PASS.
+- Render runtime deploy: image mới đã được build/push; cần xác nhận đúng Render workspace/service nếu auto-deploy image không bật. Có 2 workspace kết nối: `1sl2tpvn@gmail.com` và `1988tfbg@gmail.com`; không được tự chọn workspace để trigger deploy.
+- Rollback code: `1840ad190ef9f3857c20b44cb1771c9d0f672b86`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
