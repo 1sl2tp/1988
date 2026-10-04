@@ -118,14 +118,14 @@ assert.match(demo,/Cập nhật video/);
 assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
 
 assert.match(demo,/class="brand"/);
-assert.match(demo,/media-smoothness-v8a/);
+assert.match(demo,/tiktok-official-embed-v9-final/);
 assert.match(demo,/\.player\.shape-portrait\{width:min\(100%,560px\)\}/);
 assert.match(demo,/\.streamrow,\.now\{display:none\}/);
 assert.match(demo,/\.videopanel\{grid-area:videos\}/);
 assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
 assert.match(demo,/aria-label="Thích"><svg/);
 
-assert.match(demo,/media-smoothness-v8a/);
+assert.match(demo,/tiktok-official-embed-v9-final/);
 assert.match(demo,/\.leftstack,\.videopanel\{display:none!important\}/);
 assert.match(demo,/height:100dvh!important/);
 assert.match(demo,/function liveFeedRows\(\)/);
@@ -163,3 +163,20 @@ assert.match(demo,/await Promise\.all\(warm\)/);
 assert.match(demo,/setTimeout\(\(\)=>wheelLocked=false,220\)/);
 assert.match(demo,/Math\.abs\(dy\)<42/);
 assert.match(demo,/video\.preload="auto"/);
+
+assert.match(demo,/id="vodEmbed"/);
+assert.match(demo,/const VOD_EMBED_FIRST=true/);
+assert.match(demo,/VOD_EMBED_READY_TIMEOUT_MS=6500/);
+assert.match(demo,/function tiktokEmbedUrl\(row\)/);
+assert.match(demo,/https:\/\/www\.tiktok\.com\/player\/v1\//);
+assert.match(demo,/function postTikTokPlayer\(type,value\)/);
+assert.match(demo,/function resetVodEmbedNode\(\)/);
+assert.match(demo,/function activateTikTokEmbed\(row\)/);
+assert.match(demo,/async function playDirectVodFallback\(row\)/);
+assert.match(demo,/msg\.type==="onPlayerReady"/);
+assert.match(demo,/msg\.type==="onPlayerError"/);
+assert.match(demo,/if\(code===3002\)return/);
+assert.match(demo,/if\(VOD_EMBED_FIRST&&activateTikTokEmbed\(row\)\)return/);
+assert.match(demo,/if\(!VOD_EMBED_FIRST\)/);
+assert.match(demo,/allowfullscreen/);
+assert.match(demo,/tiktok-official-embed-v9-final/);
