@@ -32,7 +32,7 @@
     <section class="panel">
       <div class="head">Kênh / LIVE</div>
       <div class="body" id="liveBox"><div class="empty">Chưa kiểm tra.</div></div>
-      <div class="head">Video mới nhất</div>
+      <div class="head">Video gần nhất</div>
       <div class="body" id="videosBox"><div class="empty">Chưa tải video.</div></div>
     </section>
     <section class="panel">
@@ -50,6 +50,7 @@
 </div>
 <script>
 const EDGE="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev";
+const LIBRARY="https://one988-tiktok-session.onrender.com";
 const form=document.getElementById("form");
 const input=document.getElementById("input");
 const statusEl=document.getElementById("status");
@@ -67,6 +68,7 @@ let flvPlayer=null;
 let handle="";
 let currentLiveState=null;
 let currentLiveStateAt=0;
+let currentChannelLibrary=null;
 let liveRefreshPromise=null;
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
@@ -107,8 +109,9 @@ function renderState(state){
     currentLiveStateAt=0;
   }
 
-  const avatar=String(state?.avatar||"");
-  const name=String(state?.sourceName||("@"+handle));
+  const profile=currentChannelLibrary?.profile||{};
+  const avatar=String(state?.avatar||profile?.avatar?.url||"");
+  const name=String(state?.sourceName||profile?.name||("@"+handle));
   const viewer=Number(state?.viewerCount||0);
   liveBox.innerHTML=
     '<button type="button" class="livecard" id="liveReplay"'+(playable?'':' disabled')+'>'+
@@ -348,15 +351,21 @@ async function playChannelVideo(row){
   }
 }
 
-async function loadChannelVideos(h){
-  const endpoint=new URL(EDGE+"/tiktok/channel-videos");
+async function loadChannelLibrary(h){
+  const endpoint=new URL(LIBRARY+"/tiktok/library");
   endpoint.searchParams.set("user",h);
-  endpoint.searchParams.set("count","1");
-  endpoint.searchParams.set("t",Date.now());
-  const data=await getJson(endpoint.toString(),15000);
-  if(data?.ok!==true)throw new Error(String(data?.error||"Không lấy được video"));
-  renderVideos(data.videos);
-  return Array.isArray(data?.videos)?data.videos.length:0;
+  const data=await getJson(endpoint.toString(),12000);
+  if(data?.ok!==true||!data?.channel){
+    throw new Error(String(data?.error||"Không lấy được thư viện kênh"));
+  }
+  currentChannelLibrary=data.channel;
+  const videos=Array.isArray(data.channel.videos)?data.channel.videos:[];
+  renderVideos(videos);
+  return {
+    count:videos.length,
+    profile:data.channel.profile||{},
+    version:Number(data.version||0)
+  };
 }
 
 async function loadLive(h){
@@ -386,18 +395,19 @@ async function checkLive(raw){
   handle=h;
   currentLiveState=null;
   currentLiveStateAt=0;
+  currentChannelLibrary=null;
   liveRefreshPromise=null;
   vodLinkCache.clear();
   stopPlayer();
   streamUrlEl.value="";
   liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
   videosBox.className="body";
-  videosBox.innerHTML='<div class="empty">Đang lấy video mới nhất…</div>';
-  statusEl.textContent="@"+h+" · đang kiểm tra LIVE và video…";
+  videosBox.innerHTML='<div class="empty">Đang đọc thư viện kênh…</div>';
+  statusEl.textContent="@"+h+" · đang đọc thư viện và kiểm tra LIVE…";
   nowEl.textContent="Đang chờ kết quả…";
 
   let liveText="LIVE đang kiểm tra";
-  let videoText="video đang tải";
+  let videoText="thư viện đang tải";
   const updateStatus=()=>statusEl.textContent="@"+h+" · "+liveText+" · "+videoText;
 
   const liveTask=loadLive(h)
@@ -412,16 +422,17 @@ async function checkLive(raw){
       console.warn("LIVE lookup",error);
     });
 
-  const videoTask=loadChannelVideos(h)
-    .then(count=>{
-      videoText=count?"1 video mới nhất":"không có video";
+  const videoTask=loadChannelLibrary(h)
+    .then(result=>{
+      videoText=result.count?(result.count+" video thư viện"):"không có video";
+      if(currentLiveState)renderState(currentLiveState);
       updateStatus();
     })
     .catch(error=>{
-      videoText="video lỗi";
-      videosBox.innerHTML='<div class="empty">Không lấy được video của kênh.</div>';
+      videoText="thư viện lỗi";
+      videosBox.innerHTML='<div class="empty">Không đọc được thư viện kênh.</div>';
       updateStatus();
-      console.warn("channel videos",error);
+      console.warn("channel library",error);
     });
 
   await Promise.allSettled([liveTask,videoTask]);
