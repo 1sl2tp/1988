@@ -13,9 +13,33 @@
 .page{max-width:940px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
 .grid{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:10px}.panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a}.body{padding:8px}
 .livecard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:10px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover{background:#222228}.livecard:disabled{cursor:default;opacity:.75}.avatar{width:50px;height:50px;border-radius:50%;object-fit:cover;background:#2a2a2f}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}
-.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:10px;overflow:hidden;height:clamp(360px,58vh,560px);display:grid;place-items:center}video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
+.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
+.mediaframe{position:absolute;inset:12px 74px 12px 12px;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center}
+video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
+.actionrail{position:absolute;right:14px;bottom:26px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:13px}
+.actionbtn{width:48px;height:48px;border:0;border-radius:50%;background:#252529;color:#fff;display:grid;place-items:center;font-size:22px;cursor:pointer;box-shadow:0 3px 14px #0008}
+.actionbtn.avatarbtn{padding:0;border:2px solid #fff;background:#111;overflow:hidden}
+.actionbtn.avatarbtn img{width:100%;height:100%;object-fit:cover}
+.actioncount{font-size:11px;font-weight:700;color:#ddd;margin-top:-8px;min-height:13px}
+.navrail{position:absolute;right:14px;top:50%;transform:translateY(-50%);z-index:4;display:flex;flex-direction:column;gap:10px}
+.navbtn{width:42px;height:42px;border:0;border-radius:50%;background:#2a2a2ecc;color:#fff;font-size:22px;cursor:pointer;backdrop-filter:blur(8px)}
+.navbtn:disabled{opacity:.28;cursor:default}
+.caption{position:absolute;left:26px;right:92px;bottom:24px;z-index:3;text-shadow:0 2px 10px #000;pointer-events:none}
+.caption .ctitle{font-size:15px;font-weight:800;line-height:1.25}.caption .csub{font-size:12px;color:#eee;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gesturehint{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:3;padding:5px 10px;border-radius:999px;background:#0008;color:#ddd;font-size:11px;opacity:0;transition:opacity .18s;pointer-events:none}
+.player.gesture .gesturehint{opacity:1}
 .streamrow{margin-top:8px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:7px 8px;font-size:11px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 10px;cursor:pointer}.now{padding:7px 2px 0;font-size:12px;color:#aaa;min-height:24px}
-@media(max-width:760px){.grid{grid-template-columns:1fr}.player{height:56vh;min-height:320px;max-height:520px}.search{gap:6px}.search button{padding:0 14px}}
+@media(max-width:760px){
+  .grid{grid-template-columns:1fr}
+  .player{height:min(76vh,720px);min-height:440px;max-height:none;border-radius:0;margin:0 -8px}
+  .mediaframe{inset:0}
+  .actionrail{right:10px;bottom:22px}
+  .navrail{right:10px;top:48%}
+  .caption{left:14px;right:78px;bottom:18px}
+  .gesturehint{top:10px}
+  .streamrow{display:none}
+  .search{gap:6px}.search button{padding:0 14px}
+}
 </style>
 </head>
 <body>
@@ -38,7 +62,25 @@
     <section class="panel">
       <div class="head">Player LIVE / Video</div>
       <div class="body">
-        <div class="player"><video id="video" playsinline controls></video></div>
+        <div class="player" id="playerStage">
+  <div class="mediaframe"><video id="video" playsinline controls></video></div>
+  <div class="gesturehint">Vuốt / cuộn để chuyển video</div>
+  <div class="navrail">
+    <button class="navbtn" type="button" id="prevMedia" aria-label="Video trước">↑</button>
+    <button class="navbtn" type="button" id="nextMedia" aria-label="Video tiếp">↓</button>
+  </div>
+  <div class="actionrail">
+    <button class="actionbtn avatarbtn" type="button" id="mediaAvatar" aria-label="Kênh"><span>♪</span></button>
+    <button class="actionbtn" type="button" aria-label="Thích">♥</button><div class="actioncount" id="likeCount"></div>
+    <button class="actionbtn" type="button" aria-label="Bình luận">💬</button><div class="actioncount" id="commentCount"></div>
+    <button class="actionbtn" type="button" aria-label="Lưu">🔖</button><div class="actioncount" id="saveCount"></div>
+    <button class="actionbtn" type="button" aria-label="Chia sẻ">↗</button><div class="actioncount" id="shareCount"></div>
+  </div>
+  <div class="caption">
+    <div class="ctitle" id="mediaTitle">Chưa có media</div>
+    <div class="csub" id="mediaSub">Chọn LIVE hoặc video để phát</div>
+  </div>
+</div>
         <div class="streamrow">
           <input id="streamUrl" readonly placeholder="Link phát LIVE sẽ hiện ở đây">
           <button type="button" id="copyBtn">Sao chép</button>
@@ -60,6 +102,16 @@ const video=document.getElementById("video");
 const streamUrlEl=document.getElementById("streamUrl");
 const copyBtn=document.getElementById("copyBtn");
 const nowEl=document.getElementById("now");
+const playerStage=document.getElementById("playerStage");
+const prevMedia=document.getElementById("prevMedia");
+const nextMedia=document.getElementById("nextMedia");
+const mediaAvatar=document.getElementById("mediaAvatar");
+const mediaTitle=document.getElementById("mediaTitle");
+const mediaSub=document.getElementById("mediaSub");
+const likeCount=document.getElementById("likeCount");
+const commentCount=document.getElementById("commentCount");
+const saveCount=document.getElementById("saveCount");
+const shareCount=document.getElementById("shareCount");
 const LIVE_LINK_TTL_MS=45_000;
 const VOD_LINK_TTL_MS=90_000;
 const vodLinkCache=new Map();
@@ -70,8 +122,46 @@ let currentLiveState=null;
 let currentLiveStateAt=0;
 let currentChannelLibrary=null;
 let liveRefreshPromise=null;
+let currentVideos=[];
+let currentVideoIndex=-1;
+let currentMediaMode="idle";
+let wheelLocked=false;
+let touchStartY=null;
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
+function compactCount(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)||n<=0)return "";
+  if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,"")+"M";
+  if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1).replace(/\.0$/,"")+"K";
+  return String(Math.round(n));
+}
+function firstNumber(...vals){
+  for(const v of vals){const n=Number(v);if(Number.isFinite(n)&&n>0)return n}
+  return 0;
+}
+function updateNav(){
+  const vod=currentMediaMode==="vod"&&currentVideos.length>0;
+  prevMedia.disabled=!vod||currentVideoIndex<=0;
+  nextMedia.disabled=!vod||currentVideoIndex>=currentVideos.length-1;
+}
+function setMediaChrome(row,mode="vod"){
+  currentMediaMode=mode;
+  const profile=currentChannelLibrary?.profile||{};
+  const h=String(row?.handle||handle||"").replace(/^@/,"");
+  const avatar=String(row?.avatar||profile?.avatar?.url||"");
+  mediaAvatar.innerHTML=avatar?'<img src="'+esc(avatar)+'" alt="">':'<span>♪</span>';
+  mediaTitle.textContent=String(row?.title||row?.sourceName||profile?.name||(h?"@"+h:"TikTok"));
+  const viewer=firstNumber(row?.viewerCount);
+  mediaSub.textContent=mode==="live"
+    ? ("@"+h+(viewer?" · "+compactCount(viewer)+" đang xem":""))
+    : ("@"+h);
+  likeCount.textContent=compactCount(firstNumber(row?.diggCount,row?.likes,row?.likeCount,row?.stats?.likes));
+  commentCount.textContent=compactCount(firstNumber(row?.commentCount,row?.comments,row?.stats?.comments));
+  saveCount.textContent=compactCount(firstNumber(row?.collectCount,row?.saveCount,row?.stats?.saves));
+  shareCount.textContent=compactCount(firstNumber(row?.shareCount,row?.shares,row?.stats?.shares));
+  updateNav();
+}
 function parseHandle(raw){
   raw=String(raw||"").trim();
   const m=raw.match(/(?:https?:\/\/)?(?:www\.)?tiktok\.com\/@([^/?#]+)/i);
@@ -130,6 +220,8 @@ function renderState(state){
 }
 async function playLive(state){
   stopPlayer();
+  currentVideoIndex=-1;
+  setMediaChrome({...state,handle}, "live");
   const flv=String(state?.streamUrl||"");
   const hls=String(state?.hlsUrl||"");
   const stream=flv||hls;
@@ -208,6 +300,9 @@ async function replayLive(){
 
 function renderVideos(rows){
   const videos=Array.isArray(rows)?rows:[];
+  currentVideos=videos;
+  if(currentMediaMode==="vod"&&currentVideoIndex>=videos.length)currentVideoIndex=-1;
+  updateNav();
   if(!videos.length){
     videosBox.innerHTML='<div class="empty">Kênh chưa trả video.</div>';
     return;
@@ -228,7 +323,10 @@ function renderVideos(rows){
     btn.addEventListener("pointerdown",warm,{once:true});
     btn.addEventListener("touchstart",warm,{once:true,passive:true});
     btn.addEventListener("click",()=>{
-      if(row)playChannelVideo(row);
+      if(row){
+        currentVideoIndex=Number(btn.dataset.videoI)||0;
+        playChannelVideo(row,currentVideoIndex);
+      }
     });
   });
 }
@@ -307,8 +405,13 @@ async function resolveBhwaVideo(row){
   return url;
 }
 
-async function playChannelVideo(row){
+async function playChannelVideo(row,index=currentVideos.indexOf(row)){
   stopPlayer();
+  currentVideoIndex=Number.isInteger(index)&&index>=0?index:currentVideos.indexOf(row);
+  setMediaChrome(row,"vod");
+  playerStage.classList.add("gesture");
+  clearTimeout(playChannelVideo._hintTimer);
+  playChannelVideo._hintTimer=setTimeout(()=>playerStage.classList.remove("gesture"),1000);
   const h=String(row?.handle||handle||"").replace(/^@/,"");
   const id=String(row?.id||"");
   if(!h||!/^\d{8,}$/.test(id))return;
@@ -350,6 +453,41 @@ async function playChannelVideo(row){
     await tryBhwa();
   }
 }
+
+function moveVideo(delta){
+  if(currentMediaMode!=="vod"||!currentVideos.length)return;
+  const base=currentVideoIndex>=0?currentVideoIndex:0;
+  const next=Math.max(0,Math.min(currentVideos.length-1,base+delta));
+  if(next===base){updateNav();return}
+  currentVideoIndex=next;
+  playChannelVideo(currentVideos[next],next);
+}
+prevMedia.addEventListener("click",()=>moveVideo(-1));
+nextMedia.addEventListener("click",()=>moveVideo(1));
+playerStage.addEventListener("wheel",e=>{
+  if(currentMediaMode!=="vod"||Math.abs(e.deltaY)<24)return;
+  e.preventDefault();
+  if(wheelLocked)return;
+  wheelLocked=true;
+  moveVideo(e.deltaY>0?1:-1);
+  setTimeout(()=>wheelLocked=false,520);
+},{passive:false});
+playerStage.addEventListener("touchstart",e=>{
+  touchStartY=e.touches?.[0]?.clientY??null;
+},{passive:true});
+playerStage.addEventListener("touchend",e=>{
+  if(touchStartY==null)return;
+  const endY=e.changedTouches?.[0]?.clientY??touchStartY;
+  const dy=endY-touchStartY;
+  touchStartY=null;
+  if(Math.abs(dy)<60)return;
+  moveVideo(dy<0?1:-1);
+},{passive:true});
+document.addEventListener("keydown",e=>{
+  if(document.activeElement&&/INPUT|TEXTAREA/.test(document.activeElement.tagName))return;
+  if(e.key==="ArrowDown"){e.preventDefault();moveVideo(1)}
+  if(e.key==="ArrowUp"){e.preventDefault();moveVideo(-1)}
+});
 
 async function loadChannelLibrary(h){
   const endpoint=new URL(LIBRARY+"/tiktok/library");
@@ -397,6 +535,10 @@ async function checkLive(raw){
   currentLiveStateAt=0;
   currentChannelLibrary=null;
   liveRefreshPromise=null;
+  currentVideos=[];
+  currentVideoIndex=-1;
+  currentMediaMode="idle";
+  setMediaChrome({handle:h,title:"@"+h},"idle");
   vodLinkCache.clear();
   stopPlayer();
   streamUrlEl.value="";
