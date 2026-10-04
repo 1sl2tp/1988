@@ -360,6 +360,24 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không thêm polling/sweep/write/media proxy.
 - Rollback UI: `1703e0fa92a6b430ade03f3b51c61f9a25c79a8b`.
 
+
+## 2.0.18. TikTok demo — VOD quay lại direct MP4 + LIVE mở nhanh hơn trên PC/mobile
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend media playback; không đổi Cloudflare/Render/Supabase/data.
+- Yêu cầu từ UI production: LIVE mở chậm (spinner lâu) và VOD official iframe không phù hợp; cần trả VOD về cách cũ.
+- VOD đã bỏ hoàn toàn TikTok official iframe/embed experiment: không còn `vodEmbed`, `player/v1`, `postMessage` hay timeout embed.
+- VOD quay lại đường cũ: hover/touch warm TikWM → phát TikWM HD trực tiếp → nếu lỗi mới fallback BHWA. `video.preload=auto` giữ nguyên.
+- LIVE vẫn giữ HLS/FLV browser-aware nhưng sửa routing để **Chrome desktop/Android ưu tiên FLV + mpegts**, không còn bị generic `canPlayType(HLS)` kéo sang HLS trên máy không phải Apple.
+- Apple route: iPhone/iPad (mọi browser WebKit) và Safari macOS ưu tiên HLS native; FLV/mpegts vẫn là lựa chọn chính cho Chromium khi có `streamUrl`.
+- Giảm mpegts initial stash để rút thời gian ra frame đầu: active `384KB → 128KB`, mobile warm slot `192KB → 96KB`; vẫn giữ liveSync + auto cleanup.
+- Fallback HLS/HLS.js khi FLV lỗi vẫn giữ nguyên.
+- Code commit: `aa0f8e8da09ea22c17de5e734730865169478bdf`.
+- Deploy run `37194478671`: **SUCCESS**; frontend contracts, Pages deploy, custom-domain verify đều PASS.
+- Data impact: none. Không thêm request nền/polling/writer/media proxy.
+- Rollback UI: `6a719c9d40abfd4baac58fa9ae1a7e2d4d5024df`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

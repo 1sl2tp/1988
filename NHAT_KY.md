@@ -1,3 +1,13 @@
+## 2026-10-04 — VOD direct trở lại + LIVE startup nhanh hơn
+
+- Bỏ TikTok official iframe VOD; quay lại TikWM HD direct → BHWA fallback.
+- Khôi phục hover/touch warm direct VOD link.
+- Chrome desktop/Android LIVE ưu tiên FLV+mpegts; iPhone/iPad + Safari ưu tiên HLS native.
+- mpegts stash active 128KB, warm mobile 96KB để giảm thời gian spinner/frame đầu.
+- HLS/HLS.js fallback vẫn giữ khi FLV lỗi.
+- Commit `aa0f8e8da09ea22c17de5e734730865169478bdf`; deploy `37194478671` SUCCESS.
+- Không đổi backend/data/polling; rollback `6a719c9d40abfd4baac58fa9ae1a7e2d4d5024df`.
+
 ## 2026-10-04 — LIVE chọn HLS/FLV theo browser capability
 
 - Native HLS được ưu tiên khi `<video>.canPlayType()` hỗ trợ: Safari iPhone/iPad/macOS và Chrome iOS đi HLS trực tiếp.
