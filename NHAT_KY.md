@@ -1,3 +1,14 @@
+## 2026-10-04 — TikTok demo media giống TikTok, có nút chuyển và vuốt
+
+- Owner frontend: chỉ đổi player shell của `tiktok-live-cloud-demo.html`.
+- Video giữ `object-fit: contain`: dọc/ngang đều nằm giữa, không zoom/crop.
+- Thêm action rail/caption kiểu TikTok, nút ↑/↓, wheel desktop, ArrowUp/ArrowDown và swipe dọc mobile để chuyển video.
+- LIVE không dùng navigator VOD; VOD vẫn TikWM direct → BHWA fallback, không thêm API/background traffic.
+- Contract test được cập nhật cho geometry + gesture/navigation mới.
+- Commit UI: `a7c98e77ecdc5be10aa3716ee7bf92525b8b8393`; test: `7a2e4fe961ee964b84978e567011b05ba69cfc74`; production: `b4a1a2824db1ed567b9360185f2c869d7030c7ec`.
+- Deploy đầu fail do test còn khóa player 560px; sửa đúng test rồi deploy cuối `37165692273` SUCCESS.
+- Data impact: none. Rollback: commit trước UI này.
+
 ## 2026-10-04 — TikTok player chuyển LIVE ↔ video
 
 - LIVE card bấm được để quay lại stream sau khi xem VOD.

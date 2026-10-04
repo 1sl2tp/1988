@@ -38,6 +38,24 @@ Bắt buộc cập nhật:
 
 Nếu kiến trúc thay đổi thì cập nhật thêm README/rule chuyên môn tương ứng.
 
+
+## 2.0.1. TikTok demo — media shell kiểu TikTok + nút chuyển + vuốt
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI, chỉ sửa `tiktok-live-cloud-demo.html` + contract test; không đổi Supabase/Render/Cloudflare/data flow.
+- Media stage đổi sang kiểu TikTok: video nằm giữa, `object-fit: contain`, không zoom/crop; caption + avatar/action rail ở bên phải.
+- Có nút **↑ / ↓** để chuyển video trước/sau.
+- Desktop: cuộn wheel trong media để chuyển video; keyboard ArrowUp/ArrowDown cũng dùng được.
+- Mobile: vuốt dọc trong media để chuyển video; ngưỡng vuốt 60px, không đổi video vì chạm nhẹ.
+- Danh sách trái vẫn là nguồn chọn; card đang phát có trạng thái active.
+- LIVE vẫn là nhánh riêng: nút chuyển video bị vô hiệu khi đang LIVE; không thay cơ chế `/lookup` hoặc playback FLV/HLS.
+- VOD vẫn dùng TikWM direct + BHWA fallback; không thêm request nền, không proxy media qua Render/Supabase.
+- Code commit đầu: `a7c98e77ecdc5be10aa3716ee7bf92525b8b8393`; test contract cập nhật: `7a2e4fe961ee964b84978e567011b05ba69cfc74`; production commit cuối: `b4a1a2824db1ed567b9360185f2c869d7030c7ec`.
+- Lần deploy đầu fail đúng contract cũ về chiều cao player; đã sửa test, không retry mù.
+- Deploy production run `37165692273`: **SUCCESS**; step frontend contracts + Pages deploy + custom-domain verify đều PASS.
+- Rollback: quay về commit gần trước UI này nếu có regression; thay đổi không đụng canonical data.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
