@@ -844,11 +844,17 @@ async function refreshChannelVideos(rawHandle){
     endpoint.searchParams.set("full","1");
     endpoint.searchParams.set("wait","1");
     endpoint.searchParams.set("t",Date.now());
-    await getJson(endpoint.toString(),45000);
-    const result=await loadChannelLibrary(h);
-    statusEl.textContent=result.count
-      ? "@"+h+" · đã cập nhật "+result.count+" video."
-      : "@"+h+" · cập nhật xong nhưng vẫn chưa có video.";
+    const refreshed=await getJson(endpoint.toString(),60000);
+    const directVideos=Array.isArray(refreshed?.videos)?refreshed.videos:[];
+    if(directVideos.length){
+      currentChannelListHandle=h;
+      renderVideos(directVideos.map(row=>({...row,handle:h})));
+    }
+    const result=await loadChannelLibrary(h).catch(()=>({count:directVideos.length}));
+    const count=Math.max(Number(result?.count||0),directVideos.length);
+    statusEl.textContent=count
+      ? "@"+h+" · đã cập nhật "+count+" video."
+      : "@"+h+" · chưa tìm thấy video sau lần cập nhật này.";
   }catch(error){
     statusEl.textContent="Không cập nhật được video: "+String(error?.message||error);
   }finally{
