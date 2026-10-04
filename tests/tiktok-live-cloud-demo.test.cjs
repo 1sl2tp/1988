@@ -22,11 +22,11 @@ assert.match(demo,/function liveStateFresh\(\)/);
 assert.match(demo,/async function refreshLiveState\(h\)/);
 assert.match(demo,/Date\.now\(\)-currentLiveStateAt<LIVE_LINK_TTL_MS/);
 assert.match(demo,/video\.onerror=null/);
-assert.match(demo,/grid-template-columns:minmax\(190px,210px\) minmax\(220px,250px\) minmax\(420px,1fr\)/);
-assert.match(demo,/grid-template-areas:"source videos player"/);
-assert.match(demo,/@media\(max-width:840px\) and \(min-width:761px\)/);
+assert.match(demo,/grid-template-columns:220px minmax\(520px,760px\) 230px/);
+assert.match(demo,/grid-template-areas:"source player videos"/);
+assert.match(demo,/@media\(max-width:1120px\) and \(min-width:761px\)/);
 assert.doesNotMatch(demo,/@media\(max-width:1180px\) and \(min-width:761px\)/);
-assert.match(demo,/height:min\(72vh,680px\)/);
+assert.match(demo,/height:min\(82vh,820px\)/);
 assert.match(demo,/object-fit:contain/);
 assert.match(demo,/async function loadChannelLibrary\(h\)/);
 assert.match(demo,/endpoint\.searchParams\.set\("user",h\)/);
@@ -115,3 +115,11 @@ assert.match(demo,/endpoint\.searchParams\.set\("wait","1"\)/);
 assert.match(demo,/Cập nhật video/);
 
 assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
+
+assert.match(demo,/class="brand"/);
+assert.match(demo,/tiktok-feed-shell-v5/);
+assert.match(demo,/\.player\.shape-portrait\{width:min\(100%,560px\)\}/);
+assert.match(demo,/\.streamrow,\.now\{display:none\}/);
+assert.match(demo,/\.videopanel\{grid-area:videos\}/);
+assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
+assert.match(demo,/aria-label="Thích"><svg/);
