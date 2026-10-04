@@ -25,7 +25,7 @@ button,input{font:inherit}
 .player{position:relative;width:min(100%,880px);height:min(82vh,820px);min-height:620px;margin:0 auto;background:#000;border-radius:12px;overflow:hidden;touch-action:pan-x;overscroll-behavior:contain;user-select:none;box-shadow:0 0 0 1px #141417}
 .player.shape-portrait{width:min(100%,560px)}.player.shape-landscape{width:min(100%,880px);height:min(72vh,680px);min-height:520px}.player.shape-auto{width:min(100%,680px)}
 .mediaframe,.player.shape-portrait .mediaframe,.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{position:absolute;inset:0 64px 0 0;width:auto;transform:none;border-radius:12px 0 0 12px;overflow:hidden;background:#000;display:grid;place-items:center}
-video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}.live-deck-video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain;display:none;pointer-events:none}.live-deck-video.active{display:block}
+video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}.vodembed{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;display:none}.vodembed.active{display:block}.live-deck-video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain;display:none;pointer-events:none}.live-deck-video.active{display:block}
 .livebadge{position:absolute;left:15px;top:15px;z-index:6;width:9px;height:9px;border-radius:50%;background:#fe2c55;box-shadow:0 0 0 4px #fe2c5530;display:none}.player.mode-live .livebadge{display:block}
 .actionrail{position:absolute;right:8px;bottom:20px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:9px}.actionbtn{width:44px;height:44px;border:0;border-radius:50%;background:#222226;color:#fff;display:grid;place-items:center;font-size:19px;cursor:pointer;box-shadow:0 2px 12px #0009}.actionbtn:hover{background:#2d2d32}.actionbtn svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.actionbtn.avatarbtn{padding:0;border:2px solid #fff;background:#111;overflow:hidden}.actionbtn.avatarbtn img{width:100%;height:100%;object-fit:cover}.actioncount{font-size:10px;font-weight:800;color:#d8d8dc;margin-top:-6px;min-height:12px}
 .navrail{position:absolute;right:12px;top:39%;transform:translateY(-50%);z-index:7;display:flex;flex-direction:column;gap:8px}.navbtn{width:36px;height:36px;border:0;border-radius:50%;background:#242428d9;color:#fff;font-size:18px;cursor:pointer;backdrop-filter:blur(8px)}.navbtn:disabled{opacity:.2;cursor:default}
@@ -51,7 +51,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 </style>
 </head>
 <body>
-<!-- local-video-player-contract media-smoothness-v8a -->
+<!-- local-video-player-contract tiktok-official-embed-v9 -->
 <div class="top">
   <form class="search" id="form">
     <div class="brand" aria-label="TikTok"><span class="brandmark">♪</span><span>TikTok<small>DIRECT</small></span></div>
@@ -81,7 +81,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
       <div class="head"><span id="playerKind">Media</span><span class="headbadge" id="playerShape">Chưa phát</span></div>
       <div class="body">
         <div class="player shape-auto" id="playerStage">
-  <div class="mediaframe"><video id="video" playsinline></video></div>
+  <div class="mediaframe"><video id="video" playsinline></video><iframe id="vodEmbed" class="vodembed" title="TikTok video" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
   <div class="livebadge" aria-label="Đang phát"></div>
   <div class="gesturehint" id="gestureHint">Vuốt / cuộn để chuyển video</div>
   <div class="navrail">
@@ -125,6 +125,7 @@ const videoCount=document.getElementById("videoCount");
 const playerKind=document.getElementById("playerKind");
 const playerShape=document.getElementById("playerShape");
 const video=document.getElementById("video");
+const vodEmbed=document.getElementById("vodEmbed");
 const streamUrlEl=document.getElementById("streamUrl");
 const copyBtn=document.getElementById("copyBtn");
 const nowEl=document.getElementById("now");
@@ -141,6 +142,8 @@ const shareCount=document.getElementById("shareCount");
 const gestureHint=document.getElementById("gestureHint");
 const LIVE_LINK_TTL_MS=45_000;
 const VOD_LINK_TTL_MS=90_000;
+const VOD_EMBED_FIRST=true;
+const VOD_EMBED_READY_TIMEOUT_MS=6000;
 const vodLinkCache=new Map();
 const preconnectedOrigins=new Set();
 let flvPlayer=null;
@@ -179,6 +182,9 @@ const LIVE_MPEGTS_WARM_CONFIG=Object.freeze({
 });
 const mobileLiveSlots=new Map();
 let activeMobileLiveHandle="";
+let vodEmbedReady=false;
+let vodEmbedFallbackTimer=null;
+let currentVodEmbedRow=null;
 const sessionChannels=new Map();
 const sessionLiveStates=new Map();
 const catalogChannels=new Map();
@@ -468,6 +474,7 @@ function parseHandle(raw){
   return /^[A-Za-z0-9._]{2,32}$/.test(h)?h:"";
 }
 function stopPlayer(){
+  clearVodEmbed();
   destroyMobileLiveDeck();
   if(flvPlayer){try{flvPlayer.destroy()}catch{} flvPlayer=null}
   video.onerror=null;
@@ -636,6 +643,128 @@ function renderVideos(rows){
   });
 }
 
+function tiktokEmbedUrl(row){
+  const id=String(row?.id||"");
+  if(!/^\d{8,}$/.test(id))return "";
+  const q=new URLSearchParams({
+    autoplay:"1",
+    controls:"1",
+    progress_bar:"1",
+    play_button:"1",
+    volume_control:"1",
+    fullscreen_button:"1",
+    timestamp:"1",
+    loop:"0",
+    music_info:"0",
+    description:"0",
+    rel:"0",
+    native_context_menu:"0",
+    closed_caption:"1",
+    muted:"0"
+  });
+  return "https://www.tiktok.com/player/v1/"+id+"?"+q.toString();
+}
+function postTikTokPlayer(type,value){
+  try{
+    vodEmbed.contentWindow?.postMessage({
+      type,
+      value,
+      "x-tiktok-player":true
+    },"https://www.tiktok.com");
+  }catch{}
+}
+function clearVodEmbed(){
+  clearTimeout(vodEmbedFallbackTimer);
+  vodEmbedFallbackTimer=null;
+  vodEmbedReady=false;
+  currentVodEmbedRow=null;
+  vodEmbed.classList.remove("active");
+  try{postTikTokPlayer("pause")}catch{}
+  vodEmbed.removeAttribute("src");
+}
+async function playDirectVodFallback(row){
+  const h=String(row?.handle||handle||"").replace(/^@/,"");
+  let bhwaTried=false;
+  const tryBhwa=async()=>{
+    if(bhwaTried)return false;
+    bhwaTried=true;
+    try{
+      const direct=await resolveBhwaVideo(row);
+      streamUrlEl.value=direct;
+      nowEl.textContent="@"+h+" · Embed/TikWM lỗi → BHWA";
+      video.style.display="";
+      video.controls=true;
+      video.src=direct;
+      video.load();
+      await video.play().catch(()=>{});
+      return true;
+    }catch(error){
+      nowEl.textContent="Không mở được video: "+String(error?.message||error);
+      return false;
+    }
+  };
+
+  try{
+    nowEl.textContent="@"+h+" · đang lấy TikWM HD dự phòng…";
+    const direct=await getWarmTikwmLink(row);
+    streamUrlEl.value=direct;
+    nowEl.textContent="@"+h+" · TikWM dự phòng";
+    video.style.display="";
+    video.controls=true;
+    video.onerror=()=>{ video.onerror=null; vodLinkCache.delete(videoCacheKey(row)); tryBhwa(); };
+    video.preload="auto";
+    video.src=direct;
+    video.load();
+    try{
+      await video.play();
+    }catch(error){
+      if(String(error?.name||"")==="NotAllowedError")return;
+      await tryBhwa();
+    }
+  }catch{
+    await tryBhwa();
+  }
+}
+function activateTikTokEmbed(row){
+  const src=tiktokEmbedUrl(row);
+  if(!src)return false;
+  clearTimeout(vodEmbedFallbackTimer);
+  vodEmbedFallbackTimer=null;
+  vodEmbedReady=false;
+  currentVodEmbedRow=row;
+  video.style.display="none";
+  video.controls=false;
+  vodEmbed.classList.add("active");
+  vodEmbed.src=src;
+  nowEl.textContent="@"+String(row?.handle||handle||"").replace(/^@/,"")+" · TikTok Embed";
+  vodEmbedFallbackTimer=setTimeout(()=>{
+    if(vodEmbedReady||currentVodEmbedRow!==row)return;
+    clearVodEmbed();
+    playDirectVodFallback(row);
+  },VOD_EMBED_READY_TIMEOUT_MS);
+  return true;
+}
+window.addEventListener("message",event=>{
+  if(event.origin!=="https://www.tiktok.com"||event.source!==vodEmbed.contentWindow)return;
+  const msg=event.data||{};
+  if(msg?.["x-tiktok-player"]!==true)return;
+  if(msg.type==="onPlayerReady"){
+    vodEmbedReady=true;
+    clearTimeout(vodEmbedFallbackTimer);
+    vodEmbedFallbackTimer=null;
+    postTikTokPlayer("play");
+    return;
+  }
+  if(msg.type==="onPlayerError"){
+    const code=Number(msg?.value?.errorCode||msg?.value||0);
+    if(code===3002)return; // Autoplay policy: keep official player visible for tap-to-play.
+    const row=currentVodEmbedRow;
+    if(!row)return;
+    clearVodEmbed();
+    playDirectVodFallback(row);
+  }
+});
+
 async function resolveTikwmVideo(row){
   const pageUrl=String(row?.pageUrl||("https://www.tiktok.com/@"+row.handle+"/video/"+row.id));
   const api="https://www.tikwm.com/api/?url="+encodeURIComponent(pageUrl);
@@ -712,7 +841,6 @@ async function resolveBhwaVideo(row){
 
 async function playChannelVideo(row,index=currentVideos.indexOf(row)){
   stopPlayer();
-  video.controls=true;
   currentVideoIndex=Number.isInteger(index)&&index>=0?index:currentVideos.indexOf(row);
   setMediaChrome(row,"vod");
   videosBox.querySelectorAll("[data-video-i]").forEach((btn,i)=>btn.classList.toggle("active",i===currentVideoIndex));
@@ -723,42 +851,12 @@ async function playChannelVideo(row,index=currentVideos.indexOf(row)){
   const id=String(row?.id||"");
   if(!h||!/^\d{8,}$/.test(id))return;
 
-  let bhwaTried=false;
-  const tryBhwa=async()=>{
-    if(bhwaTried)return false;
-    bhwaTried=true;
-    try{
-      const direct=await resolveBhwaVideo(row);
-      streamUrlEl.value=direct;
-      nowEl.textContent="@"+h+" · TikWM lỗi → BHWA";
-      video.src=direct;
-      video.load();
-      await video.play().catch(()=>{});
-      return true;
-    }catch(error){
-      nowEl.textContent="Không mở được video: "+String(error?.message||error);
-      return false;
-    }
-  };
-
-  try{
-    nowEl.textContent="@"+h+" · đang lấy TikWM HD…";
-    const direct=await getWarmTikwmLink(row);
-    streamUrlEl.value=direct;
-    nowEl.textContent="@"+h+" · TikWM";
-    video.onerror=()=>{ video.onerror=null; vodLinkCache.delete(videoCacheKey(row)); tryBhwa(); };
-    video.preload="auto";
-    video.src=direct;
-    video.load();
-    try{
-      await video.play();
-    }catch(error){
-      if(String(error?.name||"")==="NotAllowedError")return;
-      await tryBhwa();
-    }
-  }catch{
-    await tryBhwa();
+  if(VOD_EMBED_FIRST&&activateTikTokEmbed(row)){
+    // Warm the old direct path only as a fallback; do not block the official player.
+    warmVideoLink(row);
+    return;
   }
+  await playDirectVodFallback(row);
 }
 
 async function openCachedLive(rawHandle,{userGesture=false}={}){
@@ -795,6 +893,7 @@ function moveMedia(delta){
 
 function moveVideo(delta){
   if(currentMediaMode!=="vod"||!currentVideos.length)return;
+  if(vodEmbed.classList.contains("active"))postTikTokPlayer("pause");
   const base=currentVideoIndex>=0?currentVideoIndex:0;
   const next=Math.max(0,Math.min(currentVideos.length-1,base+delta));
   if(next===base){updateNav();return}
