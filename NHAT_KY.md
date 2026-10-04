@@ -1,3 +1,13 @@
+## 2026-10-04 — Đẩy danh sách thật vào TikTok demo
+
+- Kênh: nạp toàn bộ selected channel từ canonical Render RAM package.
+- Video: mặc định 1 video mới nhất/kênh; bấm kênh thì đổi sang tối đa 10 video của đúng kênh.
+- LIVE: đọc snapshot Cloudflare `/state`, chỉ render handle status=2; không chạy sweep/full-scan lúc mở trang.
+- Ảnh avatar/thumbnail lazy-load; canonical cover được dùng đúng cho thumbnail và aspect prediction.
+- Không đổi Supabase/Render/Cloudflare runtime; không thêm polling/cron/writer.
+- Commit `1fadf23947ff70258457cfa330e630ab02ab6e38`; deploy `37166330648` SUCCESS.
+- Data impact: none. Rollback `42cccf1907f191cf0047cd8439f87e03313b3db8`.
+
 ## 2026-10-04 — TikTok demo chia bố cục LIVE / Kênh / Video / Player
 
 - Desktop tách 3 cột: LIVE + Kênh | Danh sách video | Player.

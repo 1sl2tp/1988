@@ -75,6 +75,25 @@ Thời gian: **2026-10-04**.
 - Không thay Supabase schema/data, không thêm media proxy, không tăng polling/egress.
 - Rollback UI: quay về `ce51ccc11b9f163ee0615f5c4ece37cacad778e0` nếu cần.
 
+
+## 2.0.3. TikTok demo — nạp danh sách thật vào 3 vùng
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI; dùng lại data/runtime đang có, không đổi schema/backend.
+- Khi mở demo, UI nạp canonical TikTok library từ Render RAM một lần rồi dựng:
+  - `Kênh`: toàn bộ kênh selected trong package canonical;
+  - `Danh sách video`: 1 video mới nhất/kênh, sắp theo `createTime` giảm dần;
+  - `Đang LIVE`: đọc `/state` Cloudflare hiện có và chỉ lấy handle `status=2`.
+- LIVE list không kích `/sweep`, không full-scan, không targeted lookup hàng loạt. Chỉ khi user bấm một LIVE/kênh mới chạy đúng `checkLive(handle)` + `/tiktok/library?user=<handle>` như contract cũ.
+- Card avatar/thumbnail dùng `loading=lazy`; canonical `cover.url` được dùng cho thumbnail, `cover.width/height` được dùng để dự đoán dọc/ngang trước khi video metadata sẵn sàng.
+- Khi click một kênh, danh sách giữa đổi từ `1 video mới nhất/kênh` sang tối đa 10 video của đúng kênh đó.
+- VOD playback vẫn TikWM direct → BHWA fallback; LIVE vẫn Cloudflare `/lookup`; media bytes không qua Render/Supabase.
+- Commit production: `1fadf23947ff70258457cfa330e630ab02ab6e38`.
+- Deploy run `37166330648`: **SUCCESS**; frontend contract/build/Pages/custom-domain đều PASS.
+- Data impact: none. Không thêm writer/polling/cron.
+- Rollback: `42cccf1907f191cf0047cd8439f87e03313b3db8`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
