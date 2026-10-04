@@ -94,6 +94,25 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không thêm writer/polling/cron.
 - Rollback: `42cccf1907f191cf0047cd8439f87e03313b3db8`.
 
+
+## 2.0.4. TikTok demo — danh sách trải dài + thêm/xóa kênh
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI; reuse endpoint mutation đã có, không đổi backend/schema.
+- Bỏ scroll nội bộ ở danh sách kênh, danh sách đang phát và danh sách video: không còn `max-height`/`overflow:auto`; trang tự dài theo số item.
+- Bỏ chữ `LIVE` khỏi nhãn hiển thị; dùng `Đang phát`/`Trực tiếp` và chấm trạng thái màu thay thế. Biến/endpoint nội bộ vẫn giữ tên cũ để tránh đổi runtime contract.
+- Header thêm nút `+ Thêm kênh`; input nhận URL TikTok hoặc `@handle`.
+- Mỗi card kênh có nút `×` để xóa khỏi danh sách selected.
+- Add/remove dùng endpoint production có sẵn `POST /tiktok/selected-channel` trên Render; endpoint đã validate Origin + TikTok account và mutation idempotent.
+- `Thêm`: chỉ targeted đúng handle, sau đó đọc `/tiktok/library?user=<handle>` để cập nhật card/video; không reload/quét toàn 171 kênh.
+- `Xóa`: chỉ set `selected=false`, gỡ khỏi RAM UI/LIVE/video list; canonical row/video lịch sử không bị xóa vật lý.
+- VOD/LIVE media path không đổi; không thêm polling/cron/background scan.
+- UI commits: `4507a4bb1b67c428f5b85177b601d624b07ad5d3` (no-scroll), `76d395585266a26b96d1c3edfb42d06c7a070ab3` (remove visible LIVE text), `bcb721d90943fa28451192f0ca55d5064a04baea` (add/remove channel).
+- Deploy production run `37166680223`: **SUCCESS**; frontend contracts/build/Pages/custom-domain verify đều PASS.
+- Data impact: membership targeted only when user bấm thêm/xóa; không có write nền.
+- Rollback UI: `7ffa01435f33c6c4643c2a3e7dd8d04e0d9b7640`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

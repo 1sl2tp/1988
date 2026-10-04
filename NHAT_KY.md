@@ -1,3 +1,15 @@
+## 2026-10-04 — TikTok demo trải dài danh sách + thêm/xóa kênh
+
+- Bỏ toàn bộ scroll nội bộ của 3 danh sách; trang tự trải dài.
+- Bỏ chữ LIVE khỏi UI; thay bằng Đang phát/Trực tiếp + chấm trạng thái.
+- Thêm `+ Thêm kênh` và nút × xóa từng kênh.
+- Mutation reuse `POST /tiktok/selected-channel`: thêm/xóa targeted, idempotent, backend đã validate account/origin.
+- Add xong chỉ đọc lại đúng channel object; remove chỉ bỏ selected/UI state, không physical-delete canonical history.
+- Không đổi media path, không polling/cron/full-scan.
+- Commits `4507a4bb1b67c428f5b85177b601d624b07ad5d3`, `76d395585266a26b96d1c3edfb42d06c7a070ab3`, `bcb721d90943fa28451192f0ca55d5064a04baea`.
+- Deploy `37166680223` SUCCESS.
+- Rollback `7ffa01435f33c6c4643c2a3e7dd8d04e0d9b7640`.
+
 ## 2026-10-04 — Đẩy danh sách thật vào TikTok demo
 
 - Kênh: nạp toàn bộ selected channel từ canonical Render RAM package.
