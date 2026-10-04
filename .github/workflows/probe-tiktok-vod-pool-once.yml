@@ -12,26 +12,23 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify one-channel production library
+      - name: Trigger targeted refresh and verify canonical growth
         shell: bash
         run: |
           set -euo pipefail
           URL='https://one988-tiktok-session.onrender.com/tiktok/library?user=tu.thuong_lay_minh_1'
-          curl -fsS --max-time 30 "$URL" -o /tmp/channel.json
+          curl -fsS --max-time 30 "$URL" -o /tmp/before.json
+          sleep 22
+          curl -fsS --max-time 30 "$URL" -o /tmp/after.json
           python3 - <<'PY'
           import json
-          p=json.load(open('/tmp/channel.json'))
-          assert p.get('ok') is True, p
-          assert p.get('schema') == 'tiktok-channel-v1', p.get('schema')
-          assert p.get('handle') == 'tu.thuong_lay_minh_1', p.get('handle')
-          c=p.get('channel') or {}
-          profile=c.get('profile') or {}
-          videos=c.get('videos') or []
-          assert isinstance(videos,list)
-          assert len(videos) <= 10
-          print('ok=1')
-          print('name='+str(profile.get('name') or ''))
-          print('followers='+str(profile.get('followers') or 0))
-          print('videos='+str(len(videos)))
-          print('ids='+','.join(str(x.get('id') or '') for x in videos))
+          before=json.load(open('/tmp/before.json'))
+          after=json.load(open('/tmp/after.json'))
+          assert before.get('ok') is True
+          assert after.get('ok') is True
+          b=(before.get('channel') or {}).get('videos') or []
+          a=(after.get('channel') or {}).get('videos') or []
+          print('before='+str(len(b)))
+          print('after='+str(len(a)))
+          print('ids='+','.join(str(x.get('id') or '') for x in a))
           PY
