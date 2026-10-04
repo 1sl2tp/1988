@@ -36,16 +36,22 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
   .search{grid-template-columns:150px minmax(220px,1fr) auto auto}.grid{grid-template-columns:200px minmax(430px,1fr);grid-template-areas:"source player" "videos player";gap:14px}.videopanel{border-left:0;border-top:1px solid #19191c;padding:10px 0 0}.player{min-height:560px}.status{margin-left:158px}
 }
 @media(max-width:760px){
-  .top{height:54px}.search{display:flex;padding:0 8px;gap:6px}.brand{display:none}.search input{height:38px;font-size:12px}.search button{height:38px;padding:0 12px;font-size:11px}.page{padding:0 0 28px}.status{margin:6px 10px}
-  .grid{display:flex;flex-direction:column;gap:12px}.playerpanel{order:1;position:static;width:100%}.leftstack{order:2;width:100%;padding:0 10px;grid-template-columns:1fr 1fr;gap:10px}.videopanel{order:3;width:100%;padding:0 10px;border:0}
-  .player{width:100%!important;height:min(78vh,740px)!important;min-height:500px!important;border-radius:0;box-shadow:none}.mediaframe,.player.shape-portrait .mediaframe,.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:0 56px 0 0;border-radius:0}.actionrail{right:6px;bottom:18px}.actionbtn{width:42px;height:42px}.navrail{right:9px;top:42%}.caption{left:12px;right:70px;bottom:14px}.gesturehint{top:10px}.livebadge{left:11px;top:11px}
-  .leftstack .panel+ .panel{border-top:0;padding-top:0}.videopanel .head{border-top:1px solid #19191c;padding-top:12px}.videoitem{grid-template-columns:58px minmax(0,1fr)}.thumb{width:58px;height:78px}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000}
+  .top{position:fixed;inset:0 0 auto 0;height:calc(54px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top);z-index:30;background:linear-gradient(#000d,#0008 72%,transparent);border:0;backdrop-filter:none}
+  .search{display:flex;padding:0 8px;gap:6px}.brand{display:none}.search input{height:38px;font-size:12px;background:#151519e8}.search button{height:38px;padding:0 12px;font-size:11px}.search .secondary{white-space:nowrap}
+  .page{width:100%;height:100dvh;padding:0;margin:0}.status{display:none}
+  .grid{display:block;width:100%;height:100%}.leftstack,.videopanel{display:none!important}.playerpanel{position:fixed;inset:0;z-index:1;width:100vw;height:100dvh}
+  .player{width:100vw!important;height:100dvh!important;min-height:0!important;max-height:none!important;border-radius:0;box-shadow:none}
+  .mediaframe,.player.shape-portrait .mediaframe,.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:0 56px 0 0;border-radius:0}
+  .actionrail{right:6px;bottom:calc(18px + env(safe-area-inset-bottom))}.actionbtn{width:44px;height:44px}.navrail{right:9px;top:43%}
+  .caption{left:12px;right:70px;bottom:calc(16px + env(safe-area-inset-bottom))}.caption .ctitle{font-size:14px}.caption .csub{font-size:11px}
+  .gesturehint{top:calc(62px + env(safe-area-inset-top));font-size:11px}.livebadge{left:11px;top:calc(62px + env(safe-area-inset-top))}
 }
-@media(max-width:520px){.leftstack{grid-template-columns:1fr}.search .secondary{white-space:nowrap}}
+@media(max-width:520px){.search input{font-size:11px}.search button{padding:0 10px}}
 </style>
 </head>
 <body>
-<!-- local-video-player-contract tiktok-feed-shell-v5 -->
+<!-- local-video-player-contract mobile-live-feed-v6 -->
 <div class="top">
   <form class="search" id="form">
     <div class="brand" aria-label="TikTok"><span class="brandmark">♪</span><span>TikTok<small>DIRECT</small></span></div>
@@ -77,7 +83,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
         <div class="player shape-auto" id="playerStage">
   <div class="mediaframe"><video id="video" playsinline></video></div>
   <div class="livebadge" aria-label="Đang phát"></div>
-  <div class="gesturehint">Vuốt / cuộn để chuyển video</div>
+  <div class="gesturehint" id="gestureHint">Vuốt / cuộn để chuyển video</div>
   <div class="navrail">
     <button class="navbtn" type="button" id="prevMedia" aria-label="Video trước">↑</button>
     <button class="navbtn" type="button" id="nextMedia" aria-label="Video tiếp">↓</button>
@@ -132,6 +138,7 @@ const likeCount=document.getElementById("likeCount");
 const commentCount=document.getElementById("commentCount");
 const saveCount=document.getElementById("saveCount");
 const shareCount=document.getElementById("shareCount");
+const gestureHint=document.getElementById("gestureHint");
 const LIVE_LINK_TTL_MS=45_000;
 const VOD_LINK_TTL_MS=90_000;
 const vodLinkCache=new Map();
@@ -147,6 +154,8 @@ let currentVideoIndex=-1;
 let currentMediaMode="idle";
 let wheelLocked=false;
 let touchStartY=null;
+let mobileLivePrimed=false;
+const MOBILE_FEED_MQ=window.matchMedia("(max-width:760px)");
 const sessionChannels=new Map();
 const sessionLiveStates=new Map();
 const catalogChannels=new Map();
@@ -166,6 +175,17 @@ function firstNumber(...vals){
 }
 function avatarUrl(profile){
   return String(profile?.avatar?.url||profile?.avatar||"");
+}
+function isMobileFeed(){
+  return MOBILE_FEED_MQ.matches;
+}
+function liveFeedRows(){
+  return [...sessionLiveStates.entries()].filter(([h,row])=>
+    sessionChannels.has(h)&&Boolean(row?.streamUrl||row?.hlsUrl)
+  );
+}
+function currentLiveIndex(){
+  return liveFeedRows().findIndex(([h])=>h===handle);
 }
 function markActiveChannel(h){
   channelsBox.querySelectorAll("[data-channel]").forEach(btn=>{
@@ -240,19 +260,7 @@ function renderLiveList(){
   liveBox.querySelectorAll("[data-live-h]").forEach(btn=>btn.addEventListener("click",()=>{
     const h=btn.dataset.liveH||"";
     if(!h)return;
-    const cached=sessionLiveStates.get(h)||null;
-    input.value="https://www.tiktok.com/@"+h+"/live";
-    if(cached&&(cached.streamUrl||cached.hlsUrl)){
-      handle=h;
-      currentLiveState=cached;
-      currentLiveStateAt=Date.now();
-      playLive(cached);
-      loadChannelLibrary(h).catch(()=>{});
-      refreshLiveState(h).catch(()=>{});
-      renderLiveList();
-      return;
-    }
-    checkLive(h);
+    openCachedLive(h,{userGesture:true});
   }));
   markActiveChannel(handle);
 }
@@ -278,6 +286,13 @@ function videoThumb(row){
   return String(row?.thumbnail||row?.cover?.url||row?.coverUrl||row?.image||"");
 }
 function updateNav(){
+  if(currentMediaMode==="live"){
+    const rows=liveFeedRows();
+    const index=rows.findIndex(([h])=>h===handle);
+    prevMedia.disabled=index<=0;
+    nextMedia.disabled=index<0||index>=rows.length-1;
+    return;
+  }
   const vod=currentMediaMode==="vod"&&currentVideos.length>0;
   prevMedia.disabled=!vod||currentVideoIndex<=0;
   nextMedia.disabled=!vod||currentVideoIndex>=currentVideos.length-1;
@@ -298,6 +313,9 @@ function setMediaChrome(row,mode="vod"){
   mediaSub.textContent=mode==="live"
     ? ("@"+h+(viewer?" · "+compactCount(viewer)+" đang xem":""))
     : ("@"+h);
+  gestureHint.textContent=mode==="live"
+    ? (isMobileFeed()?"Vuốt lên / xuống để chuyển trực tiếp · chạm để bật tiếng":"Trực tiếp")
+    : "Vuốt / cuộn để chuyển video";
   likeCount.textContent=compactCount(firstNumber(row?.diggCount,row?.likes,row?.likeCount,row?.stats?.likes));
   commentCount.textContent=compactCount(firstNumber(row?.commentCount,row?.comments,row?.stats?.comments));
   saveCount.textContent=compactCount(firstNumber(row?.collectCount,row?.saveCount,row?.stats?.saves));
@@ -353,9 +371,10 @@ function renderState(state,stateHandle=handle){
   }else if(!live)sessionLiveStates.delete(h);
   renderLiveList();
 }
-async function playLive(state){
+async function playLive(state,{mutedAutoplay=false}={}){
   stopPlayer();
-  video.controls=true;
+  video.controls=!isMobileFeed();
+  video.muted=Boolean(mutedAutoplay);
   currentVideoIndex=-1;
   setMediaChrome({...state,handle}, "live");
   const flv=String(state?.streamUrl||"");
@@ -603,6 +622,41 @@ async function playChannelVideo(row,index=currentVideos.indexOf(row)){
   }
 }
 
+async function openCachedLive(rawHandle,{userGesture=false}={}){
+  const h=String(rawHandle||"").replace(/^@/,"");
+  const state=sessionLiveStates.get(h)||null;
+  if(!h||!state||!(state.streamUrl||state.hlsUrl))return false;
+  handle=h;
+  input.value="https://www.tiktok.com/@"+h+"/live";
+  currentLiveState=state;
+  currentLiveStateAt=Date.now();
+  markActiveChannel(h);
+  renderLiveList();
+  await playLive(state,{mutedAutoplay:isMobileFeed()&&!userGesture});
+  if(userGesture&&video.muted){
+    video.muted=false;
+    video.play().catch(()=>{});
+  }
+  updateNav();
+  return true;
+}
+function moveLive(delta){
+  const rows=liveFeedRows();
+  if(!rows.length)return;
+  const index=rows.findIndex(([h])=>h===handle);
+  const base=index>=0?index:0;
+  const next=Math.max(0,Math.min(rows.length-1,base+delta));
+  if(next===base){updateNav();return}
+  openCachedLive(rows[next][0],{userGesture:true});
+}
+function moveMedia(delta){
+  if(currentMediaMode==="live"){
+    moveLive(delta);
+    return;
+  }
+  moveVideo(delta);
+}
+
 function moveVideo(delta){
   if(currentMediaMode!=="vod"||!currentVideos.length)return;
   const base=currentVideoIndex>=0?currentVideoIndex:0;
@@ -611,8 +665,8 @@ function moveVideo(delta){
   currentVideoIndex=next;
   playChannelVideo(currentVideos[next],next);
 }
-prevMedia.addEventListener("click",()=>moveVideo(-1));
-nextMedia.addEventListener("click",()=>moveVideo(1));
+prevMedia.addEventListener("click",()=>moveMedia(-1));
+nextMedia.addEventListener("click",()=>moveMedia(1));
 playerStage.addEventListener("wheel",e=>{
   if(currentMediaMode!=="vod"||Math.abs(e.deltaY)<24)return;
   e.preventDefault();
@@ -630,12 +684,24 @@ playerStage.addEventListener("touchend",e=>{
   const dy=endY-touchStartY;
   touchStartY=null;
   if(Math.abs(dy)<60)return;
-  moveVideo(dy<0?1:-1);
+  if(isMobileFeed()&&currentMediaMode==="live")moveLive(dy<0?1:-1);
+  else moveVideo(dy<0?1:-1);
 },{passive:true});
+playerStage.addEventListener("click",e=>{
+  if(!isMobileFeed()||currentMediaMode!=="live")return;
+  if(e.target.closest("button"))return;
+  if(video.muted){
+    video.muted=false;
+    video.play().catch(()=>{});
+    gestureHint.textContent="Vuốt lên / xuống để chuyển trực tiếp";
+    return;
+  }
+  if(video.paused)video.play().catch(()=>{});
+});
 document.addEventListener("keydown",e=>{
   if(document.activeElement&&/INPUT|TEXTAREA/.test(document.activeElement.tagName))return;
-  if(e.key==="ArrowDown"){e.preventDefault();moveVideo(1)}
-  if(e.key==="ArrowUp"){e.preventDefault();moveVideo(-1)}
+  if(e.key==="ArrowDown"){e.preventDefault();moveMedia(1)}
+  if(e.key==="ArrowUp"){e.preventDefault();moveMedia(-1)}
 });
 
 function renderCatalogLatestVideos(){
@@ -738,6 +804,15 @@ function syncLiveNow(payload){
   sessionLiveStates.clear();
   for(const [h,row] of next)sessionLiveStates.set(h,row);
   renderLiveList();
+  updateNav();
+  if(isMobileFeed()&&!mobileLivePrimed&&sessionLiveStates.size){
+    mobileLivePrimed=true;
+    const first=liveFeedRows()[0]?.[0]||"";
+    if(first)queueMicrotask(()=>openCachedLive(first,{userGesture:false}));
+  }else if(isMobileFeed()&&currentMediaMode==="live"&&!sessionLiveStates.has(handle)&&sessionLiveStates.size){
+    const first=liveFeedRows()[0]?.[0]||"";
+    if(first)queueMicrotask(()=>openCachedLive(first,{userGesture:false}));
+  }
 }
 async function refreshVisibleLive(){
   if(document.hidden||liveSweepPromise)return liveSweepPromise;
