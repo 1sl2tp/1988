@@ -118,14 +118,14 @@ assert.match(demo,/Cập nhật video/);
 assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
 
 assert.match(demo,/class="brand"/);
-assert.match(demo,/tiktok-official-embed-v9-final/);
+assert.match(demo,/browser-aware-live-v10-final/);
 assert.match(demo,/\.player\.shape-portrait\{width:min\(100%,560px\)\}/);
 assert.match(demo,/\.streamrow,\.now\{display:none\}/);
 assert.match(demo,/\.videopanel\{grid-area:videos\}/);
 assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
 assert.match(demo,/aria-label="Thích"><svg/);
 
-assert.match(demo,/tiktok-official-embed-v9-final/);
+assert.match(demo,/browser-aware-live-v10-final/);
 assert.match(demo,/\.leftstack,\.videopanel\{display:none!important\}/);
 assert.match(demo,/height:100dvh!important/);
 assert.match(demo,/function liveFeedRows\(\)/);
@@ -179,7 +179,7 @@ assert.match(demo,/if\(code===3002\)return/);
 assert.match(demo,/if\(VOD_EMBED_FIRST&&activateTikTokEmbed\(row\)\)return/);
 assert.match(demo,/if\(!VOD_EMBED_FIRST\)/);
 assert.match(demo,/allowfullscreen/);
-assert.match(demo,/tiktok-official-embed-v9-final/);
+assert.match(demo,/browser-aware-live-v10-final/);
 
 assert.match(demo,/function supportsNativeHls\(mediaEl=video\)/);
 assert.match(demo,/function preferredLiveTransport\(state,mediaEl=video\)/);
