@@ -69,6 +69,9 @@ async function fetchJson(base: string, path: string, timeoutMs = 4500) {
 }
 
 const upstreamCache = new Map<string, { at: number; source: string; data: any }>();
+const apiFailureUntil = new Map<string, number>();
+const MAX_PIPED_ATTEMPTS = 3;
+const API_FAILURE_TTL_MS = 60 * 1000;
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,27 +92,68 @@ function setUpstreamCache(path: string, source: string, data: any) {
   if (upstreamCache.size > 120) upstreamCache.delete(upstreamCache.keys().next().value);
 }
 
-async function raceApis(path: string, candidates: string[], timeoutMs = 1900) {
-  const winner = await Promise.any(
-    candidates.map(async (base, index) => {
-      // Give the first known instances a short head start, then fan out quickly.
-      if (index >= 7) await delay(300);
+function orderedPipedCandidates(exclude = "") {
+  const now = Date.now();
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (base: string) => {
+    if (!base || base === exclude || seen.has(base)) return;
+    if ((apiFailureUntil.get(base) || 0) > now) return;
+    seen.add(base);
+    out.push(base);
+  };
+
+  if (preferredApi && now < preferredUntil) push(preferredApi);
+  for (const base of PIPED_APIS) push(base);
+  return out;
+}
+
+function rememberPipedSuccess(base: string) {
+  preferredApi = base;
+  preferredUntil = Date.now() + API_TTL_MS;
+  apiFailureUntil.delete(base);
+}
+
+function rememberPipedFailure(base: string) {
+  apiFailureUntil.set(base, Date.now() + API_FAILURE_TTL_MS);
+  if (preferredApi === base) {
+    preferredApi = "";
+    preferredUntil = 0;
+  }
+}
+
+async function sequentialPiped(path: string, candidates: string[], timeoutMs: number) {
+  let lastError: unknown = new Error("no_piped_instance");
+  let attempts = 0;
+
+  for (const base of candidates) {
+    if (attempts >= MAX_PIPED_ATTEMPTS) break;
+    attempts++;
+    try {
       const data = await fetchJson(base, path, timeoutMs);
-      return { base, data };
-    }),
-  );
-  return winner;
+      rememberPipedSuccess(base);
+      return { base, data, attempts };
+    } catch (error) {
+      lastError = error;
+      rememberPipedFailure(base);
+    }
+  }
+
+  throw lastError;
 }
 
 async function chooseApi(exclude = "") {
-  if (preferredApi && preferredApi !== exclude && Date.now() < preferredUntil) {
+  if (
+    preferredApi &&
+    preferredApi !== exclude &&
+    Date.now() < preferredUntil &&
+    (apiFailureUntil.get(preferredApi) || 0) <= Date.now()
+  ) {
     return preferredApi;
   }
-  const candidates = PIPED_APIS.filter((url) => url !== exclude);
+
   try {
-    const winner = await raceApis("/config", candidates, 1300);
-    preferredApi = winner.base;
-    preferredUntil = Date.now() + API_TTL_MS;
+    const winner = await sequentialPiped("/config", orderedPipedCandidates(exclude), 1300);
     return winner.base;
   } catch {
     throw new Error("no_piped_instance");
@@ -120,21 +164,10 @@ async function piped(path: string, cacheMs = 0) {
   const cached = getUpstreamCache(path, cacheMs);
   if (cached) return cached;
 
-  if (preferredApi && Date.now() < preferredUntil) {
-    try {
-      const data = await fetchJson(preferredApi, path, 1600);
-      if (cacheMs) setUpstreamCache(path, preferredApi, data);
-      return { source: preferredApi, data };
-    } catch {
-      preferredApi = "";
-      preferredUntil = 0;
-    }
-  }
-
   try {
-    const winner = await raceApis(path, PIPED_APIS, 1900);
-    preferredApi = winner.base;
-    preferredUntil = Date.now() + API_TTL_MS;
+    // Directly try the requested path. Do not preflight /config and do not fan out:
+    // one logical user action gets at most 1 preferred + 2 sequential fallbacks.
+    const winner = await sequentialPiped(path, orderedPipedCandidates(), 1900);
     if (cacheMs) setUpstreamCache(path, winner.base, winner.data);
     return { source: winner.base, data: winner.data };
   } catch {
