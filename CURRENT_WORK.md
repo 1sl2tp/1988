@@ -279,6 +279,25 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không thêm polling, sweep, writer, cache hay media proxy.
 - Rollback UI: `262841e72b5ee11ffb441df52a0c2a1cb8442b92`.
 
+
+## 2.0.14. TikTok mobile — preload LIVE hiện tại + trước + sau để vuốt mở ngay
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend mobile LIVE; không đổi Cloudflare/Render/Supabase.
+- Yêu cầu: khi mobile đang xem LIVE, phải chuẩn bị sẵn đúng 3 stream: **kênh hiện tại + kênh trước + kênh sau** trong thứ tự `liveFeedRows`, để vuốt là đổi ngay.
+- Thêm bounded deck `mobileLiveSlots` với `MOBILE_LIVE_PRELOAD_RADIUS=1`; tối đa 3 slot. Mỗi slot là video riêng nhận trực tiếp retained FLV/HLS từ Cloudflare snapshot/TikTok CDN.
+- FLV preload dùng mpegts với stash nhỏ 256KB; HLS dùng native `<video preload=auto>`; các slot lân cận muted và chạy ẩn để có buffer/frame sẵn.
+- Khi vuốt sang slot đã preload, UI chỉ đổi slot active, unmute nếu có user gesture, rồi warm slot lân cận mới. Không gọi resolver/live lookup lại.
+- Slot xa hơn ±1 bị destroy ngay để không giữ nhiều stream song song.
+- Chỉ áp dụng mobile `<=760px`; desktop/VOD không dùng deck này.
+- Khi tab/document hidden, destroy toàn bộ mobile live deck để không tải stream nền. Khi quay lại visible thì dựng lại current + trước/sau.
+- Snapshot LIVE đổi URL thì signature khác sẽ recreate đúng slot đó; snapshot membership đổi thì deck được prune theo window mới.
+- Code commit: `81e7fe0783a1bd7369af2a5ee64417d617e3c052`.
+- Deploy run `37170870443`: frontend contracts PASS; production verify chờ/ghi sau khi workflow hoàn tất.
+- Data impact: none. Không thêm polling/writer/cache server; chỉ tăng trực tiếp tối đa 2 media connections phụ trên mobile trong lúc visible.
+- Rollback UI: `84d6e97cb853e6a70e03d4455c7e29fa176edbe9`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

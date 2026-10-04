@@ -1,3 +1,13 @@
+## 2026-10-04 — Mobile preload 3 LIVE để vuốt mở ngay
+
+- Mobile giữ tối đa current + previous + next LIVE, radius=1.
+- Adjacent LIVE dùng trực tiếp retained FLV/HLS, muted hidden playback để warm buffer; swipe chỉ promote slot.
+- Sau mỗi switch, deck prune về đúng 3 slot quanh current.
+- Hidden tab destroy toàn bộ deck, visible dựng lại.
+- Desktop/VOD không đổi; không resolver lại khi swipe.
+- Commit `81e7fe0783a1bd7369af2a5ee64417d617e3c052`; deploy `37170870443`.
+- Rollback `84d6e97cb853e6a70e03d4455c7e29fa176edbe9`.
+
 ## 2026-10-04 — TikTok mobile full-screen LIVE feed
 
 - Mobile mở player full `100dvh`, LIVE là nội dung mặc định; source/video lists ẩn khỏi viewport mobile.
