@@ -1451,11 +1451,13 @@ function applyServerState(remote={}){
   }
 }
 
-async function stateSyncFetch(method="GET",body=null,timeout=2200,{keepalive=false}={}){
+async function stateSyncFetch(method="GET",body=null,timeout=2200,{keepalive=false,view=""}={}){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),timeout);
+  const url=new URL(STATE_SYNC_URL);
+  if(method==="GET"&&view)url.searchParams.set("view",String(view));
   try{
-    const response=await fetch(STATE_SYNC_URL,{
+    const response=await fetch(url.toString(),{
       method,
       cache:"no-store",
       keepalive,
@@ -1633,12 +1635,20 @@ function scheduleServerStatePush(delay=140){
   return stateSyncRevision;
 }
 
+const STATE_RESUME_CHECK_TTL=30*1000;
+let lastServerStateRefreshAt=0;
+let lastServerStateHash="";
+let stateResumeRefreshPromise=null;
+let stateInitialHydrationPromise=null;
+
 async function hydrateServerState(){
   let lastError=null;
 
   for(let attempt=0;attempt<2;attempt++){
     try{
       const result=await stateSyncFetch("GET",null,attempt===0?3200:4600);
+      const resultHash=clean(result?.stateHash||"");
+      if(resultHash)lastServerStateHash=resultHash;
       if(result?.ok&&result?.exists&&result.state){
         applyServerState(result.state);
         recoverPendingLiveKeywords(Number(result?.version)||0);
@@ -1702,37 +1712,58 @@ async function hydrateServerState(){
   return false;
 }
 
-let lastServerStateRefreshAt=0;
-
 async function refreshServerStateOnResume(){
-  if(stateSyncApplying||stateSyncPushPromise)return;
-  if(Date.now()-lastServerStateRefreshAt<15000)return;
-  lastServerStateRefreshAt=Date.now();
+  if(stateSyncApplying||stateSyncPushPromise)return false;
+  if(stateInitialHydrationPromise)return stateInitialHydrationPromise;
+  if(stateResumeRefreshPromise)return stateResumeRefreshPromise;
 
-  if(stateSyncDirty&&stateSyncReady){
-    const saved=await pushServerStateNow();
-    if(saved)return;
-  }
+  const now=Date.now();
+  if(now-lastServerStateRefreshAt<STATE_RESUME_CHECK_TTL)return false;
+  lastServerStateRefreshAt=now;
 
-  try{
-    const result=await stateSyncFetch("GET",null,3200);
-    if(result?.ok&&result?.exists&&result.state){
-      applyServerState(result.state);
-      recoverPendingLiveKeywords(Number(result?.version)||0);
-      stateSyncReady=true;
-      if(stateSyncDirty)await pushServerStateNow({force:true});
-      if(sourcesBtn){
-        sourcesBtn.disabled=false;
-        sourcesBtn.removeAttribute("title");
-      }
-      await warmSelectedAvatarImages(500);
-      renderParentCategories();
-      if(!document.documentElement.classList.contains("watch-browse")){
-        const active=state.activeFeed||"latest";
-        void loadFeedPreset(active);
+  stateResumeRefreshPromise=(async()=>{
+    if(stateSyncDirty&&stateSyncReady){
+      const saved=await pushServerStateNow();
+      if(saved){
+        try{
+          const manifest=await stateSyncFetch("GET",null,2200,{view:"manifest"});
+          const manifestHash=clean(manifest?.stateHash||"");
+          if(manifestHash)lastServerStateHash=manifestHash;
+        }catch{}
+        return true;
       }
     }
-  }catch{}
+
+    try{
+      const manifest=await stateSyncFetch("GET",null,2200,{view:"manifest"});
+      if(!manifest?.ok)return false;
+      const manifestHash=clean(manifest?.stateHash||"");
+      if(manifestHash&&lastServerStateHash&&manifestHash===lastServerStateHash)return true;
+
+      const result=await stateSyncFetch("GET",null,3200);
+      if(result?.ok&&result?.exists&&result.state){
+        applyServerState(result.state);
+        recoverPendingLiveKeywords(Number(result?.version)||0);
+        lastServerStateHash=clean(result?.stateHash||manifestHash)||lastServerStateHash;
+        stateSyncReady=true;
+        if(stateSyncDirty)await pushServerStateNow({force:true});
+        if(sourcesBtn){
+          sourcesBtn.disabled=false;
+          sourcesBtn.removeAttribute("title");
+        }
+        await warmSelectedAvatarImages(500);
+        renderParentCategories();
+        if(!document.documentElement.classList.contains("watch-browse")){
+          const active=state.activeFeed||"latest";
+          void loadFeedPreset(active);
+        }
+        return true;
+      }
+    }catch{}
+    return false;
+  })().finally(()=>{stateResumeRefreshPromise=null;});
+
+  return stateResumeRefreshPromise;
 }
 
 window.addEventListener("pageshow",()=>void refreshServerStateOnResume(),{passive:true});
@@ -17587,7 +17618,10 @@ topicChips.addEventListener("click",async e=>{
 async function bootstrap1988(){
   // Package viewing is independent from source-management availability.
   // Source state refreshes in parallel and never blocks or clears the feed.
-  const sourceStatePromise=hydrateServerState().catch(()=>false);
+  stateInitialHydrationPromise=hydrateServerState().catch(()=>false).finally(()=>{
+    stateInitialHydrationPromise=null;
+  });
+  const sourceStatePromise=stateInitialHydrationPromise;
 
   setupMediaSession();
   setupInstall();

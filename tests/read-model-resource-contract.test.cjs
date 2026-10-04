@@ -24,4 +24,26 @@ assert.match(resume,/window\.addEventListener\("pageshow",syncServerPackagesOnRe
 assert.match(resume,/window\.addEventListener\("focus",syncServerPackagesOnResume/);
 assert.match(resume,/visibilitychange/);
 
+// Source-state resume is also manifest-first. Boot may read the state body once,
+// but pageshow/visible-resume must not re-download it when stateHash is unchanged.
+const stateResumeStart=app.indexOf('const STATE_RESUME_CHECK_TTL=');
+const stateResumeEnd=app.indexOf('function temporarySetForScope',stateResumeStart);
+assert.ok(stateResumeStart>=0&&stateResumeEnd>stateResumeStart,'state resume contract missing');
+const stateResume=app.slice(stateResumeStart,stateResumeEnd);
+
+assert.match(app,/async function stateSyncFetch\(method="GET",body=null,timeout=2200,\{keepalive=false,view=""\}=\{\}\)/);
+assert.match(app,/url\.searchParams\.set\("view",String\(view\)\)/);
+assert.match(stateResume,/STATE_RESUME_CHECK_TTL=30\*1000/);
+assert.match(stateResume,/stateResumeRefreshPromise/);
+assert.match(stateResume,/stateInitialHydrationPromise/);
+assert.match(stateResume,/manifestHash&&lastServerStateHash&&manifestHash===lastServerStateHash/);
+
+const firstStateManifest=stateResume.indexOf('stateSyncFetch("GET",null,2200,{view:"manifest"})');
+const secondStateManifest=stateResume.indexOf('stateSyncFetch("GET",null,2200,{view:"manifest"})',firstStateManifest+1);
+const stateBodyRead=stateResume.indexOf('stateSyncFetch("GET",null,3200)',secondStateManifest+1);
+assert.ok(firstStateManifest>=0&&secondStateManifest>firstStateManifest,'state manifest reads missing');
+assert.ok(stateBodyRead>secondStateManifest,'state body must be gated behind manifest/hash');
+
+assert.match(app,/stateInitialHydrationPromise=hydrateServerState\(\)\.catch\(\(\)=>false\)\.finally/);
+
 console.log('read-model resource contract ok');
