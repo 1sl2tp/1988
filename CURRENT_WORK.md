@@ -56,6 +56,25 @@ Thời gian: **2026-10-04**.
 - Deploy production run `37165692273`: **SUCCESS**; step frontend contracts + Pages deploy + custom-domain verify đều PASS.
 - Rollback: quay về commit gần trước UI này nếu có regression; thay đổi không đụng canonical data.
 
+
+## 2.0.2. TikTok demo — tách 3 vùng LIVE / Kênh / Video + player thích ứng
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI; chỉ đổi `tiktok-live-cloud-demo.html` + contract test.
+- Desktop >=1181px: 3 vùng rõ ràng: cột trái = `Đang LIVE` + `Kênh`, cột giữa = `Danh sách video`, cột phải = player.
+- Tablet 761–1180px: nguồn/kênh ở trái, player ở phải; danh sách video nằm tiếp cột trái.
+- Mobile <=760px: player lên trước, sau đó danh sách LIVE/kênh rồi danh sách video; <=520px LIVE và Kênh xếp dọc.
+- Danh sách LIVE và Kênh chỉ giữ trạng thái phiên đang mở/đã kiểm tra; không tải toàn bộ 171 kênh và không thêm polling/background scan.
+- Player phân biệt `Video LIVE`, `Video dọc`, `Video ngang`; tỷ lệ lấy từ metadata có sẵn hoặc `videoWidth/videoHeight` sau `loadedmetadata`.
+- Video dọc desktop được thu vào giữa; video ngang dùng vùng rộng; cả hai vẫn `object-fit: contain`, không zoom/crop. Mobile dùng toàn vùng player và vẫn contain.
+- LIVE có badge riêng; navigator VOD ↑↓/wheel/swipe chỉ hoạt động khi đang xem VOD.
+- Data/runtime giữ nguyên: LIVE Cloudflare `/lookup`; channel library Render RAM `/tiktok/library`; VOD TikWM direct → BHWA fallback.
+- Code + test commit: `6ff6a535319e414305cf737f61c01687ac14dee2`.
+- Deploy production run `37166034084`: **SUCCESS**; frontend contracts, build, Pages deploy và custom-domain verify đều PASS.
+- Không thay Supabase schema/data, không thêm media proxy, không tăng polling/egress.
+- Rollback UI: quay về `ce51ccc11b9f163ee0615f5c4ece37cacad778e0` nếu cần.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

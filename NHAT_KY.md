@@ -1,3 +1,13 @@
+## 2026-10-04 — TikTok demo chia bố cục LIVE / Kênh / Video / Player
+
+- Desktop tách 3 cột: LIVE + Kênh | Danh sách video | Player.
+- Tablet dùng 2 cột; mobile đưa player lên trước rồi mới các danh sách.
+- Player tự nhận video dọc/ngang bằng metadata và `loadedmetadata`; dọc thu giữa, ngang dùng khung rộng; tất cả vẫn contain.
+- LIVE có badge riêng và không dùng navigator VOD; danh sách LIVE/Kênh là session-only, không full-fetch toàn thư viện và không polling mới.
+- Luồng data/media không đổi: Cloudflare `/lookup`, Render RAM `/tiktok/library`, TikWM direct → BHWA fallback.
+- Commit `6ff6a535319e414305cf737f61c01687ac14dee2`; deploy `37166034084` SUCCESS.
+- Data impact: none. Rollback: `ce51ccc11b9f163ee0615f5c4ece37cacad778e0`.
+
 ## 2026-10-04 — TikTok demo media giống TikTok, có nút chuyển và vuốt
 
 - Owner frontend: chỉ đổi player shell của `tiktok-live-cloud-demo.html`.
