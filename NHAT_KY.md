@@ -6,7 +6,7 @@
 - Không accept handle tùy ý; invalid evidence vẫn 404.
 - Code `e09a820c4b7d3d132744b6903d2915b83c888b97`; backend image run `37168120851` SUCCESS.
 - Frontend deploy `55878927e1771f430a8412e3e0579114d64ecfa6`; Pages run `37168174796` SUCCESS.
-- Runtime Render cần xác nhận workspace nếu service không auto-deploy image mới; không tự chọn giữa 2 workspace kết nối.
+- User xác nhận screenshot đúng **2tp's workspace**. Render service `srv-datpaig93c1s73bgsgcg` đã deploy image mới; deploy `dep-db0qrepsrm7s738q05k0` status **live**, digest `sha256:fce6ceb3899b25fe91dfded3de028161ee240a5ab14de4d99d476da8d3bf53ad`.
 - Rollback `1840ad190ef9f3857c20b44cb1771c9d0f672b86`.
 
 ## 2026-10-04 — TikTok UI gọn + sửa LIVE/no-link + card kênh bị ẩn

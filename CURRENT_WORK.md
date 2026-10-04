@@ -199,7 +199,7 @@ Thời gian: **2026-10-04**.
 - Code commit: `e09a820c4b7d3d132744b6903d2915b83c888b97`; frontend contract cleanup/deploy commit: `55878927e1771f430a8412e3e0579114d64ecfa6`.
 - Backend image workflow `37168120851`: **SUCCESS**, contract test + GHCR image push PASS.
 - Frontend verified workflow `37168174796`: **SUCCESS**, contract/build/Pages/custom-domain PASS.
-- Render runtime deploy: image mới đã được build/push; cần xác nhận đúng Render workspace/service nếu auto-deploy image không bật. Có 2 workspace kết nối: `1sl2tpvn@gmail.com` và `1988tfbg@gmail.com`; không được tự chọn workspace để trigger deploy.
+- Render runtime đã xác nhận từ screenshot là **2tp's workspace** (`1sl2tpvn@gmail.com`), service `1988-tiktok-session` (`srv-datpaig93c1s73bgsgcg`). Đã trigger đúng service với image `ghcr.io/1sl2tp/1988-social-collector:latest`; deploy `dep-db0qrepsrm7s738q05k0` đã **LIVE** lúc 2026-10-04T01:37:43Z, digest `sha256:fce6ceb3899b25fe91dfded3de028161ee240a5ab14de4d99d476da8d3bf53ad`.
 - Rollback code: `1840ad190ef9f3857c20b44cb1771c9d0f672b86`.
 
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
