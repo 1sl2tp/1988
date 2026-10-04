@@ -292,3 +292,30 @@ assert.match(server,/credentials:'include'/,
   'browser API fallback must reuse TikTok browser cookies');
 assert.match(server,/source:'yt-dlp\+browser-api'/,
   'deficient yt-dlp result must merge browser-API discovered video links');
+
+
+assert.match(server,/async function persistTikTokVideoStore\(\{force=false,handles=null\}=\{\}\)/,
+  'video state persistence must support targeted channel writes');
+assert.match(server,/buildTikTokVideoStoredRows\(handles\)/,
+  'targeted video persistence must build only requested channel rows');
+assert.doesNotMatch(server,/queueTikTokCanonicalSync\(rows\.map\(row=>row\.handle\)\)/,
+  'targeted video persistence must not rewrite all selected channel states');
+assert.match(server,/await persistTikTokVideoStore\(\{force:true,handles:\[next\]\}\)/,
+  'changed channel refresh must persist only that channel state');
+assert.match(server,/await queueTikTokCanonicalSync\(\[next\]\)/,
+  'changed channel refresh must canonical-sync only that channel');
+assert.match(server,/'changed='\+\(changed\?'1':'0'\)/,
+  'targeted refresh log must expose whether material actually changed');
+assert.doesNotMatch(
+  server.slice(server.indexOf('function queueTikTokChannelOpenRefresh'),server.indexOf('function queueTikTokCanonicalSync')),
+  /else\{\s*await queueTikTokCanonicalSync\(\[handle\]\)/,
+  'opening an unchanged channel must not force a canonical write'
+);
+assert.match(server,/const persistedCheckedAt=Number\(current\.checkedAt\|\|0\)/,
+  'deep fallback after restart must reuse persisted check time');
+assert.match(server,/currentCount>=TIKTOK_VIDEO_PER_CHANNEL\s*\? 24\*60\*60\*1000/,
+  'full 10-video channels must avoid repeated heavy recovery scans');
+assert.match(server,/async function browserTikTokChannelVideos\(/,
+  'single browser-context post-list fallback must remain the only browser video-list helper');
+assert.match(server,/source:'yt-dlp\+browser-user-posts'/,
+  'deficient yt-dlp results must merge with existing browser-context JSON fallback');

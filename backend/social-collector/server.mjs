@@ -6748,85 +6748,6 @@ async function fetchTikTokVideoFingerprint(rawHandle,knownSecUid=''){
   }
 }
 
-async function fetchTikTokChannelVideosBrowserApi(rawHandle,rawSecUid,limit=TIKTOK_VIDEO_PER_CHANNEL){
-  const handle=normalizeTikTokHandle(rawHandle);
-  const secUid=String(rawSecUid||'').trim();
-  if(!handle||!secUid)return [];
-  let page=null;
-  try{
-    const browser=await getBrowser();
-    page=await browser.newPage();
-    await page.setViewport({width:900,height:600,deviceScaleFactor:1});
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
-      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
-
-    const stored=await loadSession('tiktok').catch(()=>null);
-    const cookies=cookieParams(stored?.state?.cookies||[]);
-    if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
-
-    // Static same-origin page: no TikTok feed/media is loaded. The only useful
-    // network request after this is one JSON post/item_list fetch.
-    await page.goto('https://www.tiktok.com/robots.txt',{
-      waitUntil:'domcontentloaded',
-      timeout:10_000
-    }).catch(()=>{});
-
-    const payload=await page.evaluate(async({secUid,count})=>{
-      try{
-        const query=new URLSearchParams({
-          aid:'1988',
-          count:String(count),
-          cursor:'0',
-          from_page:'user',
-          secUid
-        });
-        const r=await fetch('/api/post/item_list/?'+query.toString(),{
-          method:'GET',
-          credentials:'include',
-          headers:{accept:'application/json,text/plain,*/*'}
-        });
-        const text=await r.text();
-        let body=null;
-        try{body=JSON.parse(text)}catch{}
-        return {ok:r.ok,status:r.status,body};
-      }catch(error){
-        return {ok:false,status:0,error:String(error?.message||error||'browser_api_failed')};
-      }
-    },{secUid,count:Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,Number(limit)||TIKTOK_VIDEO_PER_CHANNEL))});
-
-    const body=payload?.body||{};
-    const rawItems=
-      (Array.isArray(body?.itemList)&&body.itemList)||
-      (Array.isArray(body?.item_list)&&body.item_list)||
-      (Array.isArray(body?.data?.itemList)&&body.data.itemList)||
-      (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
-      (Array.isArray(body?.items)&&body.items)||
-      [];
-
-    const videos=rawItems
-      .map(row=>normalizeTikTokPostItem(handle,row))
-      .filter(Boolean)
-      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
-      .slice(0,Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,Number(limit)||TIKTOK_VIDEO_PER_CHANNEL)));
-
-    console.log(
-      '[tiktok-browser-api-videos]',
-      handle,
-      'status='+Number(payload?.status||0),
-      'videos='+videos.length
-    );
-    return videos;
-  }catch(error){
-    console.log('[tiktok-browser-api-videos] miss',handle,compactText(error?.message||error,120));
-    return [];
-  }finally{
-    if(page)await page.close().catch(()=>{});
-  }
-}
-
 function mergeTikTokVideoLists(primary,fallback,limit=TIKTOK_VIDEO_PER_CHANNEL){
   const seen=new Set();
   const out=[];
@@ -6914,18 +6835,19 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
   // Some TikTok profiles expose only one entry to yt-dlp while the browser grid
   // contains more. Only deficient channels pay this browser cost.
-  const browserVideos=await fetchTikTokChannelVideosBrowserApi(handle,secUid,TIKTOK_VIDEO_PER_CHANNEL);
+  const browserResult=await browserTikTokChannelVideos(handle,secUid,TIKTOK_VIDEO_PER_CHANNEL);
+  const browserVideos=Array.isArray(browserResult?.videos)?browserResult.videos:[];
   const mergedBrowser=mergeTikTokVideoLists(ytdlp?.videos||[],browserVideos,TIKTOK_VIDEO_PER_CHANNEL);
   if(mergedBrowser.length>(Array.isArray(ytdlp?.videos)?ytdlp.videos.length:0)){
     return {
       known:true,
       handle,
-      secUid,
+      secUid:String(browserResult?.secUid||secUid||''),
       videos:mergedBrowser,
       latestVideoId:String(mergedBrowser[0]?.id||''),
-      hasMore:false,
-      cursor:'',
-      source:'yt-dlp+browser-api',
+      hasMore:Boolean(browserResult?.hasMore),
+      cursor:String(browserResult?.cursor||''),
+      source:'yt-dlp+browser-user-posts',
       profile:ytdlp?.profile||null
     };
   }
@@ -7129,9 +7051,12 @@ async function loadTikTokVideoStore(){
     return false;
   }
 }
-function buildTikTokVideoStoredRows(){
+function buildTikTokVideoStoredRows(handles=null){
   const now=nowIso();
-  return [...tiktokLiveSelectedHandles]
+  const source=(Array.isArray(handles)&&handles.length)
+    ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
+    : [...tiktokLiveSelectedHandles];
+  return source
     .map(handle=>{
       const row=tiktokVideoLibrary.get(handle.toLowerCase())||{
         handle,latestVideoId:'',videos:[],checkedAt:0,status:'unknown',error:''
@@ -7148,24 +7073,28 @@ function buildTikTokVideoStoredRows(){
     })
     .sort((a,b)=>a.handle.localeCompare(b.handle));
 }
-async function persistTikTokVideoStore({force=false}={}){
+async function persistTikTokVideoStore({force=false,handles=null}={}){
   if(TIKTOK_UPDATES_PAUSED)return true;
   if(!force&&tiktokVideoPersistedVersion===tiktokVideoPackageVersion)return true;
   if(tiktokVideoStoreWritePromise)return tiktokVideoStoreWritePromise;
 
   tiktokVideoStoreWritePromise=(async()=>{
-    const rows=buildTikTokVideoStoredRows();
+    const allRows=buildTikTokVideoStoredRows();
+    const rows=(Array.isArray(handles)&&handles.length)
+      ? buildTikTokVideoStoredRows(handles)
+      : allRows;
     // Detailed videos live only in yt1988_tiktok_videos. The per-channel row
-    // stores scan state/latest-video pointer only.
+    // stores scan state/latest-video pointer only. Targeted refresh writes only
+    // the changed channel state instead of rewriting every selected channel.
     const payload={
-      total:rows.length,
+      total:allRows.length,
       videoCount:[...tiktokLiveSelectedHandles].reduce(
         (sum,handle)=>sum+(tiktokVideoLibrary.get(handle.toLowerCase())?.videos?.length||0),
         0
       ),
-      ready:rows.filter(row=>row.scan_status==='ready').length,
-      empty:rows.filter(row=>row.scan_status==='empty').length,
-      unknown:rows.filter(row=>row.scan_status==='unknown').length
+      ready:allRows.filter(row=>row.scan_status==='ready').length,
+      empty:allRows.filter(row=>row.scan_status==='empty').length,
+      unknown:allRows.filter(row=>row.scan_status==='unknown').length
     };
     const now=nowIso();
 
@@ -7198,7 +7127,6 @@ async function persistTikTokVideoStore({force=false}={}){
 
     tiktokVideoPersistedVersion=tiktokVideoPackageVersion;
     console.log('[tiktok-video-store] saved','channels='+rows.length,'videos='+payload.videoCount,'version='+tiktokVideoPackageVersion);
-    void queueTikTokCanonicalSync(rows.map(row=>row.handle));
     return true;
   })().catch(error=>{
     console.warn('[tiktok-video-store] save failed',compactText(error?.message||error,220));
@@ -7410,8 +7338,13 @@ async function refreshTikTokVideoLibrary(handles=null,{forceDeep=false}={}){
 
       // Deep fetch is allowed only for a new fingerprint, initial bootstrap, or
       // a very occasional recovery when the lightweight endpoint is unavailable.
-      const lastDeep=Number(tiktokVideoDeepCheckAt.get(key)||0);
-      const deepDue=!currentLatest||Date.now()-lastDeep>=TIKTOK_VIDEO_DEEP_FALLBACK_MS;
+      const currentCount=Array.isArray(current.videos)?current.videos.length:0;
+      const persistedCheckedAt=Number(current.checkedAt||0);
+      const lastDeep=Number(tiktokVideoDeepCheckAt.get(key)||persistedCheckedAt||0);
+      const deepFallbackMs=currentCount>=TIKTOK_VIDEO_PER_CHANNEL
+        ? 24*60*60*1000
+        : TIKTOK_VIDEO_DEEP_FALLBACK_MS;
+      const deepDue=!currentLatest||Date.now()-lastDeep>=deepFallbackMs;
       if(!fingerprint?.known&&!deepDue){
         unknownCount+=1;
         updateTikTokVideoLibrary(handle,{
@@ -7498,12 +7431,19 @@ function queueTikTokEdgeVideoRefresh(rawHandle,{forceDeep=false}={}){
       const key=next.toLowerCase();
       const deep=tiktokVideoEdgeForceDeepPending.delete(key);
       try{
+        const before=tiktokVideoMaterial(tiktokVideoLibrary.get(key)||{});
         tiktokVideoRefreshAt.delete(key);
         await refreshTikTokVideoLibrary([next],{forceDeep:deep});
-        await persistTikTokVideoStore({force:deep});
+        const after=tiktokVideoMaterial(tiktokVideoLibrary.get(key)||{});
+        const changed=before!==after;
+        if(changed){
+          await persistTikTokVideoStore({force:true,handles:[next]});
+          await queueTikTokCanonicalSync([next]);
+        }
         console.log(
           '[tiktok-video-edge]',
           'refreshed='+next,
+          'changed='+(changed?'1':'0'),
           'deep='+(deep?'1':'0'),
           'pending='+tiktokVideoEdgeRefreshPending.size
         );
@@ -8506,11 +8446,7 @@ function queueTikTokChannelOpenRefresh(rawHandle){
         const profiles=new Map([[key,profile]]);
         tiktokProfileIdentityCache.set(key,{at:Date.now(),data:profile});
         await syncTikTokCanonicalLibrary([handle],{profiles,mirror:false});
-      }else{
-        await queueTikTokCanonicalSync([handle]);
       }
-    }else{
-      await queueTikTokCanonicalSync([handle]);
     }
     return true;
   })().catch(error=>{
