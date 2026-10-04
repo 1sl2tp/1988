@@ -62,3 +62,13 @@ Chi tiết xem `README_MAINTENANCE.md`.
 - Không log từng video/kênh/segment; production chỉ giữ summary/error compact.
 - Không cho một browser tạo crawler/job riêng; server lease/dedupe chống trùng.
 - Chi tiết ngưỡng Egress/Log/DB và checklist deploy: [README_RESOURCE_GUARDRAILS.md](./README_RESOURCE_GUARDRAILS.md).
+
+
+## External data — Single Source of Truth
+
+Rule dùng chung bắt buộc: `1sl2tp/infrastructure/rules/02-EXTERNAL-DATA-SINGLE-SOURCE-OF-TRUTH.md`.
+
+- 1988 tiếp tục dùng Supabase riêng làm canonical media/social state để cô lập tải.
+- Cloudflare chỉ edge/realtime/cache; Render chỉ resolver/session; browser chỉ cache.
+- Không dịch chuyển channel/source/package canonical sang KV/Render/GitHub JSON.
+- Cache/session ngoại vi phải có TTL hoặc overwrite/version contract và rebuild được từ canonical/source.
