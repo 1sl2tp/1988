@@ -8,33 +8,33 @@
 <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"></script>
 <style>
 *{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}
-.top{position:sticky;top:0;z-index:5;padding:12px;background:#111;border-bottom:1px solid #26262a}
-.search{max-width:1100px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}.search .secondary{background:#25252b}.search button:disabled{opacity:.55;cursor:default}
-.page{max-width:1540px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
-.grid{display:grid;grid-template-columns:minmax(190px,240px) minmax(220px,280px) minmax(360px,1fr);grid-template-areas:"source videos player";gap:12px;align-items:start}
-.leftstack{grid-area:source;display:grid;gap:12px;align-self:start}.videopanel{grid-area:videos}.playerpanel{grid-area:player;position:sticky;top:70px}
-.panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden;min-width:0}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a;display:flex;align-items:center;justify-content:space-between;gap:8px}.body{padding:8px}
-.headbadge{font-size:11px;color:#bbb;background:#232329;border-radius:999px;padding:4px 8px;font-weight:700}.listbody{overflow:visible}
-.livecard,.channelcard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:9px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover,.channelcard:hover{background:#222228}.livecard.active,.channelcard.active{outline:2px solid #25f4ee;background:#202026}.channelrow{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:6px;align-items:stretch}.removebtn{border:0;border-radius:10px;background:#1b1b20;color:#999;font-size:20px;cursor:pointer}.removebtn:hover{background:#2a1d21;color:#fff}.avatar{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#2a2a2f;flex:0 0 auto}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}.channelstatus{margin-left:auto;font-size:10px;color:#8f8f98}
-.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px;overflow:visible}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.videoitem.active{outline:2px solid #fe2c55;background:#242429}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
-.mediaframe{position:absolute;inset:12px 74px 12px 12px;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center;transition:left .18s,right .18s,width .18s,transform .18s}
-.player.shape-portrait .mediaframe{top:12px;bottom:12px;left:50%;right:auto;width:min(52%,430px);transform:translateX(-50%)}
-.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:12px 74px 12px 12px;width:auto;transform:none}
+.top{position:sticky;top:0;z-index:8;padding:8px 10px;background:#0b0b0dcc;border-bottom:1px solid #202024;backdrop-filter:blur(12px)}
+.search{max-width:1280px;margin:auto;display:flex;gap:7px;height:40px}.search input{flex:1;min-width:0;border:1px solid #2a2a30;border-radius:10px;background:#16161a;color:#fff;padding:0 12px;font-size:13px;outline:none}.search button{border:0;border-radius:10px;padding:0 15px;background:#fe2c55;color:#fff;font-weight:800;cursor:pointer;font-size:12px}.search .secondary{background:#232329}.search button:disabled{opacity:.55;cursor:default}
+.page{max-width:1280px;margin:auto;padding:7px 10px 24px}.status{font-size:11px;color:#8f8f98;margin:2px 2px 6px;min-height:16px}
+.grid{display:grid;grid-template-columns:minmax(190px,210px) minmax(220px,250px) minmax(420px,1fr);grid-template-areas:"source videos player";gap:8px;align-items:start}
+.leftstack{grid-area:source;display:grid;gap:8px;align-self:start}.videopanel{grid-area:videos}.playerpanel{grid-area:player;position:sticky;top:58px}
+.panel{background:#101012;border:1px solid #202024;border-radius:9px;overflow:hidden;min-width:0}.head{padding:7px 9px;font-size:13px;font-weight:800;border-bottom:1px solid #202024;display:flex;align-items:center;justify-content:space-between;gap:6px}.body{padding:5px}
+.headbadge{font-size:10px;color:#aaa;background:#202025;border-radius:999px;padding:2px 6px;font-weight:700}.listbody{overflow:visible}
+.livecard,.channelcard{width:100%;border:0;background:transparent;color:#fff;border-radius:7px;padding:6px;text-align:left;display:flex;gap:7px;align-items:center;cursor:pointer;min-height:48px}.livecard:hover,.channelcard:hover{background:#19191d}.livecard.active,.channelcard.active{background:#202025;box-shadow:inset 3px 0 0 #fe2c55}.channelrow{display:grid;grid-template-columns:minmax(0,1fr) 27px;gap:3px;align-items:stretch}.removebtn{border:0;border-radius:7px;background:transparent;color:#666;font-size:17px;cursor:pointer}.removebtn:hover{background:#24191c;color:#fff}.avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#242429;flex:0 0 auto}.meta{min-width:0}.name{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:10px;color:#8f8f98;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pill{display:inline-block;margin-top:3px;background:#fe2c55;width:7px;height:7px;padding:0;border-radius:50%;font-size:0}.channelstatus{margin-left:auto;font-size:9px;color:#fe2c55}
+.empty{color:#777;padding:12px 6px;text-align:center;font-size:11px}.videos{display:grid;gap:3px;overflow:visible}.videoitem{width:100%;border:0;display:grid;grid-template-columns:54px minmax(0,1fr);gap:7px;align-items:center;padding:5px;border-radius:7px;background:transparent;color:#fff;text-align:left;cursor:pointer}.videoitem:hover{background:#19191d}.videoitem.active{background:#202025;box-shadow:inset 3px 0 0 #fe2c55}.thumb{width:54px;height:72px;object-fit:cover;border-radius:5px;background:#202025}.vtitle{font-size:11px;font-weight:700;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:9px;color:#777;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.player{position:relative;background:#000;border-radius:8px;overflow:hidden;height:min(72vh,680px);min-height:460px;touch-action:pan-x;overscroll-behavior:contain;user-select:none}
+.mediaframe{position:absolute;inset:0 56px 0 0;border-radius:0;overflow:hidden;background:#000;display:grid;place-items:center;transition:left .18s,right .18s,width .18s,transform .18s}
+.player.shape-portrait .mediaframe{top:0;bottom:0;left:50%;right:auto;width:min(54%,420px);transform:translateX(-54%)}
+.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:0 56px 0 0;width:auto;transform:none}
 .livebadge{position:absolute;left:18px;top:18px;z-index:5;width:10px;height:10px;border-radius:50%;background:#fe2c55;box-shadow:0 0 0 4px #fe2c5533;display:none}.player.mode-live .livebadge{display:block}
 video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
-.actionrail{position:absolute;right:14px;bottom:26px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:13px}
-.actionbtn{width:48px;height:48px;border:0;border-radius:50%;background:#252529;color:#fff;display:grid;place-items:center;font-size:22px;cursor:pointer;box-shadow:0 3px 14px #0008}
+.actionrail{position:absolute;right:8px;bottom:18px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:9px}
+.actionbtn{width:40px;height:40px;border:0;border-radius:50%;background:#202025;color:#fff;display:grid;place-items:center;font-size:18px;cursor:pointer;box-shadow:0 2px 10px #0008}
 .actionbtn.avatarbtn{padding:0;border:2px solid #fff;background:#111;overflow:hidden}
 .actionbtn.avatarbtn img{width:100%;height:100%;object-fit:cover}
 .actioncount{font-size:11px;font-weight:700;color:#ddd;margin-top:-8px;min-height:13px}
-.navrail{position:absolute;right:14px;top:50%;transform:translateY(-50%);z-index:4;display:flex;flex-direction:column;gap:10px}
-.navbtn{width:42px;height:42px;border:0;border-radius:50%;background:#2a2a2ecc;color:#fff;font-size:22px;cursor:pointer;backdrop-filter:blur(8px)}
+.navrail{position:absolute;right:8px;top:42%;transform:translateY(-50%);z-index:4;display:flex;flex-direction:column;gap:7px}
+.navbtn{width:36px;height:36px;border:0;border-radius:50%;background:#202025dd;color:#fff;font-size:17px;cursor:pointer;backdrop-filter:blur(8px)}
 .navbtn:disabled{opacity:.28;cursor:default}
-.caption{position:absolute;left:26px;right:92px;bottom:24px;z-index:3;text-shadow:0 2px 10px #000;pointer-events:none}
-.caption .ctitle{font-size:15px;font-weight:800;line-height:1.25}.caption .csub{font-size:12px;color:#eee;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.caption{position:absolute;left:14px;right:70px;bottom:14px;z-index:3;text-shadow:0 2px 8px #000;pointer-events:none}
+.caption .ctitle{font-size:12px;font-weight:800;line-height:1.25}.caption .csub{font-size:10px;color:#ddd;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gesturehint{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:3;padding:5px 10px;border-radius:999px;background:#0008;color:#ddd;font-size:11px;opacity:0;transition:opacity .18s;pointer-events:none}
 .player.gesture .gesturehint{opacity:1}
-.streamrow{margin-top:8px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:7px 8px;font-size:11px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 10px;cursor:pointer}.now{padding:7px 2px 0;font-size:12px;color:#aaa;min-height:24px}
+.streamrow{margin-top:5px;display:flex;gap:5px}.streamrow input{flex:1;min-width:0;border:1px solid #28282d;border-radius:6px;background:#151519;color:#aaa;padding:5px 7px;font-size:9px}.streamrow button{border:1px solid #28282d;background:#1b1b20;color:#ddd;border-radius:6px;padding:0 8px;cursor:pointer;font-size:10px}.now{padding:4px 1px 0;font-size:10px;color:#777;min-height:18px}
 @media(max-width:840px) and (min-width:761px){
   .grid{grid-template-columns:minmax(220px,260px) minmax(0,1fr);grid-template-areas:"source player" "videos player"}
 }
@@ -84,7 +84,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
       <div class="head"><span id="playerKind">Media</span><span class="headbadge" id="playerShape">Chưa phát</span></div>
       <div class="body">
         <div class="player shape-auto" id="playerStage">
-  <div class="mediaframe"><video id="video" playsinline controls></video></div>
+  <div class="mediaframe"><video id="video" playsinline></video></div>
   <div class="livebadge" aria-label="Đang phát"></div>
   <div class="gesturehint">Vuốt / cuộn để chuyển video</div>
   <div class="navrail">
@@ -176,6 +176,11 @@ function firstNumber(...vals){
 function avatarUrl(profile){
   return String(profile?.avatar?.url||profile?.avatar||"");
 }
+function markActiveChannel(h){
+  channelsBox.querySelectorAll("[data-channel]").forEach(btn=>{
+    btn.classList.toggle("active",(btn.dataset.channel||"")===h);
+  });
+}
 function rememberChannel(h,profile={}){
   h=String(h||"").replace(/^@/,"");
   if(!h)return;
@@ -185,14 +190,14 @@ function rememberChannel(h,profile={}){
     name:String(profile?.name||prev.name||("@"+h)),
     avatar:avatarUrl(profile)||prev.avatar||""
   };
-  // Update the existing row in place so clicking/refreshing a channel never
-  // changes its position in the channel list.
+  const changed=!prev.handle||prev.name!==next.name||prev.avatar!==next.avatar;
   sessionChannels.set(h,next);
-  renderChannels();
+  if(changed)renderChannels(h);
+  else markActiveChannel(h);
 }
-function renderChannels(){
-  // Preserve canonical/insertion order. Re-sorting on LIVE/profile changes
-  // made the clicked row jump elsewhere, which looked like it disappeared.
+function renderChannels(anchorHandle=""){
+  const oldAnchor=anchorHandle?channelsBox.querySelector('[data-channel="'+CSS.escape(anchorHandle)+'"]'):null;
+  const oldTop=oldAnchor?oldAnchor.getBoundingClientRect().top:null;
   const rows=[...sessionChannels.values()];
   channelCount.textContent=String(rows.length);
   if(!rows.length){channelsBox.innerHTML='<div class="empty">Chưa có kênh.</div>';return}
@@ -215,6 +220,15 @@ function renderChannels(){
   channelsBox.querySelectorAll("[data-remove-channel]").forEach(btn=>btn.addEventListener("click",()=>{
     removeChannel(btn.dataset.removeChannel||"");
   }));
+  markActiveChannel(handle);
+  if(oldTop!==null){
+    requestAnimationFrame(()=>{
+      const nextAnchor=channelsBox.querySelector('[data-channel="'+CSS.escape(anchorHandle)+'"]');
+      if(!nextAnchor)return;
+      const delta=nextAnchor.getBoundingClientRect().top-oldTop;
+      if(Math.abs(delta)>1)window.scrollBy(0,delta);
+    });
+  }
 }
 function renderLiveList(){
   const rows=[...sessionLiveStates.entries()]
@@ -249,7 +263,7 @@ function renderLiveList(){
     }
     checkLive(h);
   }));
-  renderChannels();
+  markActiveChannel(handle);
 }
 function applyMediaShape(width,height){
   const w=Number(width||0),h=Number(height||0);
@@ -310,6 +324,7 @@ function stopPlayer(){
   if(flvPlayer){try{flvPlayer.destroy()}catch{} flvPlayer=null}
   video.onerror=null;
   try{video.pause()}catch{}
+  video.controls=false;
   video.removeAttribute("src");
   video.load();
 }
@@ -349,6 +364,7 @@ function renderState(state,stateHandle=handle){
 }
 async function playLive(state){
   stopPlayer();
+  video.controls=true;
   currentVideoIndex=-1;
   setMediaChrome({...state,handle}, "live");
   const flv=String(state?.streamUrl||"");
@@ -538,6 +554,7 @@ async function resolveBhwaVideo(row){
 
 async function playChannelVideo(row,index=currentVideos.indexOf(row)){
   stopPlayer();
+  video.controls=true;
   currentVideoIndex=Number.isInteger(index)&&index>=0?index:currentVideos.indexOf(row);
   setMediaChrome(row,"vod");
   videosBox.querySelectorAll("[data-video-i]").forEach((btn,i)=>btn.classList.toggle("active",i===currentVideoIndex));
@@ -707,11 +724,60 @@ async function removeChannel(rawHandle){
   }
 }
 
+let liveSweepPromise=null;
+let liveSweepTimer=null;
+function syncLiveNow(payload){
+  const next=new Map();
+  for(const row of Array.isArray(payload?.items)?payload.items:[]){
+    const h=String(row?.handle||"").replace(/^@/,"");
+    if(!h||!sessionChannels.has(h))continue;
+    if(!(row?.streamUrl||row?.hlsUrl))continue;
+    next.set(h,{...row,handle:h,status:2});
+  }
+  sessionLiveStates.clear();
+  for(const [h,row] of next)sessionLiveStates.set(h,row);
+  renderLiveList();
+}
+async function refreshVisibleLive(){
+  if(document.hidden||liveSweepPromise)return liveSweepPromise;
+  liveSweepPromise=(async()=>{
+    try{
+      await getJson(EDGE+"/sweep?t="+Date.now(),30000);
+    }catch(error){
+      console.warn("live sweep",error);
+    }
+    try{
+      const data=await getJson(EDGE+"/tiktok/live-now?t="+Date.now(),10000);
+      syncLiveNow(data);
+      return data;
+    }catch(error){
+      console.warn("live-now",error);
+      return null;
+    }
+  })().finally(()=>{liveSweepPromise=null});
+  return liveSweepPromise;
+}
+function startLiveDemandLoop(){
+  clearInterval(liveSweepTimer);
+  liveSweepTimer=null;
+  if(document.hidden)return;
+  refreshVisibleLive();
+  liveSweepTimer=setInterval(()=>{if(!document.hidden)refreshVisibleLive();},60000);
+}
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){
+    clearInterval(liveSweepTimer);
+    liveSweepTimer=null;
+  }else{
+    startLiveDemandLoop();
+  }
+});
+
 async function loadInitialCatalog(){
   statusEl.textContent="Đang nạp danh sách kênh, trực tiếp và video mới nhất…";
   const [libraryResult,liveResult]=await Promise.allSettled([
     getJson(LIBRARY+"/tiktok/library?t="+Date.now(),15000),
-    getJson(EDGE+"/state?t="+Date.now(),10000)
+    getJson(EDGE+"/tiktok/live-now?t="+Date.now(),10000)
   ]);
 
   let latestVideos=[];
@@ -743,15 +809,7 @@ async function loadInitialCatalog(){
   }
 
   if(liveResult.status==="fulfilled"){
-    const snapshot=liveResult.value||{};
-    sessionLiveStates.clear();
-    for(const [rawHandle,row] of Object.entries(snapshot?.channels||{})){
-      const h=String(rawHandle||"").replace(/^@/,"");
-      if(h&&sessionChannels.has(h)&&Number(row?.status)===2){
-        sessionLiveStates.set(h,{...row,handle:h,status:2});
-      }
-    }
-    renderLiveList();
+    syncLiveNow(liveResult.value);
   }else{
     liveBox.innerHTML='<div class="empty">Chưa đọc được trạng thái trực tiếp.</div>';
   }
@@ -808,6 +866,7 @@ async function checkLive(raw){
   }
 
   handle=h;
+  markActiveChannel(h);
   rememberChannel(h,{});
   currentLiveState=null;
   currentLiveStateAt=0;
@@ -867,8 +926,11 @@ addChannelBtn.addEventListener("click",()=>addChannel());
 video.addEventListener("loadedmetadata",()=>{
   applyMediaShape(video.videoWidth,video.videoHeight);
 });
-loadInitialCatalog().catch(error=>{
+loadInitialCatalog().then(()=>{
+  startLiveDemandLoop();
+}).catch(error=>{
   statusEl.textContent="Không nạp được danh sách: "+String(error?.message||error);
+  startLiveDemandLoop();
 });
 copyBtn.addEventListener("click",async()=>{
   const url=streamUrlEl.value.trim();
