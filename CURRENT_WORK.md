@@ -1,3 +1,18 @@
+
+
+## 2026-10-05 — External runtime SSOT cleanup
+
+- Rule owner: `1sl2tp/infrastructure/rules/02-EXTERNAL-DATA-SINGLE-SOURCE-OF-TRUTH.md`.
+- 1988 canonical Supabase confirmed: `mstltsunsawqomzniqok`.
+- TikTok DB runtime already removed by migration; TikTok meta/image Edge Functions remain 410 tombstones only.
+- Cloudflare `1988-tiktok-live-state`: schedule disabled and Worker deleted/verified absent. Orphan KV may remain only because the current token cannot list/delete KV; there is no active reader.
+- GETLINK TikTok relay source/workflow removed and retirement workflow archived after success.
+- Five old 1988 probe Edge Functions changed to 410 retired tombstones.
+- `yt1988-social-store` retired to 410; no current frontend/backend source references it.
+- 1988 one-shot incident/probe workflows and Cloudflare standby static-site workflow removed.
+- GitHub Pages custom workflow remains production code owner; GitHub native/dynamic Pages run still exists as a provider-setting duplicate and cannot be disabled by the connected GitHub app.
+- Render `1988-tiktok-session` and `1988-site` still exist provider-side, but no current architecture role is allowed. Connected Render actions do not expose suspend/delete, so no code may wake or depend on them.
+- Current architecture is YouTube-only; see `README_HOST_ARCHITECTURE.md`.
 # CURRENT WORK — 1988 HANDOFF
 
 > **BẮT BUỘC ĐỌC FILE NÀY TRƯỚC MỌI LẦN SỬA.**

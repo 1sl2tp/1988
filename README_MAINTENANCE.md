@@ -1,5 +1,12 @@
 # README MAINTENANCE — QUY TẮC BẮT BUỘC DỰ ÁN 1988
 
+> **CURRENT RUNTIME OVERRIDE — 2026-10-05**
+>
+> TikTok runtime has been retired. Any TikTok sections later in this document are historical incident records only and MUST NOT be used to reconnect Render, Cloudflare TikTok, Supabase TikTok tables/functions, cron, or UI data paths.
+>
+> Current owner contract is `README_HOST_ARCHITECTURE.md` plus `1sl2tp/infrastructure/rules/02-EXTERNAL-DATA-SINGLE-SOURCE-OF-TRUTH.md`.
+>
+
 > **BẮT BUỘC ĐỌC TRƯỚC KHI SỬA.**  
 > Mục tiêu số 1: **sửa nhanh, đúng lớp, không làm gián đoạn phần đang chạy**.  
 > Áp dụng cho mọi sửa chữa, tối ưu, migration, UI, data, kết nối, deploy, rollback và bảo trì repo `1sl2tp/1988`.

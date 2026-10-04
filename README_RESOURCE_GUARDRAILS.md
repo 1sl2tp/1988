@@ -1,5 +1,12 @@
 # 1988 — QUY TẮC CHỐNG PHÌNH EGRESS / LOG / DATA
 
+> **CURRENT RUNTIME OVERRIDE — 2026-10-05**
+>
+> TikTok runtime has been retired. Any TikTok sections later in this document are historical incident records only and MUST NOT be used to reconnect Render, Cloudflare TikTok, Supabase TikTok tables/functions, cron, or UI data paths.
+>
+> Current owner contract is `README_HOST_ARCHITECTURE.md` plus `1sl2tp/infrastructure/rules/02-EXTERNAL-DATA-SINGLE-SOURCE-OF-TRUTH.md`.
+>
+
 > **Áp dụng bắt buộc cho production `1sl2tp/1988`.**
 >
 > Mục tiêu: giữ Supabase Free/Nano ổn định lâu dài, không để một thay đổi UI, polling, debug hoặc scheduler làm tăng Egress / Log Ingestion / Database / Storage ngoài kiểm soát.

@@ -1225,3 +1225,14 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Data impact: none. Không writer/schema/media change.
 - Test: `tests/read-model-resource-contract.test.cjs`.
 - Rollback: revert commit chứa patch này.
+
+
+## 2026-10-05 — External runtime SSOT cleanup
+
+- Owner: infrastructure/runtime.
+- GitHub: retired GETLINK TikTok relay/deploy, retired 1988 one-shot probe/deploy owners, removed Cloudflare standby static deploy.
+- Supabase 1988: retired legacy probe functions and `yt1988-social-store` to HTTP 410.
+- Cloudflare: TikTok Worker schedule disabled; Worker deleted and verified absent.
+- Canonical 1988 project: `mstltsunsawqomzniqok`.
+- Remaining provider-side blockers: Render orphan services and GitHub native Pages source setting; current connectors cannot suspend/delete or change Pages source.
+- Rollback: Git history + previous Edge Function versions; do not restore TikTok runtime without a new explicit architecture decision.
