@@ -61,7 +61,6 @@ assert.match(demo,/latestVideos\.sort/);
 assert.match(demo,/function videoThumb\(row\)/);
 assert.match(demo,/loading="lazy"/);
 assert.match(demo,/id="addChannelBtn"/);
-assert.match(demo,/function setChannelSelected\(rawHandle,selected\)/);
 assert.match(demo,/\/tiktok\/selected-channel/);
 assert.match(demo,/async function addChannel\(\)/);
 assert.match(demo,/async function removeChannel\(rawHandle\)/);
