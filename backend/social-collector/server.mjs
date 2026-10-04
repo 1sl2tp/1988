@@ -11008,8 +11008,7 @@ const server=http.createServer(async(req,res)=>{
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED);
 
-  void cleanupTikTokOriginalStorage();
-  // Image bytes are no longer mirrored to Supabase Storage; cleanup is manual-only.
+  // TikTok image mirroring is retired. Do not touch Supabase Storage at startup.
 
   if(TIKTOK_UPDATES_PAUSED){
     // Read-only recovery mode: one small persisted package read, no canonical
