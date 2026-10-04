@@ -34,7 +34,6 @@ const CORS = {
 
 let preferredApi = "";
 let preferredUntil = 0;
-let lastSearchErrorLogAt = 0;
 const API_TTL_MS = 20 * 60 * 1000;
 
 function json(data: unknown, status = 200, maxAge = 20) {
@@ -78,14 +77,11 @@ function delay(ms: number) {
 function getUpstreamCache(path: string, ttlMs: number) {
   if (!ttlMs) return null;
   const row = upstreamCache.get(path);
-  if (!row || Date.now() - row.at >= ttlMs) return null;
+  if (!row || Date.now() - row.at >= ttlMs) {
+    if (row) upstreamCache.delete(path);
+    return null;
+  }
   return { source: row.source, data: row.data };
-}
-
-function getStaleUpstreamCache(path: string, maxAgeMs: number) {
-  const row=upstreamCache.get(path);
-  if(!row||Date.now()-row.at>=maxAgeMs)return null;
-  return {source:row.source,data:row.data};
 }
 
 function setUpstreamCache(path: string, source: string, data: any) {
@@ -144,36 +140,6 @@ async function piped(path: string, cacheMs = 0) {
   } catch {
     throw new Error("no_piped_instance");
   }
-}
-
-async function pipedSearch(path: string, cacheMs = 5 * 60 * 1000) {
-  const cached=getUpstreamCache(path,cacheMs);
-  if(cached)return cached;
-
-  const stale=getStaleUpstreamCache(path,30 * 60 * 1000);
-  const tried=new Set<string>();
-  const candidates:string[]=[];
-
-  if(preferredApi&&Date.now()<preferredUntil)candidates.push(preferredApi);
-  for(const base of PIPED_APIS){
-    if(candidates.length>=4)break;
-    if(!candidates.includes(base))candidates.push(base);
-  }
-
-  for(const base of candidates){
-    if(tried.has(base))continue;
-    tried.add(base);
-    try{
-      const data=await fetchJson(base,path,1800);
-      preferredApi=base;
-      preferredUntil=Date.now()+API_TTL_MS;
-      setUpstreamCache(path,base,data);
-      return {source:base,data};
-    }catch{}
-  }
-
-  if(stale)return {source:stale.source+"#stale",data:stale.data};
-  throw new Error("search_upstream_unavailable");
 }
 
 function channelRows(data: any) {
@@ -1357,14 +1323,14 @@ Deno.serve(async (req) => {
       const filter = String(url.searchParams.get("filter") || "all").trim();
       if (!q) return json({ ok: true, source: "", data: { items: [], nextpage: null } }, 200, 5);
       path = `/search?q=${enc(q)}&filter=${enc(filter)}`;
-      maxAge = 300;
+      maxAge = 60;
     } else if (action === "search_next") {
       const q = String(url.searchParams.get("q") || "").trim();
       const filter = String(url.searchParams.get("filter") || "all").trim();
       const nextpage = String(url.searchParams.get("nextpage") || "");
       if (!q || !nextpage) return json({ ok: false, error: "missing_search_page" }, 400, 0);
       path = `/nextpage/search?q=${enc(q)}&filter=${enc(filter)}&nextpage=${enc(nextpage)}`;
-      maxAge = 60;
+      maxAge = 10;
     } else if (action === "suggestions") {
       const q = String(url.searchParams.get("q") || "").trim();
       if (!q) return json({ ok: true, source: "youtube-suggest", data: [] }, 200, 10);
@@ -1444,25 +1410,14 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "unknown_action" }, 404, 0);
     }
 
-    const result =
-      action === "search" || action === "search_next"
-        ? await pipedSearch(path, Math.max(maxAge, 60) * 1000)
-        : await piped(path, Math.max(maxAge, 20) * 1000);
+    const result = await piped(path, Math.max(maxAge, 20) * 1000);
     const data =
       action === "search" || action === "search_next"
         ? await enrichSearchData(result.data)
         : result.data;
     return json({ ok: true, source: result.source, data }, 200, maxAge);
   } catch (error) {
-    if(action === "search" || action === "search_next"){
-      const now=Date.now();
-      if(now-lastSearchErrorLogAt>60_000){
-        lastSearchErrorLogAt=now;
-        console.warn("yt1988_search_upstream_unavailable");
-      }
-    }else{
-      console.error("yt1988", action, error);
-    }
+    console.error("yt1988", action, error);
     return json({ ok: false, error: "upstream_unavailable" }, 503, 0);
   }
 });

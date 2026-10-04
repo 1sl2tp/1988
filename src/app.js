@@ -28,6 +28,7 @@ disableNativeHoverHints();
 
 
 const BASE="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
+const SEARCH_BASE="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-search";
 const SUPABASE_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE";
 const MEDIA_SERVICE="https://one988-media.onrender.com";
 
@@ -3445,10 +3446,7 @@ async function searchSourceChannels(query){
 
   // L2 only after an explicit committed search: one mixed YouTube request first.
   try{
-    const response=await api("search",{
-      q,
-      filter:"all"
-    },4200);
+    const response=await sourceExternalSearch(q,"all",4200);
     consume(response?.data?.items,"video");
   }catch{}
 
@@ -3457,56 +3455,15 @@ async function searchSourceChannels(query){
   // One bounded fallback only when neither local data nor mixed search found a channel.
   if(!byId.size){
     try{
-      const response=await api("search",{
-        q,
-        filter:"channels"
-      },3400);
+      const response=await sourceExternalSearch(q,"channels",3400);
       consume(response?.data?.items,"channel");
     }catch{}
   }
 
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-  // "Kiểu 2": broaden only when direct discovery is still weak.
-  if(!byId.size){
-    const alternates=await sourceSearchAlternates(q);
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-    for(const alt of alternates.slice(0,2)){
-      try{
-        const response=await api("search",{
-          q:alt,
-          filter:"videos",
-          _fresh:Date.now()
-        },3600);
-        consume(response?.data?.items,"expanded-video");
-      }catch{}
-      if(byId.size>=12)break;
-    }
-  }
-
+  // Search stays bounded: no suggestion expansion and no browser-side provider fan-out.
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-  // youtubei.js is last-resort only; never make the source list depend on it.
-  if(!byId.size){
-    try{
-      const local=await localEngine(1200);
-      const [videos,channels]=await Promise.allSettled([
-        Promise.race([
-          local.search(q,{type:"video"}),
-          new Promise((_,reject)=>setTimeout(()=>reject(new Error("source_video_timeout")),1800))
-        ]),
-        Promise.race([
-          local.searchChannels(q,{includeVideos:false}),
-          new Promise((_,reject)=>setTimeout(()=>reject(new Error("source_channel_timeout")),1800))
-        ])
-      ]);
-
-      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-      if(videos.status==="fulfilled")consume(videos.value,"video");
-      if(channels.status==="fulfilled")consume(channels.value,"channel");
-    }catch{}
-  }
 
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
@@ -4106,10 +4063,7 @@ async function searchPreviewVideos(query){
   // L2 after commit: a single mixed YouTube search normally provides both
   // video rows and channel identities. Avoid the old videos+channels fan-out.
   try{
-    const response=await api("search",{
-      q,
-      filter:"all"
-    },4200);
+    const response=await sourceExternalSearch(q,"all",4200);
     if(stillCurrent()){
       addMixedRows(response?.data?.items);
       if(videoMap.size||channelMap.size)publish();
@@ -4118,31 +4072,8 @@ async function searchPreviewVideos(query){
 
   if(!stillCurrent())return;
 
-  // Last-resort only: local youtubei.js may recover an upstream backend miss,
-  // but it never delays or replaces the normal direct search.
-  if(!videoMap.size&&!channelMap.size){
-    try{
-      const local=await localEngine(1200);
-      const [videos,channels]=await Promise.allSettled([
-        Promise.race([
-          local.search(q,{type:"video"}),
-          new Promise((_,reject)=>setTimeout(()=>reject(new Error("preview_video_timeout")),1800))
-        ]),
-        Promise.race([
-          local.searchChannels(q,{includeVideos:false}),
-          new Promise((_,reject)=>setTimeout(()=>reject(new Error("preview_channel_timeout")),1800))
-        ])
-      ]);
-
-      if(!stillCurrent())return;
-
-      if(videos.status==="fulfilled")addVideos(videos.value);
-      if(channels.status==="fulfilled"){
-        for(const row of Array.isArray(channels.value)?channels.value:[])addChannel(row);
-      }
-      if(videoMap.size||channelMap.size)publish();
-    }catch{}
-  }
+  // One external owner only: no browser-side youtubei search fallback here.
+  if(!stillCurrent())return;
 
   if(!stillCurrent())return;
 
@@ -10656,6 +10587,47 @@ async function api(action,params={},timeoutMs=8000){
     });
     const body=await res.json().catch(()=>null);
     if(!res.ok||body?.ok===false)throw new Error(body?.error||("HTTP "+res.status));
+    return body;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+const sourceExternalSearchCache=new Map();
+const SOURCE_EXTERNAL_SEARCH_TTL=5*60*1000;
+const SOURCE_EXTERNAL_EMPTY_TTL=60*1000;
+
+async function sourceExternalSearch(query,filter="all",timeoutMs=4200){
+  const q=normalizeCommittedSearchQuery(query);
+  if(q.length<2)return {ok:true,source:"local",data:{items:[],nextpage:null}};
+
+  const key=normalizeSearchText(q)+"|"+String(filter||"all");
+  const cached=sourceExternalSearchCache.get(key);
+  if(cached&&Date.now()-cached.at<cached.ttl)return cached.value;
+
+  const url=new URL(SEARCH_BASE);
+  url.searchParams.set("q",q);
+  url.searchParams.set("filter",String(filter||"all"));
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const res=await fetch(url.toString(),{
+      cache:"default",
+      signal:controller.signal
+    });
+    const body=await res.json().catch(()=>null);
+    if(!res.ok||body?.ok===false)throw new Error(body?.error||("HTTP "+res.status));
+
+    const items=Array.isArray(body?.data?.items)?body.data.items:[];
+    sourceExternalSearchCache.set(key,{
+      at:Date.now(),
+      ttl:items.length?SOURCE_EXTERNAL_SEARCH_TTL:SOURCE_EXTERNAL_EMPTY_TTL,
+      value:body
+    });
+    if(sourceExternalSearchCache.size>40){
+      sourceExternalSearchCache.delete(sourceExternalSearchCache.keys().next().value);
+    }
     return body;
   }finally{
     clearTimeout(timer);
