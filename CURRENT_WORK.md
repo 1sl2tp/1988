@@ -1890,3 +1890,16 @@ Next probe:
 - Không Cloud/Render cho VOD PlayAddr. Nếu TikTok chặn CORS/endpoint thì chỉ báo lỗi nguồn này.
 - Bhwa giữ làm fallback và UI ghi rõ `có thể logo/watermark`.
 - LIVE không đổi.
+
+
+## 2026-10-05 — YouTube resume read-model: manifest/hash only
+
+- Owner: frontend package read path; no backend/schema/Cloudflare change.
+- Before: `pageshow`, `focus` and visible-resume all called `requestServerPackageRefresh()`; that POSTed the refresh worker and then re-read the manifest. Throttle was only 1.5s.
+- Fix: all resume signals share one single-flight reader with a 30s coalesce window.
+- Resume now performs only `hydrateServerPackages({force:true, scopes:[activeScope]})`: one manifest check, then downloads only the active package when its hash differs.
+- Resume no longer wakes `yt1988-refresh`; refresh worker remains owned by explicit/open-scope demand paths.
+- Web and mobile use the same package/IndexedDB state; breakpoint/UI layout cannot create another data path.
+- Resource target: 0 refresh POST caused by focus/pageshow/visibility; at most one manifest read per 30s resume burst; package body only when active-scope hash changes.
+- Contract test: `tests/read-model-resource-contract.test.cjs`.
+- Rollback: revert the production commit for this section.

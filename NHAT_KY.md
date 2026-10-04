@@ -1214,3 +1214,14 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Code: `6f1b06f06b54fd34e365a99874e5f947d23c7620`; contract cleanup `57df13b0d0c32937b80833817b57334902fa78c2`.
 - Render image `sha256:732e8b4be1860039159f9188341006c2a325d282dc060a64a05ea9c4b3c6621c`, deploy `dep-db0psqhsrm7s738mbqe0` LIVE.
 - Resource rule: kênh có data → reuse; không refresh toàn bộ thư viện theo page open.
+
+
+## 2026-10-05 — YouTube resume dùng chung read model, không wake refresh worker
+
+- Layer: frontend package reader.
+- Root cause: ba browser resume events có thể đi vào cùng đường `requestServerPackageRefresh`, biến một thao tác đọc thành POST refresh + manifest.
+- Patch: single-flight + 30s coalesce; resume chỉ manifest/hash và chỉ tải active scope khi hash đổi.
+- Web/mobile cùng IndexedDB/package state; không có mobile fetch riêng.
+- Data impact: none. Không writer/schema/media change.
+- Test: `tests/read-model-resource-contract.test.cjs`.
+- Rollback: revert commit chứa patch này.

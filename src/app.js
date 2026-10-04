@@ -16526,13 +16526,19 @@ function applyServerPackage(scope,pkg={}){
   return true;
 }
 
-async function hydrateServerPackages({force=false}={}){
+async function hydrateServerPackages({force=false,scopes=null}={}){
   if(packageHydrationPromise)return packageHydrationPromise;
 
   if(!force&&Date.now()-packageManifestLastAt<SERVER_PACKAGE_MANIFEST_TTL){
     packageLastChangedScopes=new Set();
     return true;
   }
+
+  const requestedScopes=new Set(
+    (Array.isArray(scopes)?scopes:[])
+      .map(scope=>String(scope||"").trim())
+      .filter(scope=>MANAGED_SOURCE_SCOPES.has(scope))
+  );
 
   packageLastChangedScopes=new Set();
   packageHydrationPromise=(async()=>{
@@ -16544,6 +16550,7 @@ async function hydrateServerPackages({force=false}={}){
     const downloads=[];
     for(const group of SOURCE_MANAGER_GROUPS){
       const scope=group.key;
+      if(requestedScopes.size&&!requestedScopes.has(scope))continue;
       const snapshotName=packageSnapshotName(scope);
       if(!snapshotName)continue;
 
@@ -17474,13 +17481,34 @@ window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 // a clean page, which is why it can look newer. On every real resume, compare
 // against the authoritative server manifest immediately and repaint the active
 // feed when no video is currently playing.
+const PACKAGE_RESUME_CHECK_TTL=30*1000;
 let packageResumeSyncAt=0;
+let packageResumeSyncPromise=null;
+
 function syncServerPackagesOnResume(){
-  if(document.hidden||state.searchResultsActive)return;
+  if(document.hidden||state.searchResultsActive||packageResumeSyncPromise)return false;
   const now=Date.now();
-  if(now-packageResumeSyncAt<1500)return;
+  if(now-packageResumeSyncAt<PACKAGE_RESUME_CHECK_TTL)return false;
   packageResumeSyncAt=now;
-  void requestServerPackageRefresh(activePackageScope());
+
+  const scope=activePackageScope();
+  packageResumeSyncPromise=(async()=>{
+    // Resume is a read path only: manifest/hash first, then the active package
+    // body only if its hash changed. Do not wake the server refresh worker just
+    // because pageshow/focus/visibility fired.
+    const ok=await hydrateServerPackages({force:true,scopes:[scope]});
+    if(!ok||!packageScopeChanged(scope))return ok;
+
+    if(state.activeParent===scope){
+      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===scope);
+      if(parent)applyActiveCategorySnapshot(parent,{force:true});
+    }else if(state.activeFeed===scope){
+      applyActiveFeedSnapshot(scope,{force:true});
+    }
+    return true;
+  })().finally(()=>{packageResumeSyncPromise=null;});
+
+  return true;
 }
 
 window.addEventListener("pageshow",syncServerPackagesOnResume,{passive:true});
