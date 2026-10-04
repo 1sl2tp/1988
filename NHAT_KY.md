@@ -1004,3 +1004,26 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Bhwa được hạ xuống fallback vì ảnh test xác nhận watermark.
 - Thêm TikTok PlayAddr trực tiếp từ node/share/video/<id>, lấy playAddr/bitrate PlayAddr nếu browser đọc được.
 - Không dùng Cloud/Render cho VOD source mới; CORS/block thì fail tại browser.
+
+
+## 2026-10-04 — TikTok canonical library bounded + channel-open targeted
+
+- Chốt `tiktok-live-cloud-demo.html` là nhánh TikTok thật để hoàn thiện trước khi ghép MAIN.
+- Supabase canonical:
+  - 173 channel / 171 selected;
+  - video prune về 1.518 row, tối đa 10 video/channel;
+  - clear toàn bộ direct/signed MP4 khỏi canonical;
+  - xóa 399 Storage object (~39,6 MB), bucket TikTok về 0.
+- Render:
+  - demand-only, không polling nền/LIVE sweep/media proxy;
+  - `/tiktok/library?user=<handle>` trả một channel object từ RAM;
+  - mở kênh dùng data có sẵn ngay, sau đó check đúng handle;
+  - unchanged ID không write DB;
+  - targeted state/canonical write chỉ đúng handle thay đổi;
+  - full channel tránh deep-recovery lặp sau restart.
+- LIVE vẫn Cloudflare lookup → browser phát CDN trực tiếp.
+- VOD vẫn browser TikWM → BHWA fallback; không media bytes qua hạ tầng.
+- Tắt Supabase cron `yt1988-render-keepalive` (trước 120 lần/ngày).
+- Code: `6f1b06f06b54fd34e365a99874e5f947d23c7620`; contract cleanup `57df13b0d0c32937b80833817b57334902fa78c2`.
+- Render image `sha256:732e8b4be1860039159f9188341006c2a325d282dc060a64a05ea9c4b3c6621c`, deploy `dep-db0psqhsrm7s738mbqe0` LIVE.
+- Resource rule: kênh có data → reuse; không refresh toàn bộ thư viện theo page open.

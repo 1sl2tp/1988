@@ -38,6 +38,68 @@ Bắt buộc cập nhật:
 
 Nếu kiến trúc thay đổi thì cập nhật thêm README/rule chuyên môn tương ứng.
 
+## 2.1. TikTok production branch — canonical library + demand-only refresh
+
+Thời gian: **2026-10-04**.
+
+`tiktok-live-cloud-demo.html` hiện được coi là nhánh TikTok thật để hoàn thiện data/runtime trước khi ghép lại MAIN.
+
+Kiến trúc đã chốt:
+
+```text
+Supabase canonical library
+  yt1988_tiktok_channels
+  yt1988_tiktok_videos (tối đa 10 video/kênh)
+        ↓ load một lần khi Render instance khởi động
+Render RAM library
+        ↓ GET /tiktok/library?user=<handle>
+UI nhận 1 channel object ngay
+        ↓
+background chỉ check đúng handle vừa mở
+        ↓
+ID không đổi → dừng, KHÔNG write Supabase
+ID đổi / kênh thiếu data → refresh đúng kênh → upsert đúng kênh
+```
+
+Trạng thái data sau cleanup:
+- `yt1988_tiktok_channels`: **173** channel, **171 selected**.
+- `yt1988_tiktok_videos`: **1.518** row.
+- retention: **tối đa 10 video/channel**.
+- direct/signed MP4 trong canonical: **0 row**; playback URL là RAM/browser-only.
+- Supabase Storage `tiktok-originals`: **0 object / 0 byte**; avatar/cover chỉ lưu source URL.
+- 149/171 selected channel đã đủ 10 video; 22 channel còn thiếu/partial được bổ sung **chỉ khi đúng channel được mở/cần**.
+
+Channel-open contract:
+- `/tiktok/library?user=<handle>` trả **1 object nhỏ** từ RAM, không query từng card và không trả toàn bộ thư viện.
+- dữ liệu cũ hiển thị ngay theo stale-while-revalidate;
+- check video mới tối đa khoảng 1 lần/phút cho handle đang mở;
+- fingerprint mới nhất giống current ID → không crawl, không canonical write;
+- full 10-video channel nếu fingerprint lỗi chỉ deep-recovery tối đa khoảng 1 lần/24h;
+- partial/empty channel dùng bounded recovery, không fan-out toàn 171 channel;
+- profile chỉ refresh khi stale/thiếu, không hydrate lại mỗi render;
+- targeted video-state write chỉ ghi đúng handle thay đổi; cấm rewrite 171 channel state vì một channel.
+
+Media:
+- TikTok LIVE: Cloudflare `/lookup` lấy status + stream URL; browser phát CDN trực tiếp.
+- TikTok VOD: browser resolve TikWM trực tiếp, BHWA fallback; media bytes không qua Render/Supabase.
+- Render media proxy = OFF.
+- Render background collector/LIVE sweep = OFF.
+
+Resource cleanup đã áp dụng:
+- bỏ `yt1988-render-keepalive` 120 lần/ngày;
+- Render `AUTO_COLLECT=0`, `RENDER_LIVE_BACKGROUND_SWEEP=0`, `RENDER_MEDIA_PROXY_ENABLED=0`;
+- bỏ startup Storage cleanup sau khi bucket đã về 0;
+- spike `yt1988-state` cũ đã dừng; không dùng full state/package response cho channel-open.
+
+Runtime hiện tại:
+- code tối ưu targeted write: `6f1b06f06b54fd34e365a99874e5f947d23c7620`;
+- contract cleanup: `57df13b0d0c32937b80833817b57334902fa78c2`;
+- Render image: `sha256:732e8b4be1860039159f9188341006c2a325d282dc060a64a05ea9c4b3c6621c`;
+- Render deploy: `dep-db0psqhsrm7s738mbqe0` LIVE.
+
+Rule bắt buộc:
+> **Kênh đã có data → đọc data cũ ngay. Mở kênh không đồng nghĩa quét lại hoặc ghi lại cả thư viện.**
+
 ## 3. Kiến trúc YouTube hiện tại — không được tự ý đổi
 
 ### Feed/tab

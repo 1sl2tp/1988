@@ -381,6 +381,27 @@ Ngoại lệ duy nhất:
 
 Expired signed media URL là cache tạm: hết hạn phải clear, không giữ vô hạn.
 
+
+
+### 5.5.1. TikTok canonical library — bounded + stale-while-revalidate
+
+TikTok phải dùng canonical library bền vững:
+- `yt1988_tiktok_channels` giữ identity/profile;
+- `yt1988_tiktok_videos` giữ metadata video, **tối đa 10 video/channel**;
+- avatar/cover chỉ lưu URL nguồn; không mirror binary vào Supabase Storage;
+- signed/direct MP4/FLV/HLS không lưu lâu dài trong canonical.
+
+Channel open:
+1. trả dữ liệu đã có từ RAM/package trước;
+2. chỉ check đúng handle vừa mở;
+3. latest ID không đổi → dừng, không canonical write;
+4. video/profile thực sự đổi → upsert đúng handle;
+5. cấm một channel change làm rewrite state/canonical của toàn bộ selected channels;
+6. full 10-video channel không deep-crawl liên tục khi fingerprint upstream lỗi;
+7. partial/empty channel mới được dùng bounded fallback để backfill.
+
+Render chỉ là metadata worker theo demand. Không background TikTok collector, không LIVE scheduler, không media-byte relay.
+
 ## 6. Quy tắc scheduler / cron
 
 1. Một chức năng chỉ có **một owner scheduler**.
