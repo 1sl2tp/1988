@@ -17,14 +17,18 @@ test('opening YouTube LIVE reads the prepared package and wakes a rebuild',()=>{
   assert.doesNotMatch(block,/fetchYoutubeLiveSnapshot\(/);
 });
 
-test('landing feed restores LIVE package then rebuilds it in background',()=>{
-  const start=html.indexOf('async function preloadStartupLiveLists(');
-  const end=html.indexOf('\n  async function hydrateUnifiedLiveSnapshots',start);
-  assert.ok(start>=0&&end>start,'preloadStartupLiveLists missing');
+test('landing feed keeps LIVE fully dormant until user opens it',()=>{
+  assert.doesNotMatch(html,/function preloadStartupLiveLists\(/);
+  assert.doesNotMatch(html,/function scheduleStartupLivePreload\(/);
+
+  const start=html.indexOf('const firstPackagePromise=(async()=>{');
+  const end=html.indexOf('\n    const statePromise=',start);
+  assert.ok(start>=0&&end>start,'startup firstPackagePromise missing');
   const block=html.slice(start,end);
-  assert.match(block,/ensurePreparedPackageReady\("live"\)/);
-  assert.match(block,/syncPreparedScopeAfterWake\("live"\)/);
-  assert.match(block,/scheduleLiveBackgroundRefresh\(\)/);
+  assert.match(block,/const scope=STARTUP_SCOPE/);
+  assert.match(block,/showPackageScope\(scope,\{hydrateLive:false\}\)/);
+  assert.doesNotMatch(block,/ensurePreparedPackageReady\("live"\)/);
+  assert.doesNotMatch(block,/refreshUnifiedLiveInBackground\(/);
   assert.doesNotMatch(block,/runYoutubeLiveCycle\(/);
 });
 
