@@ -339,6 +339,27 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không thêm polling/background jobs/media proxy.
 - Rollback: `4fc4214a13beb6318a13a7ed950c5fa8c39886fd`.
 
+
+## 2.0.17. TikTok LIVE — chọn HLS/FLV theo khả năng trình duyệt
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend LIVE playback; không đổi Cloudflare/Render/Supabase/canonical data.
+- Mục tiêu: iPhone/iPad/Safari không bị ép qua FLV/mpegts; Chrome/Android/PC vẫn dùng FLV/mpegts khi phù hợp.
+- Logic mới là **capability-first**, không hard-code theo user-agent:
+  - nếu `<video>.canPlayType()` hỗ trợ HLS và có `hlsUrl` → ưu tiên **HLS native**; điều này bao phủ Safari iPhone/iPad/macOS và Chrome trên iOS vì cùng WebKit;
+  - nếu không có native HLS nhưng `mpegts.isSupported()` và có `streamUrl` → dùng **FLV + mpegts**;
+  - nếu chỉ còn HLS trên Chromium → lazy-load **hls.js 1.6.13** và phát HLS;
+  - nếu FLV/mpegts đang chạy mà báo lỗi và snapshot có HLS → tự fallback sang HLS.
+- Mobile preload current/prev/next cũng dùng đúng transport theo khả năng từng browser: iOS warm HLS, Chromium warm FLV; slot có HLS.js instance riêng nếu cần.
+- `stopPlayer()`/destroy slot dọn cả mpegts lẫn HLS.js để không giữ decoder/source buffer cũ.
+- HLS.js chỉ tải khi thật sự cần; Safari/iOS native HLS và Chrome có FLV không phát sinh request thư viện này.
+- Hai attempt đầu gặp stale contract test. Theo rule sau 2 failure đã rollback về LKG `1703e0fa92a6b430ade03f3b51c61f9a25c79a8b`; rollback run `37193785983` SUCCESS. Sau đó làm clean patch với contract non-fragile.
+- Final code commit: `4827b99089aea22e2e7ad475a691e81927da51be`.
+- Final deploy run `37193913150`: **SUCCESS**; frontend contracts, Pages deploy, custom-domain verify đều PASS.
+- Data impact: none. Không thêm polling/sweep/write/media proxy.
+- Rollback UI: `1703e0fa92a6b430ade03f3b51c61f9a25c79a8b`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

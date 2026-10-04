@@ -1,3 +1,13 @@
+## 2026-10-04 — LIVE chọn HLS/FLV theo browser capability
+
+- Native HLS được ưu tiên khi `<video>.canPlayType()` hỗ trợ: Safari iPhone/iPad/macOS và Chrome iOS đi HLS trực tiếp.
+- Chrome/Android/desktop không có native HLS ưu tiên FLV + mpegts.
+- Nếu Chromium chỉ có HLS hoặc FLV lỗi: lazy-load hls.js 1.6.13 rồi fallback HLS.
+- Mobile preload current/prev/next dùng cùng capability routing; dọn cả mpegts/HLS.js khi slot bị bỏ.
+- Không đổi API/data/polling; HLS.js chỉ tải khi cần.
+- Hai attempt đầu fail stale contract; rollback `1703e0fa...` run `37193785983` SUCCESS rồi clean patch.
+- Final commit `4827b99089aea22e2e7ad475a691e81927da51be`; deploy `37193913150` SUCCESS.
+
 ## 2026-10-04 — Thử TikTok official Embed Player cho VOD
 
 - VOD chuyển primary sang `www.tiktok.com/player/v1/<id>`; LIVE giữ direct FLV/HLS.
