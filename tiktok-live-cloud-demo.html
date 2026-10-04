@@ -184,16 +184,18 @@ function rememberChannel(h,profile={}){
   };
   sessionChannels.delete(h);
   sessionChannels.set(h,next);
-  while(sessionChannels.size>12)sessionChannels.delete(sessionChannels.keys().next().value);
   renderChannels();
 }
 function renderChannels(){
-  const rows=[...sessionChannels.values()].reverse();
+  const rows=[...sessionChannels.values()].sort((a,b)=>
+    Number(sessionLiveStates.has(b.handle))-Number(sessionLiveStates.has(a.handle))||
+    String(a.name||a.handle).localeCompare(String(b.name||b.handle),'vi')
+  );
   channelCount.textContent=String(rows.length);
   if(!rows.length){channelsBox.innerHTML='<div class="empty">Chưa mở kênh.</div>';return}
   channelsBox.innerHTML=rows.map(row=>
     '<button type="button" class="channelcard'+(row.handle===handle?' active':'')+'" data-channel="'+esc(row.handle)+'">'+
-      (row.avatar?'<img class="avatar" src="'+esc(row.avatar)+'" alt="">':'<div class="avatar"></div>')+
+      (row.avatar?'<img class="avatar" loading="lazy" src="'+esc(row.avatar)+'" alt="">':'<div class="avatar"></div>')+
       '<div class="meta"><div class="name">'+esc(row.name)+'</div><div class="sub">@'+esc(row.handle)+'</div></div>'+
       '<span class="channelstatus">'+(sessionLiveStates.has(row.handle)?'LIVE':'')+'</span></button>'
   ).join("");
@@ -240,9 +242,12 @@ function applyMediaShape(width,height){
 }
 function rowDimensions(row){
   return {
-    width:firstNumber(row?.width,row?.videoWidth,row?.video_width,row?.stats?.width),
-    height:firstNumber(row?.height,row?.videoHeight,row?.video_height,row?.stats?.height)
+    width:firstNumber(row?.width,row?.videoWidth,row?.video_width,row?.cover?.width,row?.stats?.width),
+    height:firstNumber(row?.height,row?.videoHeight,row?.video_height,row?.cover?.height,row?.stats?.height)
   };
+}
+function videoThumb(row){
+  return String(row?.thumbnail||row?.cover?.url||row?.coverUrl||row?.image||"");
 }
 function updateNav(){
   const vod=currentMediaMode==="vod"&&currentVideos.length>0;
@@ -257,7 +262,8 @@ function setMediaChrome(row,mode="vod"){
   applyMediaShape(dims.width,dims.height);
   const profile=currentChannelLibrary?.profile||{};
   const h=String(row?.handle||handle||"").replace(/^@/,"");
-  const avatar=String(row?.avatar||profile?.avatar?.url||"");
+  const channel=sessionChannels.get(h)||{};
+  const avatar=String(row?.avatar||channel.avatar||profile?.avatar?.url||"");
   mediaAvatar.innerHTML=avatar?'<img src="'+esc(avatar)+'" alt="">':'<span>♪</span>';
   mediaTitle.textContent=String(row?.title||row?.sourceName||profile?.name||(h?"@"+h:"TikTok"));
   const viewer=firstNumber(row?.viewerCount);
@@ -406,14 +412,15 @@ function renderVideos(rows){
     return;
   }
   videosBox.className="body videos";
-  videosBox.innerHTML=videos.map((row,i)=>
-    '<button type="button" class="videoitem" data-video-i="'+i+'">'+
-      (row.thumbnail
-        ? '<img class="thumb" src="'+esc(row.thumbnail)+'" alt="">'
+  videosBox.innerHTML=videos.map((row,i)=>{
+    const thumb=videoThumb(row);
+    return '<button type="button" class="videoitem" data-video-i="'+i+'">'+
+      (thumb
+        ? '<img class="thumb" loading="lazy" src="'+esc(thumb)+'" alt="">'
         : '<div class="thumb"></div>')+
       '<div><div class="vtitle">'+esc(row.title||("Video "+row.id))+'</div>'+
-      '<div class="vmeta">@'+esc(row.handle||handle)+' · '+esc(row.id)+'</div></div></button>'
-  ).join("");
+      '<div class="vmeta">@'+esc(row.handle||handle)+' · '+esc(row.id)+'</div></div></button>';
+  }).join("");
   videosBox.querySelectorAll("[data-video-i]").forEach(btn=>{
     const row=videos[Number(btn.dataset.videoI)||0];
     const warm=()=>{ if(row)warmVideoLink(row); };
@@ -588,6 +595,59 @@ document.addEventListener("keydown",e=>{
   if(e.key==="ArrowUp"){e.preventDefault();moveVideo(-1)}
 });
 
+async function loadInitialCatalog(){
+  statusEl.textContent="Đang nạp danh sách kênh, LIVE và video mới nhất…";
+  const [libraryResult,liveResult]=await Promise.allSettled([
+    getJson(LIBRARY+"/tiktok/library?t="+Date.now(),15000),
+    getJson(EDGE+"/state?t="+Date.now(),10000)
+  ]);
+
+  let latestVideos=[];
+  if(libraryResult.status==="fulfilled"&&libraryResult.value?.ok!==false){
+    const payload=libraryResult.value||{};
+    const channels=Array.isArray(payload.channels)?payload.channels:[];
+    sessionChannels.clear();
+    for(const channel of channels){
+      const h=String(channel?.handle||"").replace(/^@/,"");
+      if(!h)continue;
+      const profile=channel?.profile||{};
+      sessionChannels.set(h,{
+        handle:h,
+        name:String(profile?.name||("@"+h)),
+        avatar:avatarUrl(profile)
+      });
+      const newest=Array.isArray(channel?.videos)?channel.videos[0]:null;
+      if(newest?.id)latestVideos.push({...newest,handle:h});
+    }
+    latestVideos.sort((a,b)=>Number(b?.createTime||0)-Number(a?.createTime||0));
+    renderChannels();
+    renderVideos(latestVideos);
+  }else{
+    channelsBox.innerHTML='<div class="empty">Chưa nạp được danh sách kênh.</div>';
+    videosBox.innerHTML='<div class="empty">Chưa nạp được danh sách video.</div>';
+  }
+
+  if(liveResult.status==="fulfilled"){
+    const snapshot=liveResult.value||{};
+    sessionLiveStates.clear();
+    for(const [rawHandle,row] of Object.entries(snapshot?.channels||{})){
+      const h=String(rawHandle||"").replace(/^@/,"");
+      if(h&&Number(row?.status)===2){
+        sessionLiveStates.set(h,{...row,handle:h,status:2});
+      }
+    }
+    renderLiveList();
+  }else{
+    liveBox.innerHTML='<div class="empty">Chưa đọc được trạng thái LIVE.</div>';
+  }
+
+  const channelTotal=sessionChannels.size;
+  const liveTotal=sessionLiveStates.size;
+  statusEl.textContent=channelTotal
+    ? channelTotal+" kênh · "+liveTotal+" LIVE · "+latestVideos.length+" video mới nhất"
+    : "Chưa nạp được thư viện TikTok.";
+}
+
 async function loadChannelLibrary(h){
   const endpoint=new URL(LIBRARY+"/tiktok/library");
   endpoint.searchParams.set("user",h);
@@ -631,7 +691,7 @@ async function checkLive(raw){
   }
 
   handle=h;
-  rememberChannel(h,{name:"@"+h});
+  rememberChannel(h,{});
   currentLiveState=null;
   currentLiveStateAt=0;
   currentChannelLibrary=null;
@@ -688,6 +748,9 @@ form.addEventListener("submit",e=>{
 });
 video.addEventListener("loadedmetadata",()=>{
   applyMediaShape(video.videoWidth,video.videoHeight);
+});
+loadInitialCatalog().catch(error=>{
+  statusEl.textContent="Không nạp được danh sách: "+String(error?.message||error);
 });
 copyBtn.addEventListener("click",async()=>{
   const url=streamUrlEl.value.trim();
