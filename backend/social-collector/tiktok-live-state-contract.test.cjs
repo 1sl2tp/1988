@@ -319,7 +319,7 @@ assert.match(server,/const sourceUrl=String\(body\?\.sourceUrl\|\|body\?\.source
   'selected-channel must accept sourceUrl evidence from the UI');
 assert.match(server,/videoEvidence=await validateTikTokVideoEvidence\(sourceUrl,handle\)/,
   'profile lookup failure must fall back to exact pasted video evidence');
-assert.match(server,/if\(!identity\?\.secUid&&!identity\?\.userId&&!videoEvidence\)/,
+assert.match(server,/if\(!identityEvidence&&!videoEvidence\)/,
   'invalid handles still must not be persisted');
 assert.match(server,/source:'validated-video-url'/,
   'validated video evidence may seed only the targeted channel video state');
