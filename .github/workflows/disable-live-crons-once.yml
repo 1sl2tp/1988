@@ -24,7 +24,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID"
 
           API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
-          for SCRIPT in 1988-youtube-live-state 1988-tiktok-live-state; do
+          for SCRIPT in 1988-youtube-live-state; do
             echo "Disable schedules: $SCRIPT"
             curl -fsSL \
               -X PUT \
