@@ -1,3 +1,14 @@
+## 2026-10-04 — TikTok UI gọn + sửa LIVE/no-link + card kênh bị ẩn
+
+- Thu gọn toàn bộ demo theo TikTok: header/panel/card/avatar/video list/action rail/player.
+- LIVE list chỉ đọc `/tiktok/live-now`: chỉ item có playable URL mới hiện; raw status=2/no-link bị loại.
+- Khi visible: bounded `/sweep` + `/tiktok/live-now` mỗi 60s; hidden thì dừng.
+- Click kênh không rebuild 170 card vì LIVE state; active row giữ vị trí viewport khi profile rerender.
+- `renderLiveList()` không rerender channel list nữa.
+- Commit UI `0fa4c948d44449f85f1be30aed2fb45fb6e6a232`; test `191b4ef6f9294ed5b0122dea2a28488383ac5bf1`; deploy marker `21a75666341e22bc96e89b7181e633bceaba0b6f`.
+- Deploy `37167859726` SUCCESS; contracts/build/Pages/custom-domain PASS.
+- Không đổi backend/data/edge code; rollback `c4372fc0d5c329fed24a9578654795a0cd7a8b7b`.
+
 ## 2026-10-04 — TikTok LIVE giữ link đã phát hiện
 
 - Root cause: edge snapshot cũ bỏ stream URL và cho status=4 ở sweep sau ghi đè LIVE đã phát hiện.

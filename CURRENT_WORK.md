@@ -165,6 +165,25 @@ Thời gian: **2026-10-04**.
 - Production direct endpoint probe từ môi trường công cụ hiện tại không thực hiện được do DNS tool sandbox, nhưng deploy/runtime verification trong workflows đều PASS.
 - Rollback: `dfdf37237b2b73c0cdf250e0ef616c9dae6c291b`.
 
+
+## 2.0.8. TikTok demo — UI gọn + LIVE playable-only + giữ card kênh khi click
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI; edge last-known-good rule từ `e2e61906...` giữ nguyên.
+- UI được thu gọn theo hướng TikTok: header 40px, panel/card/avatar/video list nhỏ hơn, khoảng cách hẹp hơn, player/action rail gọn, nền player đen khi chưa phát.
+- Player desktop: source 190–210px | video 220–250px | media >=420px; player sticky top 58px; dọc/ngang vẫn `object-fit: contain`.
+- Fix click kênh: không render lại toàn bộ 170 card chỉ vì LIVE/status đổi; active card được đánh dấu riêng và khi profile buộc rerender thì giữ đúng vị trí viewport bằng anchor + `window.scrollBy`.
+- `renderLiveList()` không gọi lại `renderChannels()` nữa, tránh card đang click biến mất/nhảy khỏi màn hình.
+- LIVE initial list đổi từ raw `/state` sang `/tiktok/live-now`, nên chỉ hiện item đã có `streamUrl/hlsUrl`; item status=2 nhưng không có link không còn được render.
+- Khi trang đang visible: gọi một bounded `/sweep` rồi đọc `/tiktok/live-now`; lặp tối đa 1 lần/phút. Khi hidden thì dừng timer. Không cron server, không full-scan vì click.
+- Đây là demand loop đúng contract: cache/snapshot hiện trước, scan nền sau; mỗi sweep vẫn bounded 40 handle ở Worker.
+- Commit UI chính: `0fa4c948d44449f85f1be30aed2fb45fb6e6a232`; test contract fix `191b4ef6f9294ed5b0122dea2a28488383ac5bf1`; verified deploy commit `21a75666341e22bc96e89b7181e633bceaba0b6f`.
+- Deploy run `37167859726`: **SUCCESS**; frontend contracts/build/Pages/custom-domain verify đều PASS.
+- Lần deploy đầu của `0fa4c948...` fail đúng test cũ còn assert raw `/state`; production custom deploy không chạy tiếp. Đã sửa contract rồi deploy lại latest commit.
+- Data impact: none. Không đổi Supabase/Render/Cloudflare code, không thêm writer/cron.
+- Rollback UI: `c4372fc0d5c329fed24a9578654795a0cd7a8b7b`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
