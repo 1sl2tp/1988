@@ -219,6 +219,27 @@ Thời gian: **2026-10-04**.
 - Không đổi schema, không thêm polling, không fan-out; fallback chỉ chạy khi user bấm add đúng một handle.
 - Rollback runtime: deploy lại image trước `sha256:fce6ceb3899b25fe91dfded3de028161ee240a5ab14de4d99d476da8d3bf53ad`.
 
+
+## 2.0.11. TikTok — thêm kênh chỉ ghi membership + nút cập nhật video thực sự chờ kết quả
+
+Thời gian: **2026-10-04**.
+
+- Yêu cầu: `+ Thêm kênh` chỉ cần lấy được handle rồi ghi vào danh sách selected; không được vòng lại TikTok/Render browser/TikWM để xác minh thêm một lần.
+- Backend `/tiktok/selected-channel` giờ là **membership-only**: normalize handle → idempotent selected set → `persistTikTokSelectedMembership(handle, selected)` → cập nhật canonical package bằng dữ liệu local. Không gọi profile, LIVE, video crawler hay timer trong action add/remove.
+- Render vẫn là cổng ghi nhỏ để không đưa quyền Supabase vào browser; nhưng không còn làm crawler trong thao tác thêm/xóa.
+- Với kênh không có video, UI hiện nút `Cập nhật video`. Nút này gọi đúng **một handle** qua `/tiktok/channel-videos?refresh=1&full=1&wait=1`.
+- Root cause của thông báo `@anhdidau86 · cập nhật xong nhưng vẫn chưa có video`: production trước đó queue refresh rồi trả response ngay. Log cho thấy job thật còn chạy sau đó: TikTok Web API `Unexpected end of JSON`, yt-dlp bị 403/private-like, browser endpoint `invalid_json`; UI đã báo `xong` trước khi fallback hoàn tất.
+- Backend mới hỗ trợ `wait=1`: response chỉ trả sau khi targeted refresh queue hoàn tất đúng channel. UI dùng row `videos` trả trực tiếp trước rồi đọc canonical library lại; không còn báo hoàn thành giả.
+- Bổ sung zero-video fallback: nếu Web API + yt-dlp + browser đều trả 0, gọi `fetchTikwmChannelVideos(handle)` để lấy **metadata post list**; không proxy MP4 qua Render.
+- Log mới khi fallback thành công: `[tiktok-video-zero-fallback] <handle> videos=<n>`.
+- Trong lúc sửa phát hiện commit `a36dbdb...` đã ghi nhầm bản `server.mjs` bị connector truncate còn ~107 KB. Đã khôi phục nguyên file production full ~410 KB từ blob last-known-good rồi mới áp patch nhỏ; các contract `proxyTikTokLive`, LIVE sweep, canonical library được giữ nguyên.
+- Frontend verified deploy: commit `c7c0a15aea7118ee3b88a5e0160202278d3d7b0b`, run `37169559717` **SUCCESS**.
+- Backend final code: `5e4648bc573682c8611932e681d3b329ddc95fe2`; image build run `37169662129` **SUCCESS**.
+- Render production deploy `dep-db0r6hhsrm7s738r9un0`: **LIVE**, image digest `sha256:8c6f50e915cb491c4c8bb38be129ca431050131f05cc2824a5820f1b0d2520f3`, finished `2026-10-04T02:01:33Z`.
+- Data/schema: không đổi. Manual video refresh chỉ targeted một channel; không full-scan 169 kênh, không cron.
+- UI reference screenshots người dùng gửi (TikTok desktop/mobile) được giữ làm mẫu cho lượt tinh chỉnh giao diện tiếp theo; không trộn thay đổi layout lớn vào incident video này.
+- Rollback backend runtime: image trước `sha256:540fe33cb7074f7724c79925c4f223d14d31a4a8ba812f805510c398901b6a3a`. Rollback frontend: commit trước `30cf50ab823e07d4c4c531357f74274bd77a5490` nếu cần.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

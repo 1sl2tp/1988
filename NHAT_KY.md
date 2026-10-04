@@ -1,3 +1,14 @@
+## 2026-10-04 — Fix add membership-only + manual refresh video thật sự chờ kết quả
+
+- `+ Thêm kênh`: chỉ normalize handle + ghi `selected`; không profile/browser/TikWM/LIVE/video scan trong action add/remove.
+- `@anhdidau86` manual refresh trước báo xong quá sớm vì endpoint queue async rồi trả ngay. Log thật: Web API JSON lỗi, yt-dlp 403/private-like, browser invalid_json.
+- `/tiktok/channel-videos` thêm `wait=1` cho explicit one-channel repair; UI chỉ báo kết quả sau khi queue hoàn tất.
+- Zero-video fallback thêm `fetchTikwmChannelVideos(handle)` để lấy post metadata nếu Web API/yt-dlp/browser đều 0.
+- Đã phát hiện và sửa sự cố patch trước làm `server.mjs` bị truncate; restore full ~410 KB từ last-known-good rồi mới patch.
+- Frontend run `37169559717` SUCCESS. Backend image run `37169662129` SUCCESS.
+- Render `dep-db0r6hhsrm7s738r9un0` LIVE, digest `sha256:8c6f50e915cb491c4c8bb38be129ca431050131f05cc2824a5820f1b0d2520f3`.
+- Không đổi schema; manual refresh đúng 1 kênh; không full-scan/cron.
+
 ## 2026-10-04 — Fix add kênh LIVE tồn tại nhưng profile lookup miss
 
 - `@dongquyphutho/live` phát được nhưng add trả `tiktok_channel_not_found`.
