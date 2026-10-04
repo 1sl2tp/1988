@@ -1,3 +1,15 @@
+## 2026-10-04 — TikTok LIVE nét hơn và mượt hơn
+
+- Edge quality selection giờ giữ rank từ path/key TikTok (`origin/full_hd/1080/hd1/sd1...`), không chỉ nhìn URL string.
+- Không tăng request; vẫn direct same-response TikTok LIVE.
+- Mobile 3-slot preload không còn play/decode cả 3: neighbor chỉ warm/load muted, active mới play; inactive pause.
+- mpegts active stash 384KB; warm 192KB; auto cleanup.
+- PC LIVE dùng stash thay zero-stash; current VOD preload auto.
+- Wheel throttle 520→220ms; swipe threshold 60→42px.
+- Edge run `37171844694` SUCCESS; frontend verified run `37171951382` SUCCESS.
+- Code `55228c756e42869f5e4fd34ab1e93003182285a3`; final frontend deploy `3d31265941c09f80462e48805f61c4a7a87644bb`.
+- Không đổi data/schema/polling; native TikTok/YouTube vẫn có lợi thế ABR/native decoder mà web FLV không thể copy 100%.
+
 ## 2026-10-04 — Mobile preload 3 LIVE để vuốt mở ngay
 
 - Mobile giữ tối đa current + previous + next LIVE, radius=1.

@@ -298,6 +298,28 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không thêm polling/writer/cache server; chỉ tăng trực tiếp tối đa 2 media connections phụ trên mobile trong lúc visible.
 - Rollback UI: `84d6e97cb853e6a70e03d4455c7e29fa176edbe9`.
 
+
+## 2.0.15. TikTok LIVE — nét hơn + player mượt hơn trên mobile/PC
+
+Thời gian: **2026-10-04**.
+
+- Triệu chứng: LIVE nhìn mềm/mờ hơn TikTok gốc và chuyển media có độ trễ/choppy trên mobile lẫn PC.
+- Nguyên nhân 1 (quality): edge trước đây thu được nhiều FLV/HLS nhưng sau khi parse JSON chỉ giữ URL string; thông tin quality nằm ở **path/key** (`origin`, `full_hd`, `1080`, `hd1`, `sd1`...) bị mất, nên nếu URL không tự mang chữ quality thì sorter có thể chọn rendition thấp.
+- Fix edge: `collectLiveMedia` lưu thêm quality rank theo path mà không thêm request; `origin/source/uhd/full_hd/1080/hd2` ưu tiên cao nhất, rồi `hd1/hd/720`, `sd/540/480`, hạ điểm `ld/360/240`. `checkTikTok` và resolver đều sort bằng `liveMediaScore` mới.
+- Không thêm media probe/fan-out; vẫn dùng chính response TikTok direct theo rule LIVE.
+- Nguyên nhân 2 (smoothness): mobile preload 3 LIVE trước đó **play/decode cả 3 stream cùng lúc**, tranh CPU/GPU/network với stream đang xem.
+- Fix frontend: slot hàng xóm chỉ `load()`/buffer muted, không autoplay/decode liên tục; khi slot thành active mới `play()`, slot khác `pause()`. Window vẫn đúng current + previous + next, tối đa 3.
+- mpegts active dùng stash 384KB + auto-cleanup; warm slot dùng 192KB. Mục tiêu giảm micro-stall nhưng không tạo buffer quá lớn.
+- PC LIVE bỏ `enableStashBuffer:false`, chuyển sang config active cân bằng; VOD current đổi `preload=auto` thay vì metadata-only.
+- Điều khiển chuyển nhanh hơn: wheel lock `520ms → 220ms`, swipe threshold `60px → 42px`.
+- Code chính: `55228c756e42869f5e4fd34ab1e93003182285a3`; frontend stale-contract cleanup + verified deploy: `3d31265941c09f80462e48805f61c4a7a87644bb`.
+- Cloudflare Edge run `37171844694`: **SUCCESS**; edge contracts + deploy + zero schedules PASS.
+- Frontend run `37171951382`: **SUCCESS**; contracts + Pages + custom-domain verify PASS.
+- Lần frontend đầu của code commit fail chỉ vì test cũ còn khóa `preload=metadata`/256KB; production custom workflow dừng trước deploy. Đã sửa contract rồi deploy bản final.
+- Data impact: none. Không đổi schema/Supabase/Render; không thêm polling. Mobile visible vẫn tối đa 3 direct CDN connections như trước, nhưng chỉ 1 slot decode/play thực sự.
+- Giới hạn còn lại: TikTok/YouTube native dùng ABR/player native và có quyền sâu hơn với CDN/codec, nên web direct-FLV không thể bảo đảm giống 100%; bản này xử lý hai nút thắt lớn nhất trong kiến trúc hiện tại.
+- Rollback frontend: `0b123c02d43222c4a6b9616ddd5dacb7761440df`; rollback edge về worker trước `55228c...` nếu có regression chất lượng.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
