@@ -1,5 +1,5 @@
 name: Deploy 1988 Player
-# contract-rev: host-v3
+# contract-rev: host-v4-bg02
 
 on:
   push:
