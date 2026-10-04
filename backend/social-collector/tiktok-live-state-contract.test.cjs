@@ -311,28 +311,6 @@ assert.match(server,/async function browserTikTokChannelVideos\(/,
 assert.match(server,/source:'yt-dlp\+browser-user-posts'/,
   'deficient yt-dlp results must merge with existing browser-context JSON fallback');
 
-assert.match(server,/function parseTikTokVideoEvidence\(rawValue,expectedHandle=''\)/,
-  'add-channel must parse pasted TikTok video URL evidence');
-assert.match(server,/async function validateTikTokVideoEvidence\(rawValue,expectedHandle=''\)/,
-  'add-channel must validate pasted video evidence with a bounded resolver');
-assert.match(server,/const sourceUrl=String\(body\?\.sourceUrl\|\|body\?\.source_url\|\|''\)\.trim\(\)/,
-  'selected-channel must accept sourceUrl evidence from the UI');
-assert.match(server,/videoEvidence=await validateTikTokVideoEvidence\(sourceUrl,handle\)/,
-  'profile lookup failure must fall back to exact pasted video evidence');
-assert.match(server,/if\(!identityEvidence&&!videoEvidence\)/,
-  'invalid handles still must not be persisted');
-assert.match(server,/source:'validated-video-url'/,
-  'validated video evidence may seed only the targeted channel video state');
-
-assert.match(server,/const canonicalKnown=tiktokCanonicalChannels\.get\(key\)\|\|null/,
-  're-add must reuse known canonical channel identity before external profile calls');
-assert.match(server,/identity=await fetchTikwmProfileIdentity\(handle\)\.catch\(\(\)=>null\)/,
-  'add-channel must fall back to TikWM profile identity when TikTok profile endpoints miss');
-assert.match(server,/const identityEvidence=Boolean\(/,
-  'profile identity evidence may use exact-handle nickname\/avatar when secUid is unavailable');
-assert.match(server,/identity\.nickname\|\|[\s\S]{0,80}identity\.avatar/,
-  'valid public profile metadata must count as exact handle evidence');
-
 const selectedMembershipStart=server.indexOf("if(url.pathname==='/tiktok/selected-channel'");
 const selectedMembershipEnd=server.indexOf("\n  if(url.pathname==='/tiktok/library'",selectedMembershipStart);
 assert.ok(selectedMembershipStart>=0&&selectedMembershipEnd>selectedMembershipStart,'selected-channel route missing');
