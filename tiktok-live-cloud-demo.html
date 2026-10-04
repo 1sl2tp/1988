@@ -11,7 +11,7 @@
 .top{position:sticky;top:0;z-index:5;padding:12px;background:#111;border-bottom:1px solid #26262a}
 .search{max-width:1100px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}.search .secondary{background:#25252b}.search button:disabled{opacity:.55;cursor:default}
 .page{max-width:1540px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
-.grid{display:grid;grid-template-columns:minmax(220px,260px) minmax(260px,330px) minmax(0,1fr);grid-template-areas:"source videos player";gap:12px;align-items:start}
+.grid{display:grid;grid-template-columns:minmax(190px,240px) minmax(220px,280px) minmax(360px,1fr);grid-template-areas:"source videos player";gap:12px;align-items:start}
 .leftstack{grid-area:source;display:grid;gap:12px;align-self:start}.videopanel{grid-area:videos}.playerpanel{grid-area:player;position:sticky;top:70px}
 .panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden;min-width:0}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a;display:flex;align-items:center;justify-content:space-between;gap:8px}.body{padding:8px}
 .headbadge{font-size:11px;color:#bbb;background:#232329;border-radius:999px;padding:4px 8px;font-weight:700}.listbody{overflow:visible}
@@ -35,8 +35,8 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 .gesturehint{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:3;padding:5px 10px;border-radius:999px;background:#0008;color:#ddd;font-size:11px;opacity:0;transition:opacity .18s;pointer-events:none}
 .player.gesture .gesturehint{opacity:1}
 .streamrow{margin-top:8px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:7px 8px;font-size:11px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 10px;cursor:pointer}.now{padding:7px 2px 0;font-size:12px;color:#aaa;min-height:24px}
-@media(max-width:1180px) and (min-width:761px){
-  .grid{grid-template-columns:minmax(230px,280px) minmax(0,1fr);grid-template-areas:"source player" "videos player"}
+@media(max-width:840px) and (min-width:761px){
+  .grid{grid-template-columns:minmax(220px,260px) minmax(0,1fr);grid-template-areas:"source player" "videos player"}
 }
 @media(max-width:760px){
   .page{padding:8px}
