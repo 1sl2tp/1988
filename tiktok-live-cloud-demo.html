@@ -10,11 +10,17 @@
 *{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}
 .top{position:sticky;top:0;z-index:5;padding:12px;background:#111;border-bottom:1px solid #26262a}
 .search{max-width:980px;margin:auto;display:flex;gap:8px}.search input{flex:1;min-width:0;border:1px solid #34343a;border-radius:22px;background:#19191d;color:#fff;padding:11px 14px;font-size:15px;outline:none}.search button{border:0;border-radius:22px;padding:0 18px;background:#fe2c55;color:#fff;font-weight:700;cursor:pointer}
-.page{max-width:940px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
-.grid{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:10px}.panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a}.body{padding:8px}
-.livecard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:10px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover{background:#222228}.livecard:disabled{cursor:default;opacity:.75}.avatar{width:50px;height:50px;border-radius:50%;object-fit:cover;background:#2a2a2f}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}
-.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.videoitem.active{outline:2px solid #fe2c55;background:#242429}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
-.mediaframe{position:absolute;inset:12px 74px 12px 12px;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center}
+.page{max-width:1540px;margin:auto;padding:10px 12px}.status{font-size:13px;color:#aaa;margin-bottom:8px;min-height:18px}
+.grid{display:grid;grid-template-columns:minmax(220px,260px) minmax(260px,330px) minmax(0,1fr);grid-template-areas:"source videos player";gap:12px;align-items:start}
+.leftstack{grid-area:source;display:grid;gap:12px;align-self:start}.videopanel{grid-area:videos}.playerpanel{grid-area:player;position:sticky;top:70px}
+.panel{background:#121216;border:1px solid #26262a;border-radius:12px;overflow:hidden;min-width:0}.head{padding:10px 12px;font-weight:800;border-bottom:1px solid #26262a;display:flex;align-items:center;justify-content:space-between;gap:8px}.body{padding:8px}
+.headbadge{font-size:11px;color:#bbb;background:#232329;border-radius:999px;padding:4px 8px;font-weight:700}.listbody{max-height:34vh;overflow:auto;overscroll-behavior:contain}
+.livecard,.channelcard{width:100%;border:0;background:#1b1b20;color:#fff;border-radius:10px;padding:9px;text-align:left;display:flex;gap:9px;align-items:center;cursor:pointer}.livecard:hover,.channelcard:hover{background:#222228}.livecard.active,.channelcard.active{outline:2px solid #25f4ee;background:#202026}.avatar{width:46px;height:46px;border-radius:50%;object-fit:cover;background:#2a2a2f;flex:0 0 auto}.meta{min-width:0}.name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sub{font-size:12px;color:#aaa;margin-top:3px}.pill{display:inline-block;margin-top:6px;background:#fe2c55;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:800}.channelstatus{margin-left:auto;font-size:10px;color:#8f8f98}
+.empty{color:#999;padding:14px 6px;text-align:center}.videos{display:grid;gap:6px;max-height:calc(100vh - 150px);overflow:auto;overscroll-behavior:contain}.videoitem{width:100%;border:0;display:grid;grid-template-columns:66px minmax(0,1fr);gap:9px;align-items:center;padding:7px;border-radius:9px;background:#1b1b20;color:#fff;text-align:left;cursor:pointer}.videoitem.active{outline:2px solid #fe2c55;background:#242429}.thumb{width:66px;height:88px;object-fit:cover;border-radius:7px;background:#29292f}.vtitle{font-size:13px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.vmeta{font-size:11px;color:#aaa;margin-top:4px}.player{position:relative;background:#000;border-radius:14px;overflow:hidden;height:clamp(430px,72vh,720px);touch-action:pan-x;overscroll-behavior:contain;user-select:none}
+.mediaframe{position:absolute;inset:12px 74px 12px 12px;border-radius:12px;overflow:hidden;background:#000;display:grid;place-items:center;transition:left .18s,right .18s,width .18s,transform .18s}
+.player.shape-portrait .mediaframe{top:12px;bottom:12px;left:50%;right:auto;width:min(52%,430px);transform:translateX(-50%)}
+.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:12px 74px 12px 12px;width:auto;transform:none}
+.livebadge{position:absolute;left:18px;top:18px;z-index:5;background:#fe2c55;color:#fff;border-radius:5px;padding:5px 8px;font-size:11px;font-weight:900;display:none}.player.mode-live .livebadge{display:block}
 video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fit:contain}
 .actionrail{position:absolute;right:14px;bottom:26px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:13px}
 .actionbtn{width:48px;height:48px;border:0;border-radius:50%;background:#252529;color:#fff;display:grid;place-items:center;font-size:22px;cursor:pointer;box-shadow:0 3px 14px #0008}
@@ -29,17 +35,24 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 .gesturehint{position:absolute;left:50%;top:16px;transform:translateX(-50%);z-index:3;padding:5px 10px;border-radius:999px;background:#0008;color:#ddd;font-size:11px;opacity:0;transition:opacity .18s;pointer-events:none}
 .player.gesture .gesturehint{opacity:1}
 .streamrow{margin-top:8px;display:flex;gap:6px}.streamrow input{flex:1;min-width:0;border:1px solid #34343a;border-radius:8px;background:#19191d;color:#ddd;padding:7px 8px;font-size:11px}.streamrow button{border:1px solid #34343a;background:#1b1b20;color:#fff;border-radius:8px;padding:0 10px;cursor:pointer}.now{padding:7px 2px 0;font-size:12px;color:#aaa;min-height:24px}
+@media(max-width:1180px) and (min-width:761px){
+  .grid{grid-template-columns:minmax(230px,280px) minmax(0,1fr);grid-template-areas:"source player" "videos player"}
+  .videos{max-height:38vh}
+}
 @media(max-width:760px){
-  .grid{grid-template-columns:1fr}
+  .page{padding:8px}
+  .grid{grid-template-columns:1fr;grid-template-areas:"player" "source" "videos"}
+  .playerpanel{position:static}.leftstack{grid-template-columns:1fr 1fr}.listbody{max-height:240px}.videos{max-height:none}
   .player{height:min(76vh,720px);min-height:440px;max-height:none;border-radius:0;margin:0 -8px}
-  .mediaframe{inset:0}
+  .mediaframe,.player.shape-portrait .mediaframe,.player.shape-landscape .mediaframe,.player.shape-auto .mediaframe{inset:0;width:auto;transform:none;border-radius:0}
   .actionrail{right:10px;bottom:22px}
   .navrail{right:10px;top:48%}
   .caption{left:14px;right:78px;bottom:18px}
-  .gesturehint{top:10px}
+  .gesturehint{top:10px}.livebadge{left:10px;top:10px}
   .streamrow{display:none}
   .search{gap:6px}.search button{padding:0 14px}
 }
+@media(max-width:520px){.leftstack{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -53,17 +66,26 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 <div class="page">
   <div class="status" id="status">Dán link LIVE rồi bấm Kiểm tra.</div>
   <div class="grid">
-    <section class="panel">
-      <div class="head">Kênh / LIVE</div>
-      <div class="body" id="liveBox"><div class="empty">Chưa kiểm tra.</div></div>
-      <div class="head">Video gần nhất</div>
+    <div class="leftstack">
+      <section class="panel">
+        <div class="head"><span>Đang LIVE</span><span class="headbadge" id="liveCount">0</span></div>
+        <div class="body listbody" id="liveBox"><div class="empty">Chưa có LIVE.</div></div>
+      </section>
+      <section class="panel">
+        <div class="head"><span>Kênh</span><span class="headbadge" id="channelCount">0</span></div>
+        <div class="body listbody" id="channelsBox"><div class="empty">Chưa mở kênh.</div></div>
+      </section>
+    </div>
+    <section class="panel videopanel">
+      <div class="head"><span>Danh sách video</span><span class="headbadge" id="videoCount">0</span></div>
       <div class="body" id="videosBox"><div class="empty">Chưa tải video.</div></div>
     </section>
-    <section class="panel">
-      <div class="head">Player LIVE / Video</div>
+    <section class="panel playerpanel">
+      <div class="head"><span id="playerKind">Media</span><span class="headbadge" id="playerShape">Chưa phát</span></div>
       <div class="body">
-        <div class="player" id="playerStage">
+        <div class="player shape-auto" id="playerStage">
   <div class="mediaframe"><video id="video" playsinline controls></video></div>
+  <div class="livebadge">LIVE</div>
   <div class="gesturehint">Vuốt / cuộn để chuyển video</div>
   <div class="navrail">
     <button class="navbtn" type="button" id="prevMedia" aria-label="Video trước">↑</button>
@@ -97,7 +119,13 @@ const form=document.getElementById("form");
 const input=document.getElementById("input");
 const statusEl=document.getElementById("status");
 const liveBox=document.getElementById("liveBox");
+const channelsBox=document.getElementById("channelsBox");
 const videosBox=document.getElementById("videosBox");
+const liveCount=document.getElementById("liveCount");
+const channelCount=document.getElementById("channelCount");
+const videoCount=document.getElementById("videoCount");
+const playerKind=document.getElementById("playerKind");
+const playerShape=document.getElementById("playerShape");
 const video=document.getElementById("video");
 const streamUrlEl=document.getElementById("streamUrl");
 const copyBtn=document.getElementById("copyBtn");
@@ -127,6 +155,8 @@ let currentVideoIndex=-1;
 let currentMediaMode="idle";
 let wheelLocked=false;
 let touchStartY=null;
+const sessionChannels=new Map();
+const sessionLiveStates=new Map();
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]))}
 function compactCount(v){
@@ -140,6 +170,80 @@ function firstNumber(...vals){
   for(const v of vals){const n=Number(v);if(Number.isFinite(n)&&n>0)return n}
   return 0;
 }
+function avatarUrl(profile){
+  return String(profile?.avatar?.url||profile?.avatar||"");
+}
+function rememberChannel(h,profile={}){
+  h=String(h||"").replace(/^@/,"");
+  if(!h)return;
+  const prev=sessionChannels.get(h)||{};
+  const next={
+    handle:h,
+    name:String(profile?.name||prev.name||("@"+h)),
+    avatar:avatarUrl(profile)||prev.avatar||""
+  };
+  sessionChannels.delete(h);
+  sessionChannels.set(h,next);
+  while(sessionChannels.size>12)sessionChannels.delete(sessionChannels.keys().next().value);
+  renderChannels();
+}
+function renderChannels(){
+  const rows=[...sessionChannels.values()].reverse();
+  channelCount.textContent=String(rows.length);
+  if(!rows.length){channelsBox.innerHTML='<div class="empty">Chưa mở kênh.</div>';return}
+  channelsBox.innerHTML=rows.map(row=>
+    '<button type="button" class="channelcard'+(row.handle===handle?' active':'')+'" data-channel="'+esc(row.handle)+'">'+
+      (row.avatar?'<img class="avatar" src="'+esc(row.avatar)+'" alt="">':'<div class="avatar"></div>')+
+      '<div class="meta"><div class="name">'+esc(row.name)+'</div><div class="sub">@'+esc(row.handle)+'</div></div>'+
+      '<span class="channelstatus">'+(sessionLiveStates.has(row.handle)?'LIVE':'')+'</span></button>'
+  ).join("");
+  channelsBox.querySelectorAll("[data-channel]").forEach(btn=>btn.addEventListener("click",()=>{
+    const h=btn.dataset.channel||"";
+    if(!h||h===handle)return;
+    input.value="https://www.tiktok.com/@"+h+"/live";
+    checkLive(h);
+  }));
+}
+function renderLiveList(){
+  const rows=[...sessionLiveStates.entries()].map(([h,state])=>({h,state})).reverse();
+  liveCount.textContent=String(rows.length);
+  if(!rows.length){liveBox.innerHTML='<div class="empty">Chưa có LIVE.</div>';renderChannels();return}
+  liveBox.innerHTML=rows.map(({h,state})=>{
+    const ch=sessionChannels.get(h)||{};
+    const avatar=String(state?.avatar||ch.avatar||"");
+    const name=String(state?.sourceName||ch.name||("@"+h));
+    const viewer=Number(state?.viewerCount||0);
+    return '<button type="button" class="livecard'+(h===handle&&currentMediaMode==="live"?' active':'')+'" data-live-h="'+esc(h)+'">'+
+      (avatar?'<img class="avatar" src="'+esc(avatar)+'" alt="">':'<div class="avatar"></div>')+
+      '<div class="meta"><div class="name">'+esc(name)+'</div><div class="sub">@'+esc(h)+(viewer?' · '+compactCount(viewer)+' đang xem':'')+'</div><span class="pill">LIVE</span></div></button>';
+  }).join("");
+  liveBox.querySelectorAll("[data-live-h]").forEach(btn=>btn.addEventListener("click",()=>{
+    const h=btn.dataset.liveH||"";
+    if(!h)return;
+    if(h===handle){replayLive();return}
+    input.value="https://www.tiktok.com/@"+h+"/live";
+    checkLive(h);
+  }));
+  renderChannels();
+}
+function applyMediaShape(width,height){
+  const w=Number(width||0),h=Number(height||0);
+  playerStage.classList.remove("shape-portrait","shape-landscape","shape-auto");
+  if(w>0&&h>0){
+    const portrait=h>w;
+    playerStage.classList.add(portrait?"shape-portrait":"shape-landscape");
+    playerShape.textContent=portrait?"Video dọc":"Video ngang";
+  }else{
+    playerStage.classList.add("shape-auto");
+    playerShape.textContent=currentMediaMode==="live"?"LIVE · chờ tỷ lệ":"Đang xác định";
+  }
+}
+function rowDimensions(row){
+  return {
+    width:firstNumber(row?.width,row?.videoWidth,row?.video_width,row?.stats?.width),
+    height:firstNumber(row?.height,row?.videoHeight,row?.video_height,row?.stats?.height)
+  };
+}
 function updateNav(){
   const vod=currentMediaMode==="vod"&&currentVideos.length>0;
   prevMedia.disabled=!vod||currentVideoIndex<=0;
@@ -147,6 +251,10 @@ function updateNav(){
 }
 function setMediaChrome(row,mode="vod"){
   currentMediaMode=mode;
+  playerStage.classList.toggle("mode-live",mode==="live");
+  playerKind.textContent=mode==="live"?"Video LIVE":mode==="vod"?"Video":"Media";
+  const dims=rowDimensions(row);
+  applyMediaShape(dims.width,dims.height);
   const profile=currentChannelLibrary?.profile||{};
   const h=String(row?.handle||handle||"").replace(/^@/,"");
   const avatar=String(row?.avatar||profile?.avatar?.url||"");
@@ -188,35 +296,24 @@ async function getJson(url,timeout=15000){
     clearTimeout(timer);
   }
 }
-function renderState(state){
+function renderState(state,stateHandle=handle){
+  const h=String(stateHandle||handle||"").replace(/^@/,"");
   const live=Number(state?.status)===2;
   const playable=Boolean(live&&(state?.streamUrl||state?.hlsUrl));
-  if(playable){
-    currentLiveState=state;
-    currentLiveStateAt=Date.now();
-  }else if(!live){
-    currentLiveState=null;
-    currentLiveStateAt=0;
+  if(h===handle){
+    if(playable){
+      currentLiveState=state;
+      currentLiveStateAt=Date.now();
+    }else if(!live){
+      currentLiveState=null;
+      currentLiveStateAt=0;
+    }
   }
-
-  const profile=currentChannelLibrary?.profile||{};
-  const avatar=String(state?.avatar||profile?.avatar?.url||"");
-  const name=String(state?.sourceName||profile?.name||("@"+handle));
-  const viewer=Number(state?.viewerCount||0);
-  liveBox.innerHTML=
-    '<button type="button" class="livecard" id="liveReplay"'+(playable?'':' disabled')+'>'+
-      (avatar?'<img class="avatar" src="'+esc(avatar)+'" alt="">':'<div class="avatar"></div>')+
-      '<div class="meta"><div class="name">'+esc(name)+'</div>'+
-      '<div class="sub">@'+esc(handle)+(viewer?" · "+viewer+" người xem":"")+'</div>'+
-      (live
-        ? '<span class="pill">LIVE</span><div class="sub">Bấm để quay lại LIVE</div>'
-        : '<div class="sub">Không có LIVE đang phát</div>')+
-      '</div></button>';
-
-  const liveReplay=document.getElementById("liveReplay");
-  if(playable&&liveReplay){
-    liveReplay.addEventListener("click",()=>replayLive());
-  }
+  const profile=h===handle?(currentChannelLibrary?.profile||{}):(sessionChannels.get(h)||{});
+  rememberChannel(h,profile);
+  if(playable)sessionLiveStates.set(h,{...state,handle:h});
+  else if(!live)sessionLiveStates.delete(h);
+  renderLiveList();
 }
 async function playLive(state){
   stopPlayer();
@@ -268,7 +365,7 @@ async function refreshLiveState(h){
     EDGE+"/lookup?user="+encodeURIComponent(h)+"&t="+Date.now(),
     15000
   ).then(state=>{
-    renderState(state);
+    renderState(state,h);
     return state;
   }).finally(()=>{
     liveRefreshPromise=null;
@@ -301,6 +398,7 @@ async function replayLive(){
 function renderVideos(rows){
   const videos=Array.isArray(rows)?rows:[];
   currentVideos=videos;
+  videoCount.textContent=String(videos.length);
   if(currentMediaMode==="vod"&&currentVideoIndex>=videos.length)currentVideoIndex=-1;
   updateNav();
   if(!videos.length){
@@ -498,6 +596,7 @@ async function loadChannelLibrary(h){
     throw new Error(String(data?.error||"Không lấy được thư viện kênh"));
   }
   currentChannelLibrary=data.channel;
+  rememberChannel(h,data.channel.profile||{});
   const videos=Array.isArray(data.channel.videos)?data.channel.videos:[];
   renderVideos(videos);
   return {
@@ -532,6 +631,7 @@ async function checkLive(raw){
   }
 
   handle=h;
+  rememberChannel(h,{name:"@"+h});
   currentLiveState=null;
   currentLiveStateAt=0;
   currentChannelLibrary=null;
@@ -543,7 +643,8 @@ async function checkLive(raw){
   vodLinkCache.clear();
   stopPlayer();
   streamUrlEl.value="";
-  liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
+  renderChannels();
+  if(!sessionLiveStates.size)liveBox.innerHTML='<div class="empty">Đang kiểm tra LIVE @'+esc(h)+'…</div>';
   videosBox.className="body";
   videosBox.innerHTML='<div class="empty">Đang đọc thư viện kênh…</div>';
   statusEl.textContent="@"+h+" · đang đọc thư viện và kiểm tra LIVE…";
@@ -560,7 +661,8 @@ async function checkLive(raw){
     })
     .catch(error=>{
       liveText="LIVE lỗi";
-      liveBox.innerHTML='<div class="empty">Không lấy được LIVE.</div>';
+      sessionLiveStates.delete(h);
+      renderLiveList();
       updateStatus();
       console.warn("LIVE lookup",error);
     });
@@ -568,7 +670,7 @@ async function checkLive(raw){
   const videoTask=loadChannelLibrary(h)
     .then(result=>{
       videoText=result.count?(result.count+" video thư viện"):"không có video";
-      if(currentLiveState)renderState(currentLiveState);
+      if(currentLiveState)renderState(currentLiveState,h);
       updateStatus();
     })
     .catch(error=>{
@@ -583,6 +685,9 @@ async function checkLive(raw){
 form.addEventListener("submit",e=>{
   e.preventDefault();
   checkLive(input.value);
+});
+video.addEventListener("loadedmetadata",()=>{
+  applyMediaShape(video.videoWidth,video.videoHeight);
 });
 copyBtn.addEventListener("click",async()=>{
   const url=streamUrlEl.value.trim();
