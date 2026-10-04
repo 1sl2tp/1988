@@ -1,4 +1,5 @@
 const RENDER_API = "https://one988-tiktok-session.onrender.com";
+const TIKTOK_MAINTENANCE = true;
 const SNAPSHOT_KEY = "tiktok:live:snapshot";
 const VIDEO_SNAPSHOT_KEY = "tiktok:video:fingerprint";
 const BATCH_SIZE = 40;
@@ -3414,7 +3415,8 @@ export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
     const url = new URL(request.url);
-    if (url.pathname === "/health") return json({ ok: true, service: "1988-tiktok-live-state" });
+    if (url.pathname === "/health") return json({ ok: true, paused:TIKTOK_MAINTENANCE, service: "1988-tiktok-live-state" });
+    if (TIKTOK_MAINTENANCE) return json({ ok:false, paused:true, error:"tiktok_temporarily_paused" },503);
     if (url.pathname === "/state") return json({ ok: true, ...(await loadSnapshot(env)) });
     if (url.pathname === "/tiktok/live-now") return json(await liveNow(env));
     if (url.pathname === "/tiktok/video-origin" && request.method === "GET")
