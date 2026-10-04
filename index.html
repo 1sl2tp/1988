@@ -4407,7 +4407,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   const STARTUP_SCOPE="latest";
   let activePackageScope=STARTUP_SCOPE;
   let startupLandingActive=true;
-  let startupLivePreloadPromise=null;
   let activePlatformNav="";
   let youtubePlatformRows=[];
   const TIKTOK_PLATFORM_ROWS=[
@@ -8055,73 +8054,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       if(after&&after!==before)return true;
     }
     return false;
-  }
-
-  async function preloadStartupLiveLists(){
-    if(startupLivePreloadPromise)return startupLivePreloadPromise;
-
-    startupLivePreloadPromise=(async()=>{
-      // The current committed LIVE package must become readable first. Rebuild
-      // is a separate background step and must never hold the first LIVE paint.
-      await ensurePreparedPackageReady("live").catch(()=>[]);
-
-      if(liveDemandActive("youtube")){
-        paintSyncedPackage("live",packageCache.get("live")||[]);
-      }
-
-      livePackageLastWakeAt=Date.now();
-      await syncPreparedScopeAfterWake("live",[1200,3200,7000,14000],{wake:false});
-
-      if(liveDemandActive("youtube")){
-        paintSyncedPackage("live",packageCache.get("live")||[]);
-      }
-      return true;
-    })().finally(()=>{
-      startupLivePreloadPromise=null;
-      scheduleLiveBackgroundRefresh();
-    });
-    return startupLivePreloadPromise;
-  }
-
-  function scheduleLiveBackgroundRefresh(delay=LIVE_BACKGROUND_REFRESH_MS){
-    clearTimeout(liveBackgroundTimer);
-    liveBackgroundTimer=0;
-    if(!liveDemandActive())return false;
-
-    const provider=activeLiveProvider();
-    liveBackgroundTimer=setTimeout(async()=>{
-      if(!liveDemandActive(provider)){
-        liveBackgroundTimer=0;
-        return;
-      }
-
-      // Cheap sync is allowed only while LIVE is visible. YouTube still renders
-      // only its prepared Supabase package; TikTok reads its edge snapshot.
-      if(provider==="youtube"){
-        await loadPackageManifest();
-        await syncPreparedPackages(["live"]);
-      }
-
-      // Discovery is demand-only: no open LIVE tab means no scan. A visible
-      // LIVE tab may start one shared logical scan about once per minute.
-      if(Date.now()-liveDiscoveryLastAt>=LIVE_DISCOVERY_MIN_GAP_MS){
-        await refreshUnifiedLiveInBackground({
-          force:true,
-          reason:"visible-live",
-          provider
-        });
-      }
-
-      if(liveDemandActive(provider))scheduleLiveBackgroundRefresh();
-      else liveBackgroundTimer=0;
-    },Math.max(1_000,Number(delay)||LIVE_BACKGROUND_REFRESH_MS));
-    return true;
-  }
-
-  function scheduleStartupLivePreload(){
-    requestAnimationFrame(()=>{
-      setTimeout(()=>{ void preloadStartupLiveLists(); },0);
-    });
   }
 
   async function hydrateUnifiedLiveSnapshots({paint=true,provider=activeLiveProvider()}={}){
