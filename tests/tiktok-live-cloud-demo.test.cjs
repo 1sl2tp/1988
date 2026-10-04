@@ -89,8 +89,9 @@ assert.match(demo,/let currentChannelLibrary=null/);
 assert.match(demo,/currentChannelLibrary\?\.profile/);
 assert.match(demo,/result\.count\+\" video thư viện\"/);
 
-assert.match(demo,/const cached=sessionLiveStates\.get\(h\)\|\|null/);
-assert.match(demo,/cached&&\(cached\.streamUrl\|\|cached\.hlsUrl\)/);
+assert.match(demo,/const state=sessionLiveStates\.get\(h\)\|\|null/);
+assert.match(demo,/state\.streamUrl\|\|state\.hlsUrl/);
+assert.match(demo,/openCachedLive\(h,\{userGesture:true\}\)/);
 assert.match(demo,/const retained=sessionLiveStates\.get\(h\)\|\|null/);
 assert.match(demo,/retained&&\(retained\.streamUrl\|\|retained\.hlsUrl\)/);
 
@@ -124,7 +125,7 @@ assert.match(demo,/\.videopanel\{grid-area:videos\}/);
 assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
 assert.match(demo,/aria-label="Thích"><svg/);
 
-assert.match(demo,/mobile-live-feed-v6/);
+assert.match(demo,/mobile-live-feed-v6a/);
 assert.match(demo,/\.leftstack,\.videopanel\{display:none!important\}/);
 assert.match(demo,/height:100dvh!important/);
 assert.match(demo,/function liveFeedRows\(\)/);
