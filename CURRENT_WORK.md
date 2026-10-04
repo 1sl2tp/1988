@@ -259,6 +259,26 @@ Thời gian: **2026-10-04**.
 - Data impact: none. Không thêm polling/cache/write/network.
 - Rollback UI: `393ea263606039556ffc92dd5d7f88c0e5f5c6d4`.
 
+
+## 2.0.13. TikTok mobile — mặc định full-screen LIVE + vuốt đổi kênh
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI; không đổi Cloudflare/Render/Supabase/data flow.
+- Yêu cầu: trên mobile mở trang là vào bề mặt LIVE toàn màn hình; LIVE là mặc định; vuốt lên/xuống đổi kênh trực tiếp giống TikTok.
+- Mobile `<=760px`: player fixed `100dvh`, nền đen full viewport; danh sách LIVE/kênh/video không chiếm màn hình; thanh mở/thêm kênh overlay phía trên; safe-area bottom áp cho caption/action rail.
+- Sau khi `/tiktok/live-now` trả danh sách playable đầu tiên, mobile tự mở LIVE đầu tiên một lần. Autoplay đầu tiên dùng muted để phù hợp browser policy; chạm player bật tiếng.
+- Swipe dọc trên mobile khi đang LIVE gọi `moveLive()`, chuyển giữa các item playable đã có trong snapshot. Không resolver lại link khi vuốt.
+- Nút ↑/↓ và keyboard dùng `moveMedia()` để chuyển đúng loại đang xem; VOD vẫn dùng logic cũ.
+- Click LIVE cached cũng phát trực tiếp retained URL; bỏ `loadChannelLibrary + refreshLiveState` khỏi click path để không tạo lookup/resolver mới chỉ vì xem.
+- Nếu snapshot cập nhật mà LIVE đang xem biến mất khỏi membership hiện tại, mobile chuyển sang LIVE playable đầu tiên còn lại.
+- Native controls tắt trên mobile LIVE để giao diện sạch; desktop vẫn giữ controls. Chạm video mobile bật tiếng/phát lại nếu đang pause.
+- Trong lúc deploy lần đầu, 2 custom runs fail vì **contract test cũ** (`cached` click assertion rồi marker `tiktok-feed-shell-v5`), không phải syntax/runtime code. Theo rule 2 fail → đã rollback về last-known-good commit `262841e72b5ee11ffb441df52a0c2a1cb8442b92`, deploy rollback `37170527051` SUCCESS, sau đó làm lại patch + contract sạch trong một commit.
+- Final code commit: `4193cb3c04b883903472d39af205601a533ca896`.
+- Deploy final run: `37170613463` (frontend contracts PASS; chờ/đã verify ở production trước khi docs commit).
+- Data impact: none. Không thêm polling, sweep, writer, cache hay media proxy.
+- Rollback UI: `262841e72b5ee11ffb441df52a0c2a1cb8442b92`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

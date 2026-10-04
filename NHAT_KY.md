@@ -1,3 +1,13 @@
+## 2026-10-04 — TikTok mobile full-screen LIVE feed
+
+- Mobile mở player full `100dvh`, LIVE là nội dung mặc định; source/video lists ẩn khỏi viewport mobile.
+- Snapshot playable có item đầu tiên → tự mở LIVE đầu tiên; autoplay muted, chạm bật tiếng.
+- Vuốt lên/xuống chuyển LIVE bằng cached retained URLs, không refresh/resolver lại từng swipe.
+- Click LIVE cached không còn load channel library/refresh live link.
+- Hai deploy đầu fail vì stale frontend contract; đã rollback last-known-good `262841e72b5ee11ffb441df52a0c2a1cb8442b92` (run `37170527051` SUCCESS) rồi làm lại clean patch.
+- Final commit `4193cb3c04b883903472d39af205601a533ca896`; final run `37170613463`.
+- Không đổi backend/data/polling; rollback `262841e72b5ee11ffb441df52a0c2a1cb8442b92`.
+
 ## 2026-10-04 — TikTok demo chuyển sang feed-style giống TikTok
 
 - Desktop: source trái, media trung tâm, danh sách video phải; media là phần lớn nhất.
