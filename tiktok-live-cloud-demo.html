@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0b0d">
-<title>TikTok LIVE Direct Demo</title>
+<title>TikTok Direct Demo</title>
 <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"></script>
 <style>
 *{box-sizing:border-box}html,body{margin:0;background:#0b0b0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}
@@ -58,17 +58,17 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 <!-- local-video-player-contract -->
 <div class="top">
   <form class="search" id="form">
-    <input id="input" value="https://www.tiktok.com/@tu.thuong_lay_minh_1/live" placeholder="Dán link TikTok LIVE...">
+    <input id="input" value="https://www.tiktok.com/@tu.thuong_lay_minh_1/live" placeholder="Dán link TikTok...">
     <button>Kiểm tra</button>
   </form>
 </div>
 <div class="page">
-  <div class="status" id="status">Dán link LIVE rồi bấm Kiểm tra.</div>
+  <div class="status" id="status">Dán link TikTok rồi bấm Kiểm tra.</div>
   <div class="grid">
     <div class="leftstack">
       <section class="panel">
         <div class="head"><span>Đang phát</span><span class="headbadge" id="liveCount">0</span></div>
-        <div class="body listbody" id="liveBox"><div class="empty">Chưa có LIVE.</div></div>
+        <div class="body listbody" id="liveBox"><div class="empty">Chưa có kênh đang phát.</div></div>
       </section>
       <section class="panel">
         <div class="head"><span>Kênh</span><span class="headbadge" id="channelCount">0</span></div>
@@ -99,11 +99,11 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
   </div>
   <div class="caption">
     <div class="ctitle" id="mediaTitle">Chưa có media</div>
-    <div class="csub" id="mediaSub">Chọn LIVE hoặc video để phát</div>
+    <div class="csub" id="mediaSub">Chọn trực tiếp hoặc video để phát</div>
   </div>
 </div>
         <div class="streamrow">
-          <input id="streamUrl" readonly placeholder="Link phát LIVE sẽ hiện ở đây">
+          <input id="streamUrl" readonly placeholder="Link phát trực tiếp sẽ hiện ở đây">
           <button type="button" id="copyBtn">Sao chép</button>
         </div>
         <div class="now" id="now">Chưa có link phát.</div>
@@ -208,7 +208,7 @@ function renderChannels(){
 function renderLiveList(){
   const rows=[...sessionLiveStates.entries()].map(([h,state])=>({h,state})).reverse();
   liveCount.textContent=String(rows.length);
-  if(!rows.length){liveBox.innerHTML='<div class="empty">Chưa có LIVE.</div>';renderChannels();return}
+  if(!rows.length){liveBox.innerHTML='<div class="empty">Chưa có kênh đang phát.</div>';renderChannels();return}
   liveBox.innerHTML=rows.map(({h,state})=>{
     const ch=sessionChannels.get(h)||{};
     const avatar=String(state?.avatar||ch.avatar||"");
@@ -395,7 +395,7 @@ async function replayLive(){
     }
     nowEl.textContent="Kênh hiện không phát trực tiếp.";
   }catch(error){
-    nowEl.textContent="Không làm mới được LIVE: "+String(error?.message||error);
+    nowEl.textContent="Không làm mới được trực tiếp: "+String(error?.message||error);
   }
   return false;
 }
@@ -637,7 +637,7 @@ async function loadInitialCatalog(){
     }
     renderLiveList();
   }else{
-    liveBox.innerHTML='<div class="empty">Chưa đọc được trạng thái LIVE.</div>';
+    liveBox.innerHTML='<div class="empty">Chưa đọc được trạng thái trực tiếp.</div>';
   }
 
   const channelTotal=sessionChannels.size;
