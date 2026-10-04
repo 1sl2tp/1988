@@ -260,3 +260,19 @@ const liveStoredRowsStart=server.indexOf('function buildTikTokStoredRows()');
 const liveStoredRowsEnd=server.indexOf('async function persistTikTokLiveStore',liveStoredRowsStart);
 const liveStoredRowsBlock=server.slice(liveStoredRowsStart,liveStoredRowsEnd);
 assert.doesNotMatch(liveStoredRowsBlock,/selected:true/,'LIVE row must not duplicate canonical selected membership');
+
+
+const channelBuilderStart=server.indexOf('function buildTikTokCanonicalChannel(');
+assert.ok(channelBuilderStart>=0,'one-channel canonical package builder missing');
+assert.match(server,/schema:'tiktok-channel-v1'/,
+  'channel-open response must have a small one-channel contract');
+assert.match(server,/void queueTikTokChannelOpenRefresh\(requestedHandle\)/,
+  'opening a channel must queue only targeted refresh work');
+assert.match(server,/const TIKTOK_CHANNEL_OPEN_REFRESH_MS=60_000/,
+  'channel-open refresh must be rate-limited');
+assert.match(server,/await queueTikTokEdgeVideoRefresh\(handle,\{forceDeep:false\}\)/,
+  'channel-open video refresh must start with the cheap fingerprint path');
+assert.doesNotMatch(server,/images:'current-reference-only-with-orphan-cleanup'/,
+  'retired Supabase image mirror must not remain in the package contract');
+assert.match(server,/images:'origin-url-only'/,
+  'TikTok package must expose origin image URLs only');

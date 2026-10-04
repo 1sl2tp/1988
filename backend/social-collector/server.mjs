@@ -7817,79 +7817,77 @@ function canonicalPackageVideo(row){
     }
   };
 }
+function buildTikTokCanonicalChannel(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return null;
+  const key=handle.toLowerCase();
+  const row=tiktokCanonicalChannels.get(key);
+  if(!row||row.selected===false)return null;
+
+  const avatarSource=String(row.avatar_source_url||'');
+  const liveRow=tiktokLiveLibrary.get(key)||{};
+  const isLive=tiktokPublishedLiveNow(handle,Date.now(),liveRow);
+  const liveSource=isLive?currentTikTokLibrarySource(handle):null;
+  const liveType=String(liveSource?.type||'').toLowerCase();
+  const playable=Boolean(
+    isLive&&liveSource?.url&&liveType==='flv'&&tiktokLiveSourceUsable(liveSource)
+  );
+  const liveCover=String(liveRow.thumbnail||liveRow.cover||'');
+  const videos=[...tiktokCanonicalVideos.values()]
+    .filter(video=>String(video?.handle||'').toLowerCase()===key)
+    .sort((a,b)=>
+      Number(b.create_time||0)-Number(a.create_time||0)||
+      String(b.video_id||'').localeCompare(String(a.video_id||''))
+    )
+    .slice(0,TIKTOK_LIBRARY_RECENT_VIDEOS)
+    .map(canonicalPackageVideo);
+
+  return {
+    handle,
+    profile:{
+      userId:String(row.user_id||''),
+      secUid:String(row.sec_uid||''),
+      name:String(row.display_name||''),
+      bio:String(row.bio||''),
+      verified:Boolean(row.verified),
+      avatar:{
+        url:avatarSource,
+        sourceUrl:avatarSource,
+        storedUrl:'',
+        width:Number(row.avatar_width||0),
+        height:Number(row.avatar_height||0)
+      },
+      followers:Number(row.follower_count||0),
+      following:Number(row.following_count||0),
+      likes:Number(row.heart_count||0),
+      videoCount:Number(row.video_count||0),
+      source:String(row.profile_source||''),
+      checkedAt:row.profile_checked_at||null
+    },
+    live:{
+      isLive,
+      playable,
+      title:String(liveRow.title||''),
+      cover:{url:liveCover,sourceUrl:liveCover,storedUrl:''},
+      stream:{
+        type:playable?'flv':'',
+        sourceSig:playable?tiktokLibrarySourceSig(liveSource):'',
+        url:playable?String(liveSource.url||''):'',
+        proxyUrl:''
+      },
+      checkedAt:liveRow.lastSeenAt?new Date(Number(liveRow.lastSeenAt)).toISOString():null,
+      updatedAt:liveRow.stateChangedAt?new Date(Number(liveRow.stateChangedAt)).toISOString():null
+    },
+    videos
+  };
+}
+
 function buildTikTokCanonicalPackage(){
   const selected=new Set([...tiktokLiveSelectedHandles].map(x=>String(x).toLowerCase()));
-  const videosByHandle=new Map();
-  for(const row of tiktokCanonicalVideos.values()){
-    const key=String(row.handle||'').toLowerCase();
-    if(!videosByHandle.has(key))videosByHandle.set(key,[]);
-    videosByHandle.get(key).push(row);
-  }
-  for(const rows of videosByHandle.values()){
-    rows.sort((a,b)=>Number(b.create_time||0)-Number(a.create_time||0)||String(b.video_id).localeCompare(String(a.video_id)));
-  }
-
   const channels=[...tiktokCanonicalChannels.values()]
     .filter(row=>row.selected!==false&&(!selected.size||selected.has(String(row.handle||'').toLowerCase())))
-    .map(row=>{
-      const handle=String(row.handle||'');
-      const key=handle.toLowerCase();
-      const avatarSource=String(row.avatar_source_url||'');
-      const avatarStored=String(row.avatar_stored_url||'');
-      const liveRow=tiktokLiveLibrary.get(key)||{};
-      const isLive=tiktokPublishedLiveNow(handle,Date.now(),liveRow);
-      const liveSource=isLive?currentTikTokLibrarySource(handle):null;
-      const liveType=String(liveSource?.type||'').toLowerCase();
-      const playable=Boolean(
-        isLive&&liveSource?.url&&liveType==='flv'&&tiktokLiveSourceUsable(liveSource)
-      );
-      const liveCover=String(liveRow.thumbnail||liveRow.cover||'');
-      const recent=(videosByHandle.get(key)||[])
-        .slice(0,TIKTOK_LIBRARY_RECENT_VIDEOS)
-        .map(canonicalPackageVideo);
-      return {
-        handle,
-        profile:{
-          userId:String(row.user_id||''),
-          secUid:String(row.sec_uid||''),
-          name:String(row.display_name||''),
-          bio:String(row.bio||''),
-          verified:Boolean(row.verified),
-          avatar:{
-            url:avatarSource||avatarStored,
-            sourceUrl:avatarSource,
-            storedUrl:avatarStored,
-            width:Number(row.avatar_width||0),
-            height:Number(row.avatar_height||0)
-          },
-          followers:Number(row.follower_count||0),
-          following:Number(row.following_count||0),
-          likes:Number(row.heart_count||0),
-          videoCount:Number(row.video_count||0),
-          source:String(row.profile_source||''),
-          checkedAt:row.profile_checked_at||null
-        },
-        live:{
-          isLive,
-          playable,
-          title:String(liveRow.title||''),
-          cover:{
-            url:liveCover,
-            sourceUrl:liveCover,
-            storedUrl:''
-          },
-          stream:{
-            type:playable?'flv':'',
-            sourceSig:playable?tiktokLibrarySourceSig(liveSource):'',
-            url:playable?String(liveSource.url||''):'',
-            proxyUrl:''
-          },
-          checkedAt:liveRow.lastSeenAt?new Date(Number(liveRow.lastSeenAt)).toISOString():null,
-          updatedAt:liveRow.stateChangedAt?new Date(Number(liveRow.stateChangedAt)).toISOString():null
-        },
-        videos:recent
-      };
-    })
+    .map(row=>buildTikTokCanonicalChannel(row.handle))
+    .filter(Boolean)
     .sort((a,b)=>Number(b.live.isLive)-Number(a.live.isLive)||a.handle.localeCompare(b.handle));
 
   const material={
@@ -7899,7 +7897,7 @@ function buildTikTokCanonicalPackage(){
       channels:'persistent-until-unselected',
       videos:'latest-10-per-channel',
       liveStream:'edge/transient-not-channel-profile',
-      images:'current-reference-only-with-orphan-cleanup',
+      images:'origin-url-only',
       videoPlayback:'resolved-on-demand-outside-ui-package'
     },
     channels
@@ -7908,15 +7906,8 @@ function buildTikTokCanonicalPackage(){
     schema:material.schema,
     channels:channels.map(ch=>({
       handle:ch.handle,
-      profile:{
-        ...ch.profile,
-        checkedAt:undefined
-      },
-      live:{
-        ...ch.live,
-        checkedAt:undefined,
-        updatedAt:undefined
-      },
+      profile:{...ch.profile,checkedAt:undefined},
+      live:{...ch.live,checkedAt:undefined,updatedAt:undefined},
       videos:ch.videos
     }))
   };
@@ -8366,6 +8357,55 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
   console.log('[tiktok-library] synced','channels='+channelRows.length,'videos='+videoRows.length,'version='+tiktokCanonicalPackageVersion);
   return true;
 }
+const tiktokChannelOpenRefreshAt=new Map();
+const tiktokChannelOpenRefreshInflight=new Map();
+const TIKTOK_CHANNEL_OPEN_REFRESH_MS=60_000;
+
+function queueTikTokChannelOpenRefresh(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle||TIKTOK_UPDATES_PAUSED)return null;
+  const key=handle.toLowerCase();
+  const last=Number(tiktokChannelOpenRefreshAt.get(key)||0);
+  if(Date.now()-last<TIKTOK_CHANNEL_OPEN_REFRESH_MS){
+    return tiktokChannelOpenRefreshInflight.get(key)||null;
+  }
+  if(tiktokChannelOpenRefreshInflight.has(key)){
+    return tiktokChannelOpenRefreshInflight.get(key);
+  }
+
+  tiktokChannelOpenRefreshAt.set(key,Date.now());
+  const task=(async()=>{
+    await queueTikTokEdgeVideoRefresh(handle,{forceDeep:false});
+
+    const row=tiktokCanonicalChannels.get(key)||{};
+    const checked=Date.parse(String(row.profile_checked_at||''))||0;
+    const profileStale=
+      !row.display_name||
+      !row.avatar_source_url||
+      Date.now()-checked>TIKTOK_PROFILE_IDENTITY_TTL_MS;
+
+    if(profileStale){
+      const profile=await fetchTikwmProfileIdentity(handle).catch(()=>null);
+      if(profile){
+        const profiles=new Map([[key,profile]]);
+        tiktokProfileIdentityCache.set(key,{at:Date.now(),data:profile});
+        await syncTikTokCanonicalLibrary([handle],{profiles,mirror:false});
+      }else{
+        await queueTikTokCanonicalSync([handle]);
+      }
+    }else{
+      await queueTikTokCanonicalSync([handle]);
+    }
+    return true;
+  })().catch(error=>{
+    console.warn('[tiktok-channel-open] refresh failed',handle,compactText(error?.message||error,120));
+    return false;
+  }).finally(()=>tiktokChannelOpenRefreshInflight.delete(key));
+
+  tiktokChannelOpenRefreshInflight.set(key,task);
+  return task;
+}
+
 function queueTikTokCanonicalSync(handles=null){
   const list=(handles&&handles.length)?handles:[...tiktokLiveSelectedHandles];
   for(const raw of list){
@@ -10016,6 +10056,45 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/tiktok/library'&&req.method==='GET'){
     try{
+      const requestedHandle=normalizeTikTokHandle(
+        url.searchParams.get('user')||url.searchParams.get('handle')||''
+      );
+
+      if(requestedHandle){
+        let channel=null;
+        let version=0;
+        let generatedAt=null;
+
+        if(TIKTOK_UPDATES_PAUSED){
+          const payload=await loadTikTokFrozenLibraryPackage();
+          channel=(Array.isArray(payload?.channels)?payload.channels:[])
+            .find(row=>String(row?.handle||'').toLowerCase()===requestedHandle.toLowerCase())||null;
+          version=Number(payload?.version||0);
+          generatedAt=payload?.generatedAt||null;
+        }else{
+          await loadTikTokCanonicalStore();
+          channel=buildTikTokCanonicalChannel(requestedHandle);
+          version=Number(tiktokCanonicalPackageVersion||0);
+          generatedAt=new Date(tiktokCanonicalPackageUpdatedAt||Date.now()).toISOString();
+        }
+
+        if(!channel){
+          json(res,404,{ok:false,error:'tiktok_channel_not_found',handle:requestedHandle});
+          return;
+        }
+
+        void queueTikTokChannelOpenRefresh(requestedHandle);
+        json(res,200,{
+          ok:true,
+          schema:'tiktok-channel-v1',
+          handle:requestedHandle,
+          version,
+          generatedAt,
+          channel
+        });
+        return;
+      }
+
       const payload=TIKTOK_UPDATES_PAUSED
         ?await loadTikTokFrozenLibraryPackage()
         :(await loadTikTokCanonicalStore(),buildTikTokCanonicalPackage());
@@ -10032,7 +10111,6 @@ const server=http.createServer(async(req,res)=>{
       }
       json(res,200,{ok:true,unchanged:false,paused:TIKTOK_UPDATES_PAUSED,...payload});
     }catch(error){
-      // Never fall back to a full canonical table scan while paused.
       json(res,502,{ok:false,paused:TIKTOK_UPDATES_PAUSED,error:String(error?.message||error)});
     }
     return;
