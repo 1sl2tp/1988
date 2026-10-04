@@ -89,8 +89,9 @@ assert.match(demo,/let currentChannelLibrary=null/);
 assert.match(demo,/currentChannelLibrary\?\.profile/);
 assert.match(demo,/result\.count\+\" video thư viện\"/);
 
-assert.match(demo,/const cached=sessionLiveStates\.get\(h\)\|\|null/);
-assert.match(demo,/cached&&\(cached\.streamUrl\|\|cached\.hlsUrl\)/);
+assert.match(demo,/const state=sessionLiveStates\.get\(h\)\|\|null/);
+assert.match(demo,/state\.streamUrl\|\|state\.hlsUrl/);
+assert.match(demo,/openCachedLive\(h,\{userGesture:true\}\)/);
 assert.match(demo,/const retained=sessionLiveStates\.get\(h\)\|\|null/);
 assert.match(demo,/retained&&\(retained\.streamUrl\|\|retained\.hlsUrl\)/);
 
@@ -117,9 +118,24 @@ assert.match(demo,/Cập nhật video/);
 assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
 
 assert.match(demo,/class="brand"/);
-assert.match(demo,/tiktok-feed-shell-v5/);
+assert.match(demo,/mobile-live-feed-v6-final/);
 assert.match(demo,/\.player\.shape-portrait\{width:min\(100%,560px\)\}/);
 assert.match(demo,/\.streamrow,\.now\{display:none\}/);
 assert.match(demo,/\.videopanel\{grid-area:videos\}/);
 assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
 assert.match(demo,/aria-label="Thích"><svg/);
+
+assert.match(demo,/mobile-live-feed-v6-final/);
+assert.match(demo,/\.leftstack,\.videopanel\{display:none!important\}/);
+assert.match(demo,/height:100dvh!important/);
+assert.match(demo,/function liveFeedRows\(\)/);
+assert.match(demo,/async function openCachedLive\(rawHandle,\{userGesture=false\}=\{\}\)/);
+assert.match(demo,/function moveLive\(delta\)/);
+assert.match(demo,/function moveMedia\(delta\)/);
+assert.match(demo,/if\(isMobileFeed\(\)&&currentMediaMode==="live"\)moveLive/);
+assert.match(demo,/mobileLivePrimed/);
+assert.match(demo,/queueMicrotask\(\(\)=>openCachedLive\(first,\{userGesture:false\}\)\)/);
+assert.match(demo,/video\.controls=!isMobileFeed\(\)/);
+assert.match(demo,/video\.muted=Boolean\(mutedAutoplay\)/);
+assert.match(demo,/Vuốt lên \/ xuống để chuyển trực tiếp/);
+assert.doesNotMatch(demo,/loadChannelLibrary\(h\)\.catch\(\(\)=>\{\}\);\s*refreshLiveState\(h\)/);
