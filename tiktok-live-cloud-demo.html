@@ -650,13 +650,14 @@ function renderCatalogLatestVideos(){
   return latest;
 }
 
-async function setChannelSelected(rawHandle,selected){
+async function setChannelSelected(rawHandle,selected,sourceUrl=""){
   const h=parseHandle(rawHandle);
   if(!h)throw new Error("Link hoặc tên kênh TikTok không hợp lệ.");
+  const evidence=selected?String(sourceUrl||"").trim():"";
   const r=await fetch(LIBRARY+"/tiktok/selected-channel",{
     method:"POST",
     headers:{"content-type":"application/json"},
-    body:JSON.stringify({handle:h,selected}),
+    body:JSON.stringify({handle:h,selected,sourceUrl:evidence}),
     cache:"no-store"
   });
   const body=await r.json().catch(()=>null);
@@ -665,12 +666,13 @@ async function setChannelSelected(rawHandle,selected){
 }
 
 async function addChannel(){
-  const h=parseHandle(input.value);
+  const rawInput=String(input.value||"").trim();
+  const h=parseHandle(rawInput);
   if(!h){statusEl.textContent="Không nhận ra kênh TikTok.";return}
   addChannelBtn.disabled=true;
   statusEl.textContent="@"+h+" · đang thêm kênh…";
   try{
-    const result=await setChannelSelected(h,true);
+    const result=await setChannelSelected(h,true,rawInput);
     let channel=null;
     try{
       const data=await getJson(LIBRARY+"/tiktok/library?user="+encodeURIComponent(h)+"&t="+Date.now(),12000);

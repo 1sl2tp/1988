@@ -105,3 +105,8 @@ assert.match(demo,/function markActiveChannel\(h\)/);
 assert.match(demo,/renderChannels\(anchorHandle=""\)/);
 assert.match(demo,/window\.scrollBy\(0,delta\)/);
 assert.doesNotMatch(demo,/<video id="video" playsinline controls>/);
+
+assert.match(demo,/async function setChannelSelected\(rawHandle,selected,sourceUrl=""\)/);
+assert.match(demo,/body:JSON\.stringify\(\{handle:h,selected,sourceUrl:evidence\}\)/);
+assert.match(demo,/const rawInput=String\(input\.value\|\|""\)\.trim\(\)/);
+assert.match(demo,/setChannelSelected\(h,true,rawInput\)/);

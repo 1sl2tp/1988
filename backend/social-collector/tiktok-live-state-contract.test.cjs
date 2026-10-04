@@ -310,3 +310,16 @@ assert.match(server,/async function browserTikTokChannelVideos\(/,
   'single browser-context post-list fallback must remain the only browser video-list helper');
 assert.match(server,/source:'yt-dlp\+browser-user-posts'/,
   'deficient yt-dlp results must merge with existing browser-context JSON fallback');
+
+assert.match(server,/function parseTikTokVideoEvidence\(rawValue,expectedHandle=''\)/,
+  'add-channel must parse pasted TikTok video URL evidence');
+assert.match(server,/async function validateTikTokVideoEvidence\(rawValue,expectedHandle=''\)/,
+  'add-channel must validate pasted video evidence with a bounded resolver');
+assert.match(server,/const sourceUrl=String\(body\?\.sourceUrl\|\|body\?\.source_url\|\|''\)\.trim\(\)/,
+  'selected-channel must accept sourceUrl evidence from the UI');
+assert.match(server,/videoEvidence=await validateTikTokVideoEvidence\(sourceUrl,handle\)/,
+  'profile lookup failure must fall back to exact pasted video evidence');
+assert.match(server,/if\(!identity\?\.secUid&&!identity\?\.userId&&!videoEvidence\)/,
+  'invalid handles still must not be persisted');
+assert.match(server,/source:'validated-video-url'/,
+  'validated video evidence may seed only the targeted channel video state');

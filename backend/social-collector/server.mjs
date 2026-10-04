@@ -5829,6 +5829,40 @@ function tiktokVodPickJsonUrl(value){
 function tiktokVodCacheKey(source,handle,id){
   return String(source||'')+':'+String(handle||'').toLowerCase()+':'+String(id||'');
 }
+function parseTikTokVideoEvidence(rawValue,expectedHandle=''){
+  const raw=String(rawValue||'').trim();
+  if(!raw)return null;
+  let parsed;
+  try{
+    parsed=new URL(raw);
+  }catch{
+    return null;
+  }
+  const host=String(parsed.hostname||'').toLowerCase();
+  if(host!=='tiktok.com'&&!host.endsWith('.tiktok.com'))return null;
+  const m=String(parsed.pathname||'').match(/^\/@([^/]+)\/video\/(\d{8,})/i);
+  if(!m)return null;
+  const handle=normalizeTikTokHandle(decodeURIComponent(m[1]||''));
+  const id=String(m[2]||'');
+  const wanted=normalizeTikTokHandle(expectedHandle);
+  if(!handle||!/^\d{8,}$/.test(id))return null;
+  if(wanted&&handle.toLowerCase()!==wanted.toLowerCase())return null;
+  return {
+    handle,
+    id,
+    pageUrl:'https://www.tiktok.com/@'+handle+'/video/'+id
+  };
+}
+async function validateTikTokVideoEvidence(rawValue,expectedHandle=''){
+  const evidence=parseTikTokVideoEvidence(rawValue,expectedHandle);
+  if(!evidence)return null;
+  try{
+    const resolved=await resolveTikwmVodExternal(evidence.pageUrl);
+    if(resolved?.url)return evidence;
+  }catch{}
+  return null;
+}
+
 async function resolveTikwmVodExternal(pageUrl){
   let last='';
   for(const base of ['https://www.tikwm.com/api/','https://tikwm.com/api/']){
@@ -9906,6 +9940,7 @@ const server=http.createServer(async(req,res)=>{
     try{
       const body=await readJson(req,4096);
       const handle=normalizeTikTokHandle(body?.handle||body?.user||'');
+      const sourceUrl=String(body?.sourceUrl||body?.source_url||'').trim();
       if(!handle){
         json(res,400,{ok:false,error:'invalid_tiktok_handle'});
         return;
@@ -9958,18 +9993,64 @@ const server=http.createServer(async(req,res)=>{
           const profiles=await browserTikTokProfileIdentities([handle]).catch(()=>new Map());
           identity=profiles.get(key)||null;
         }
-        if(!identity?.secUid&&!identity?.userId){
+
+        // A pasted TikTok video URL is valid evidence for an explicit add action
+        // when profile endpoints are temporarily blocked. Validate the exact
+        // handle+video pair once through the existing TikWM metadata resolver.
+        let videoEvidence=null;
+        if(!identity?.secUid&&!identity?.userId&&sourceUrl){
+          videoEvidence=await validateTikTokVideoEvidence(sourceUrl,handle);
+        }
+
+        if(!identity?.secUid&&!identity?.userId&&!videoEvidence){
           json(res,404,{ok:false,error:'tiktok_channel_not_found',handle});
           return;
         }
-        tiktokProfileIdentityCache.set(key,{
-          at:Date.now(),
-          data:{
-            ...identity,
-            videoId:String(identity?.videoId||''),
-            source:String(identity?.source||'validated-user-detail')
-          }
-        });
+
+        if(identity?.secUid||identity?.userId){
+          tiktokProfileIdentityCache.set(key,{
+            at:Date.now(),
+            data:{
+              ...identity,
+              videoId:String(identity?.videoId||videoEvidence?.id||''),
+              source:String(identity?.source||'validated-user-detail')
+            }
+          });
+        }else if(videoEvidence){
+          // Seed only durable evidence. Do not cache an empty identity for the
+          // normal profile TTL; a later targeted refresh may still fill secUid/avatar.
+          const existingVideo=tiktokVideoLibrary.get(key)||{
+            handle,
+            secUid:'',
+            latestVideoId:'',
+            videos:[],
+            checkedAt:0,
+            source:'video-url-evidence'
+          };
+          const videos=[
+            {
+              id:videoEvidence.id,
+              url:videoEvidence.pageUrl,
+              pageUrl:videoEvidence.pageUrl,
+              title:'',
+              createTime:0,
+              duration:0,
+              cover:'',
+              width:0,
+              height:0
+            },
+            ...(Array.isArray(existingVideo.videos)?existingVideo.videos:[])
+          ].filter((row,index,rows)=>row?.id&&rows.findIndex(x=>String(x?.id||'')===String(row.id))===index)
+           .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
+          updateTikTokVideoLibrary(handle,{
+            ...existingVideo,
+            handle,
+            latestVideoId:videoEvidence.id,
+            videos,
+            source:'validated-video-url',
+            checkedAt:Date.now()
+          });
+        }
       }
 
       // Control plane owns state transitions. Change RAM only after validation
