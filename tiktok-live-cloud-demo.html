@@ -51,7 +51,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 </style>
 </head>
 <body>
-<!-- local-video-player-contract mobile-live-preload-3slot-v7 -->
+<!-- local-video-player-contract media-smoothness-v8 -->
 <div class="top">
   <form class="search" id="form">
     <div class="brand" aria-label="TikTok"><span class="brandmark">♪</span><span>TikTok<small>DIRECT</small></span></div>
@@ -157,6 +157,26 @@ let touchStartY=null;
 let mobileLivePrimed=false;
 const MOBILE_FEED_MQ=window.matchMedia("(max-width:760px)");
 const MOBILE_LIVE_PRELOAD_RADIUS=1;
+const LIVE_MPEGTS_ACTIVE_CONFIG=Object.freeze({
+  enableStashBuffer:true,
+  stashInitialSize:384*1024,
+  lazyLoad:false,
+  liveSync:true,
+  autoCleanupSourceBuffer:true,
+  autoCleanupMaxBackwardDuration:8,
+  autoCleanupMinBackwardDuration:3,
+  fixAudioTimestampGap:true
+});
+const LIVE_MPEGTS_WARM_CONFIG=Object.freeze({
+  enableStashBuffer:true,
+  stashInitialSize:192*1024,
+  lazyLoad:false,
+  liveSync:true,
+  autoCleanupSourceBuffer:true,
+  autoCleanupMaxBackwardDuration:5,
+  autoCleanupMinBackwardDuration:2,
+  fixAudioTimestampGap:true
+});
 const mobileLiveSlots=new Map();
 let activeMobileLiveHandle="";
 const sessionChannels=new Map();
@@ -221,7 +241,7 @@ async function createMobileLiveSlot(rawHandle,state){
   el.className="live-deck-video";
   el.playsInline=true;
   el.muted=true;
-  el.autoplay=true;
+  el.autoplay=false;
   el.preload="auto";
   el.setAttribute("aria-hidden","true");
   document.querySelector(".mediaframe")?.appendChild(el);
@@ -241,16 +261,14 @@ async function createMobileLiveSlot(rawHandle,state){
     if(flv&&window.mpegts?.isSupported?.()){
       const player=mpegts.createPlayer(
         {type:"flv",isLive:true,url:flv,cors:true,withCredentials:false},
-        {enableStashBuffer:true,stashInitialSize:256*1024,lazyLoad:false,liveSync:true}
+        LIVE_MPEGTS_WARM_CONFIG
       );
       slot.player=player;
       player.attachMediaElement(el);
       player.load();
-      player.play().catch(()=>el.play().catch(()=>{}));
     }else if(hls){
       el.src=hls;
       el.load();
-      el.play().catch(()=>{});
     }else{
       destroyMobileLiveSlot(h);
       return null;
@@ -268,12 +286,14 @@ async function warmMobileLiveWindow(centerHandle){
   const index=rows.findIndex(([h])=>h===centerHandle);
   if(index<0)return;
   const wanted=new Set();
+  const warm=[];
   for(let offset=-MOBILE_LIVE_PRELOAD_RADIUS;offset<=MOBILE_LIVE_PRELOAD_RADIUS;offset++){
     const row=rows[index+offset];
     if(!row)continue;
     wanted.add(row[0]);
-    await createMobileLiveSlot(row[0],row[1]);
+    warm.push(createMobileLiveSlot(row[0],row[1]));
   }
+  await Promise.all(warm);
   for(const h of [...mobileLiveSlots.keys()]){
     if(!wanted.has(h))destroyMobileLiveSlot(h);
   }
@@ -290,7 +310,13 @@ async function activateMobileLiveSlot(rawHandle,{userGesture=false}={}){
     const active=slotHandle===h;
     item.video.classList.toggle("active",active);
     item.video.muted=active?!userGesture:true;
-    if(active)item.video.play().catch(()=>{});
+    if(active){
+      item.player?.play?.().catch?.(()=>{});
+      item.video.play().catch(()=>{});
+    }else{
+      try{item.player?.pause?.()}catch{}
+      try{item.video.pause()}catch{}
+    }
   }
   activeMobileLiveHandle=h;
   setMediaChrome({...state,handle:h},"live");
@@ -503,7 +529,7 @@ async function playLive(state,{mutedAutoplay=false}={}){
   if(flv&&window.mpegts?.isSupported?.()){
     flvPlayer=mpegts.createPlayer(
       {type:"flv",isLive:true,url:flv,cors:true,withCredentials:false},
-      {enableStashBuffer:false,lazyLoad:false,liveSync:true}
+      LIVE_MPEGTS_ACTIVE_CONFIG
     );
     flvPlayer.attachMediaElement(video);
     flvPlayer.load();
@@ -721,7 +747,7 @@ async function playChannelVideo(row,index=currentVideos.indexOf(row)){
     streamUrlEl.value=direct;
     nowEl.textContent="@"+h+" · TikWM";
     video.onerror=()=>{ video.onerror=null; vodLinkCache.delete(videoCacheKey(row)); tryBhwa(); };
-    video.preload="metadata";
+    video.preload="auto";
     video.src=direct;
     video.load();
     try{
@@ -783,7 +809,7 @@ playerStage.addEventListener("wheel",e=>{
   if(wheelLocked)return;
   wheelLocked=true;
   moveVideo(e.deltaY>0?1:-1);
-  setTimeout(()=>wheelLocked=false,520);
+  setTimeout(()=>wheelLocked=false,220);
 },{passive:false});
 playerStage.addEventListener("touchstart",e=>{
   touchStartY=e.touches?.[0]?.clientY??null;
@@ -793,7 +819,7 @@ playerStage.addEventListener("touchend",e=>{
   const endY=e.changedTouches?.[0]?.clientY??touchStartY;
   const dy=endY-touchStartY;
   touchStartY=null;
-  if(Math.abs(dy)<60)return;
+  if(Math.abs(dy)<42)return;
   if(isMobileFeed()&&currentMediaMode==="live")moveLive(dy<0?1:-1);
   else moveVideo(dy<0?1:-1);
 },{passive:true});

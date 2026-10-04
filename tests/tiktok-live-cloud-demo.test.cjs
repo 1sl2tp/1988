@@ -118,14 +118,14 @@ assert.match(demo,/Cập nhật video/);
 assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
 
 assert.match(demo,/class="brand"/);
-assert.match(demo,/mobile-live-preload-3slot-v7/);
+assert.match(demo,/media-smoothness-v8/);
 assert.match(demo,/\.player\.shape-portrait\{width:min\(100%,560px\)\}/);
 assert.match(demo,/\.streamrow,\.now\{display:none\}/);
 assert.match(demo,/\.videopanel\{grid-area:videos\}/);
 assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
 assert.match(demo,/aria-label="Thích"><svg/);
 
-assert.match(demo,/mobile-live-preload-3slot-v7/);
+assert.match(demo,/media-smoothness-v8/);
 assert.match(demo,/\.leftstack,\.videopanel\{display:none!important\}/);
 assert.match(demo,/height:100dvh!important/);
 assert.match(demo,/function liveFeedRows\(\)/);
@@ -151,3 +151,15 @@ assert.match(demo,/enableStashBuffer:true,stashInitialSize:256\*1024/);
 assert.match(demo,/queueMicrotask\(\(\)=>warmMobileLiveWindow\(h\)\)/);
 assert.match(demo,/const target=activeMobileLiveSlot\(\)\?\.video\|\|video/);
 assert.match(demo,/if\(isMobileFeed\(\)\)destroyMobileLiveDeck\(\)/);
+
+assert.match(demo,/const LIVE_MPEGTS_ACTIVE_CONFIG=Object\.freeze/);
+assert.match(demo,/stashInitialSize:384\*1024/);
+assert.match(demo,/const LIVE_MPEGTS_WARM_CONFIG=Object\.freeze/);
+assert.match(demo,/stashInitialSize:192\*1024/);
+assert.match(demo,/el\.autoplay=false/);
+assert.doesNotMatch(demo,/player\.play\(\)\.catch\(\(\)=>el\.play/);
+assert.match(demo,/item\.player\?\.pause\?\.\(\)/);
+assert.match(demo,/await Promise\.all\(warm\)/);
+assert.match(demo,/setTimeout\(\(\)=>wheelLocked=false,220\)/);
+assert.match(demo,/Math\.abs\(dy\)<42/);
+assert.match(demo,/video\.preload="auto"/);

@@ -52,3 +52,11 @@ assert.match(worker,/A later offline answer is not strong enough to erase a know
 assert.match(worker,/Unknown\/API failure also keeps the last known-good LIVE row untouched/);
 assert.match(worker,/const retainedLive = selected\.filter\(\(h\) => snapshotHasPlayableLive/);
 assert.match(worker,/return json\(\{[\s\S]*retained[\s\S]*\}\);/);
+
+assert.match(worker,/function livePathRank\(path\)/);
+assert.match(worker,/function rememberLiveMedia\(out,type,url,path=""\)/);
+assert.match(worker,/function liveMediaScore\(media,url\)/);
+assert.match(worker,/function mergeLiveMediaSets\(\.\.\.sets\)/);
+assert.match(worker,/origin\|original\|source\|uhd\|full\[_-\]\?hd\|1080\|hd2/);
+assert.match(worker,/liveMediaScore\(media,b\)-liveMediaScore\(media,a\)/);
+assert.doesNotMatch(worker,/fetch\([^\n]*livePathRank/);

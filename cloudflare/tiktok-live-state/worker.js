@@ -611,8 +611,8 @@ async function checkTikTok(handle) {
 
     if (status === 2) {
       const media=collectLiveMedia(room);
-      const flv=[...(media?.flv||[])].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
-      const hls=[...(media?.hls||[])].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
+      const flv=[...(media?.flv||[])].sort((a,b)=>liveMediaScore(media,b)-liveMediaScore(media,a));
+      const hls=[...(media?.hls||[])].sort((a,b)=>liveMediaScore(media,b)-liveMediaScore(media,a));
       const streamUrl=String(flv[0]||"");
       const hlsUrl=String(hls[0]||"");
       const sourceName=
@@ -823,7 +823,43 @@ function isHlsKey(key) {
     .replace(/[^a-z0-9]+/g,"");
   return /^(hls|hlsurl|hlspull|hlspullurl|pullhls|pullhlsurl|m3u8|m3u8url)$/.test(k);
 }
-function collectLiveMedia(value,out={flv:[],hls:[]},path="",depth=0) {
+function livePathRank(path) {
+  const p=String(path||"").toLowerCase();
+  let score=0;
+  if(/origin|original|source|uhd|full[_-]?hd|1080|hd2/.test(p))score+=120;
+  else if(/hd1|\bhd\b|720/.test(p))score+=80;
+  else if(/sd2|sd1|\bsd\b|540|480/.test(p))score+=35;
+  if(/\bld\b|360|240/.test(p))score-=45;
+  return score;
+}
+function rememberLiveMedia(out,type,url,path="") {
+  if(!url)return;
+  const list=out[type]||(out[type]=[]);
+  if(!list.includes(url))list.push(url);
+  const rank=out.rank||(out.rank={});
+  const score=liveMediaRank(url)+livePathRank(path);
+  rank[url]=Math.max(Number(rank[url]??-100000),score);
+}
+function liveMediaScore(media,url) {
+  return Number(media?.rank?.[url]??liveMediaRank(url));
+}
+function mergeLiveMediaSets(...sets) {
+  const out={flv:[],hls:[],rank:{}};
+  for(const set of sets){
+    if(!set)continue;
+    for(const type of ["flv","hls"]){
+      for(const url of set[type]||[]){
+        if(!out[type].includes(url))out[type].push(url);
+        out.rank[url]=Math.max(
+          Number(out.rank[url]??-100000),
+          Number(set?.rank?.[url]??liveMediaRank(url))
+        );
+      }
+    }
+  }
+  return out;
+}
+function collectLiveMedia(value,out={flv:[],hls:[],rank:{}},path="",depth=0) {
   if(value==null||depth>18)return out;
 
   if(typeof value==="string"){
@@ -839,9 +875,9 @@ function collectLiveMedia(value,out={flv:[],hls:[]},path="",depth=0) {
     if(decoded){
       const p=path.toLowerCase();
       if(/\.flv(?:\?|$)/i.test(decoded)||/flv/.test(p)){
-        if(!out.flv.includes(decoded))out.flv.push(decoded);
+        rememberLiveMedia(out,"flv",decoded,path);
       }else if(/\.m3u8(?:\?|$)/i.test(decoded)||/hls|m3u8/.test(p)){
-        if(!out.hls.includes(decoded))out.hls.push(decoded);
+        rememberLiveMedia(out,"hls",decoded,path);
       }
     }
     return out;
@@ -859,8 +895,8 @@ function collectLiveMedia(value,out={flv:[],hls:[]},path="",depth=0) {
       const p=path?path+"."+key:key;
       if(typeof child==="string"){
         const url=normalizeLiveUrl(child);
-        if(url&&isFlvKey(key)&&!out.flv.includes(url))out.flv.push(url);
-        if(url&&isHlsKey(key)&&!out.hls.includes(url))out.hls.push(url);
+        if(url&&isFlvKey(key))rememberLiveMedia(out,"flv",url,p);
+        if(url&&isHlsKey(key))rememberLiveMedia(out,"hls",url,p);
       }
       collectLiveMedia(child,out,p,depth+1);
     }
@@ -1155,10 +1191,7 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
         liveViewerCountFromRoom(detailData?.data?.liveRoomStats||{})||
         viewerCount;
       const detailMedia=collectLiveMedia(liveData);
-      media={
-        flv:[...new Set([...(media.flv||[]),...(detailMedia.flv||[])])],
-        hls:[...new Set([...(media.hls||[]),...(detailMedia.hls||[])])]
-      };
+      media=mergeLiveMediaSets(media,detailMedia);
     }
   }
 
@@ -1181,15 +1214,12 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
       avatar=liveAvatarFromRoom(infoRoom)||avatar;
       viewerCount=liveViewerCountFromRoom(infoRoom)||viewerCount;
       const infoMedia=collectLiveMedia(infoRoom);
-      media={
-        flv:[...new Set([...(media.flv||[]),...(infoMedia.flv||[])])],
-        hls:[...new Set([...(media.hls||[]),...(infoMedia.hls||[])])]
-      };
+      media=mergeLiveMediaSets(media,infoMedia);
     }
   }
 
-  const flv=[...media.flv].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
-  const hls=[...media.hls].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
+  const flv=[...media.flv].sort((a,b)=>liveMediaScore(media,b)-liveMediaScore(media,a));
+  const hls=[...media.hls].sort((a,b)=>liveMediaScore(media,b)-liveMediaScore(media,a));
 
   let streamUrl="";
   for(const candidate of flv.slice(0,4)){
