@@ -202,6 +202,23 @@ Thời gian: **2026-10-04**.
 - Render runtime đã xác nhận từ screenshot là **2tp's workspace** (`1sl2tpvn@gmail.com`), service `1988-tiktok-session` (`srv-datpaig93c1s73bgsgcg`). Đã trigger đúng service với image `ghcr.io/1sl2tp/1988-social-collector:latest`; deploy `dep-db0qrepsrm7s738q05k0` đã **LIVE** lúc 2026-10-04T01:37:43Z, digest `sha256:fce6ceb3899b25fe91dfded3de028161ee240a5ab14de4d99d476da8d3bf53ad`.
 - Rollback code: `1840ad190ef9f3857c20b44cb1771c9d0f672b86`.
 
+
+## 2.0.10. TikTok add-channel — LIVE đang phát nhưng vẫn `tiktok_channel_not_found`
+
+Thời gian: **2026-10-04**.
+
+- Bằng chứng UI: `@dongquyphutho/live` phát trực tiếp bình thường qua Cloudflare nhưng `+ Thêm kênh` vẫn trả `tiktok_channel_not_found`.
+- Root cause: Render add-channel validation chỉ chấp nhận identity khi có `secUid/userId`; browser profile có thể miss dù account tồn tại và LIVE đang phát.
+- Fix backend theo thứ tự bounded: canonical known identity → TikTok user-detail → browser profile → **TikWM profile** → video-URL evidence fallback.
+- Exact-handle profile metadata (`nickname/avatar`) từ TikWM được tính là identity evidence ngay cả khi TikTok không trả `secUid/userId` ở lần đó.
+- Re-add kênh từng biết trước đây reuse canonical row trước, không phụ thuộc upstream profile availability.
+- Invalid handle vẫn không persist: nếu không có identity evidence và cũng không có validated video evidence thì vẫn 404.
+- Code commit: `6b2fc5c034ad70e992c800080e25de81dfb697f9`; stale contract cleanup: `c3794fde8e4f6ace61131dac555aa0a2eecb0bdf`.
+- Backend build workflow `37168841205`: **SUCCESS**, LIVE state contracts + image build/push PASS.
+- Render production deploy `dep-db0qufid0e5s73cr9m10`: **LIVE**, image digest `sha256:540fe33cb7074f7724c79925c4f223d14d31a4a8ba812f805510c398901b6a3a`, finished `2026-10-04T01:44:10Z`.
+- Không đổi schema, không thêm polling, không fan-out; fallback chỉ chạy khi user bấm add đúng một handle.
+- Rollback runtime: deploy lại image trước `sha256:fce6ceb3899b25fe91dfded3de028161ee240a5ab14de4d99d476da8d3bf53ad`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

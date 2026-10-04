@@ -1,3 +1,12 @@
+## 2026-10-04 — Fix add kênh LIVE tồn tại nhưng profile lookup miss
+
+- `@dongquyphutho/live` phát được nhưng add trả `tiktok_channel_not_found`.
+- Add validator giờ reuse canonical identity, rồi user-detail/browser/TikWM profile; nickname/avatar exact-handle đủ làm evidence nếu secUid/userId tạm thiếu.
+- Video URL validated fallback từ fix trước vẫn giữ; invalid handle vẫn reject.
+- Commit `6b2fc5c034ad70e992c800080e25de81dfb697f9`; test cleanup `c3794fde8e4f6ace61131dac555aa0a2eecb0bdf`.
+- Build `37168841205` SUCCESS; Render `dep-db0qufid0e5s73cr9m10` LIVE với digest `sha256:540fe33cb7074f7724c79925c4f223d14d31a4a8ba812f805510c398901b6a3a`.
+- Không đổi schema/polling; rollback image trước `sha256:fce6ceb3899b25fe91dfded3de028161ee240a5ab14de4d99d476da8d3bf53ad`.
+
 ## 2026-10-04 — Fix thêm TikTok channel từ video URL
 
 - Lỗi: URL video hợp lệ vẫn `tiktok_channel_not_found` vì add endpoint chỉ tin profile `secUid/userId`, trong khi TikTok profile lookup có thể tạm rỗng/block.
