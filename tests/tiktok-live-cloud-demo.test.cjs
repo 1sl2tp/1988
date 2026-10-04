@@ -112,5 +112,6 @@ assert.match(demo,/id="refreshVideosBtn"/);
 assert.match(demo,/async function refreshChannelVideos\(rawHandle\)/);
 assert.match(demo,/endpoint\.searchParams\.set\("full","1"\)/);
 assert.match(demo,/endpoint\.searchParams\.set\("wait","1"\)/);
-assert.match(demo,/await getJson\(endpoint\.toString\(\),45000\)/);
 assert.match(demo,/Cập nhật video/);
+
+assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
