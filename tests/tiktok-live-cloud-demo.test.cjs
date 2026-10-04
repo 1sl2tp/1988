@@ -180,3 +180,18 @@ assert.match(demo,/if\(VOD_EMBED_FIRST&&activateTikTokEmbed\(row\)\)return/);
 assert.match(demo,/if\(!VOD_EMBED_FIRST\)/);
 assert.match(demo,/allowfullscreen/);
 assert.match(demo,/tiktok-official-embed-v9-final/);
+
+assert.match(demo,/function supportsNativeHls\(mediaEl=video\)/);
+assert.match(demo,/function livePlaybackPreference\(state,mediaEl=video\)/);
+assert.match(demo,/if\(nativeHls\)return \{primary:"native-hls",flv,hls\}/);
+assert.match(demo,/if\(flv&&window\.mpegts\?\.isSupported\?\.\(\)\)return \{primary:"mpegts-flv",flv,hls\}/);
+assert.match(demo,/function ensureHlsJs\(\)/);
+assert.match(demo,/const HLS_JS_URL="https:\/\/cdn\.jsdelivr\.net\/npm\/hls\.js@1\.6\.13\/dist\/hls\.min\.js"/);
+assert.match(demo,/async function attachHls\(mediaEl,hlsUrl/);
+assert.match(demo,/lowLatencyMode:true/);
+assert.match(demo,/liveSyncDurationCount:2/);
+assert.match(demo,/slot\.hlsPlayer=result\.player/);
+assert.match(demo,/player\.on\(mpegts\.Events\.ERROR/);
+assert.match(demo,/nowEl\.textContent="@"+handle+" · FLV\/mpegts"/);
+assert.match(demo,/result\.kind==="native-hls"\?"HLS native":"HLS\.js"/);
+assert.match(demo,/browser-aware-live-v10/);
