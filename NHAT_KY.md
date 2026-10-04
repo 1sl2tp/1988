@@ -1,3 +1,12 @@
+## 2026-10-04 — Fix danh sách video bị đẩy xuống dưới 171 kênh
+
+- Ở width ~1040px, breakpoint <=1180px đổi sang 2 cột nên `Danh sách video` nằm hàng dưới cột source.
+- Vì source có 171 kênh và không dùng scroll nội bộ, panel video bị đẩy rất xa xuống dưới, nhìn như mất.
+- Sửa breakpoint: giữ 3 cột đến 841px trở lên; 2 cột chỉ 761–840px; mobile <=760px không đổi.
+- Không reintroduce scrollbar; data/API không đổi.
+- Commit `c98c35f4baf012bf899ad73f9b6a0d550119e87f`; deploy `37166852987` SUCCESS.
+- Rollback `19df37e726559514f212611e3d9b3341a3e05047`.
+
 ## 2026-10-04 — TikTok demo trải dài danh sách + thêm/xóa kênh
 
 - Bỏ toàn bộ scroll nội bộ của 3 danh sách; trang tự trải dài.

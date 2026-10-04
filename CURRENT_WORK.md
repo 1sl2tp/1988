@@ -113,6 +113,22 @@ Thời gian: **2026-10-04**.
 - Data impact: membership targeted only when user bấm thêm/xóa; không có write nền.
 - Rollback UI: `7ffa01435f33c6c4643c2a3e7dd8d04e0d9b7640`.
 
+
+## 2.0.5. TikTok demo — giữ danh sách video luôn hiện ở desktop
+
+Thời gian: **2026-10-04**.
+
+- Triệu chứng: ở cửa sổ desktop khoảng 1040px, bấm một kênh xong status báo `10 video thư viện` nhưng panel `Danh sách video` nhìn như biến mất.
+- Root cause: breakpoint cũ `<=1180px` chuyển grid sang 2 cột `source player / videos player`; sau khi bỏ scroll nội bộ, 171 kênh làm vùng `videos` bị đẩy xuống dưới toàn bộ danh sách kênh, nên người dùng phải cuộn rất xa mới thấy.
+- Owner: frontend CSS layout; không liên quan data/API.
+- Fix: desktop dùng 3 cột hẹp hơn `190–240 | 220–280 | >=360`; chỉ chuyển sang layout 2 cột ở `761–840px`. Mobile `<=760px` giữ nguyên.
+- Không đưa scrollbar nội bộ trở lại; danh sách vẫn trải dài như yêu cầu.
+- Click kênh vẫn giữ toàn bộ danh sách kênh và chỉ thay nội dung cột video bằng tối đa 10 video của kênh đó.
+- Commit: `c98c35f4baf012bf899ad73f9b6a0d550119e87f`.
+- Deploy production run `37166852987`: **SUCCESS**; frontend contracts/build/Pages/custom-domain verify đều PASS.
+- Data impact: none. Không đổi Supabase/Render/Cloudflare/polling.
+- Rollback: `19df37e726559514f212611e3d9b3341a3e05047`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
