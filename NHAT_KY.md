@@ -1,3 +1,14 @@
+## 2026-10-04 — TikTok demo chuyển sang feed-style giống TikTok
+
+- Desktop: source trái, media trung tâm, danh sách video phải; media là phần lớn nhất.
+- UI bỏ panel/card dày, chuyển nền đen + list gọn + action rail icon nét.
+- Video dọc tối đa 560px, ngang tối đa 880px; contain, không crop/zoom.
+- Mobile media lên đầu, các danh sách trải dài dưới; không internal scrollbar.
+- Ẩn stream/debug row khỏi UI.
+- `Đang phát` rỗng không còn render lại toàn bộ channel list.
+- Commit `d07ca4442037b336a99bba422c66001c3139be41`; deploy `37170090009` SUCCESS, custom-domain verify PASS.
+- Không đổi data/API/runtime; rollback `393ea263606039556ffc92dd5d7f88c0e5f5c6d4`.
+
 ## 2026-10-04 — Fix add membership-only + manual refresh video thật sự chờ kết quả
 
 - `+ Thêm kênh`: chỉ normalize handle + ghi `selected`; không profile/browser/TikWM/LIVE/video scan trong action add/remove.

@@ -240,6 +240,25 @@ Thời gian: **2026-10-04**.
 - UI reference screenshots người dùng gửi (TikTok desktop/mobile) được giữ làm mẫu cho lượt tinh chỉnh giao diện tiếp theo; không trộn thay đổi layout lớn vào incident video này.
 - Rollback backend runtime: image trước `sha256:540fe33cb7074f7724c79925c4f223d14d31a4a8ba812f805510c398901b6a3a`. Rollback frontend: commit trước `30cf50ab823e07d4c4c531357f74274bd77a5490` nếu cần.
 
+
+## 2.0.12. TikTok demo — bố cục feed giống TikTok, media làm trung tâm
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend UI; chỉ đổi `tiktok-live-cloud-demo.html` + contract test, không đổi data/API/runtime.
+- Tham khảo screenshot TikTok desktop/mobile người dùng gửi: sidebar gọn bên trái, media lớn ở giữa, action rail sát cạnh media, danh sách video tách thành queue hẹp.
+- Desktop đổi grid thành `220px | 520–760px | 230px` với thứ tự **source | player | videos**; player trở thành trung tâm thay vì nằm ngoài cùng bên phải.
+- Bỏ phong cách panel/card nặng: nền đen, section không viền hộp, khoảng cách nhỏ, live/channel cards gọn, avatar LIVE có viền, queue video hẹp bên phải.
+- Player dọc tự thu còn tối đa `560px`; player ngang tối đa `880px`; tất cả vẫn `object-fit: contain`, không zoom/crop.
+- Action rail đổi sang line-icon SVG nhẹ, sát cạnh phải media; nút chuyển ↑/↓ giữ nguyên.
+- Debug stream URL / dòng trạng thái dưới player được ẩn khỏi layout để giao diện sạch; logic vẫn giữ nguyên.
+- Mobile: player lên đầu, full chiều ngang; nguồn/kênh và danh sách video trải dài bên dưới, không có internal scrollbar.
+- Fix thêm một regression cũ: khi danh sách `Đang phát` rỗng không còn gọi `renderChannels()` lại toàn bộ danh sách, nên card kênh đang chọn không bị nhảy/ẩn chỉ vì LIVE list đổi.
+- Code commit: `d07ca4442037b336a99bba422c66001c3139be41`.
+- Deploy run `37170090009`: **SUCCESS**; frontend contracts, Pages deploy và custom-domain verify đều PASS.
+- Data impact: none. Không thêm polling/cache/write/network.
+- Rollback UI: `393ea263606039556ffc92dd5d7f88c0e5f5c6d4`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.
