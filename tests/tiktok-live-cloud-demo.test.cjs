@@ -118,14 +118,14 @@ assert.match(demo,/Cập nhật video/);
 assert.match(demo,/const refreshed=await getJson\(endpoint\.toString\(\),60000\)/);
 
 assert.match(demo,/class="brand"/);
-assert.match(demo,/tiktok-official-embed-v9-final/);
+assert.match(demo,/browser-aware-live-v10-stable/);
 assert.match(demo,/\.player\.shape-portrait\{width:min\(100%,560px\)\}/);
 assert.match(demo,/\.streamrow,\.now\{display:none\}/);
 assert.match(demo,/\.videopanel\{grid-area:videos\}/);
 assert.doesNotMatch(demo,/Chưa có kênh đang phát\.<\/div>';renderChannels\(\);return/);
 assert.match(demo,/aria-label="Thích"><svg/);
 
-assert.match(demo,/tiktok-official-embed-v9-final/);
+assert.match(demo,/browser-aware-live-v10-stable/);
 assert.match(demo,/\.leftstack,\.videopanel\{display:none!important\}/);
 assert.match(demo,/height:100dvh!important/);
 assert.match(demo,/function liveFeedRows\(\)/);
@@ -179,4 +179,19 @@ assert.match(demo,/if\(code===3002\)return/);
 assert.match(demo,/if\(VOD_EMBED_FIRST&&activateTikTokEmbed\(row\)\)return/);
 assert.match(demo,/if\(!VOD_EMBED_FIRST\)/);
 assert.match(demo,/allowfullscreen/);
-assert.match(demo,/tiktok-official-embed-v9-final/);
+assert.match(demo,/browser-aware-live-v10-stable/);
+
+assert.ok(demo.includes('function supportsNativeHls(mediaEl=video)'));
+assert.ok(demo.includes('function preferredLiveTransport(state,mediaEl=video)'));
+assert.ok(demo.includes('if(hls&&supportsNativeHls(mediaEl))return {kind:"native-hls",flv,hls}'));
+assert.ok(demo.includes('if(flv&&window.mpegts?.isSupported?.())return {kind:"mpegts-flv",flv,hls}'));
+assert.ok(demo.includes('const HLS_JS_URL="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js"'));
+assert.ok(demo.includes('function ensureHlsJs()'));
+assert.ok(demo.includes('async function attachHlsStream(mediaEl,hlsUrl'));
+assert.ok(demo.includes('lowLatencyMode:true'));
+assert.ok(demo.includes('liveSyncDurationCount:2'));
+assert.ok(demo.includes('slot.hlsPlayer=result.player'));
+assert.ok(demo.includes('player.on(mpegts.Events.ERROR'));
+assert.ok(demo.includes('FLV/mpegts'));
+assert.ok(demo.includes('"HLS native":"HLS.js"'));
+assert.ok(demo.includes('browser-aware-live-v10-stable'));

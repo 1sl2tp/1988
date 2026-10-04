@@ -51,7 +51,7 @@ video{position:absolute;inset:0;width:100%;height:100%;background:#000;object-fi
 </style>
 </head>
 <body>
-<!-- local-video-player-contract tiktok-official-embed-v9-final -->
+<!-- local-video-player-contract browser-aware-live-v10-stable -->
 <div class="top">
   <form class="search" id="form">
     <div class="brand" aria-label="TikTok"><span class="brandmark">♪</span><span>TikTok<small>DIRECT</small></span></div>
@@ -147,6 +147,10 @@ const VOD_EMBED_READY_TIMEOUT_MS=6500;
 const vodLinkCache=new Map();
 const preconnectedOrigins=new Set();
 let flvPlayer=null;
+let hlsPlayer=null;
+let hlsLoaderPromise=null;
+let liveFallbackStarted=false;
+const HLS_JS_URL="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js";
 let handle="";
 let currentLiveState=null;
 let currentLiveStateAt=0;
@@ -208,6 +212,69 @@ function avatarUrl(profile){
 function isMobileFeed(){
   return MOBILE_FEED_MQ.matches;
 }
+function supportsNativeHls(mediaEl=video){
+  try{
+    return Boolean(
+      mediaEl?.canPlayType?.("application/vnd.apple.mpegurl")||
+      mediaEl?.canPlayType?.("application/x-mpegURL")
+    );
+  }catch{
+    return false;
+  }
+}
+function preferredLiveTransport(state,mediaEl=video){
+  const flv=String(state?.streamUrl||"");
+  const hls=String(state?.hlsUrl||"");
+  // Safari + all iOS browsers expose native HLS through WebKit.
+  if(hls&&supportsNativeHls(mediaEl))return {kind:"native-hls",flv,hls};
+  // Chromium/Android/desktop: direct HTTP-FLV through mpegts when available.
+  if(flv&&window.mpegts?.isSupported?.())return {kind:"mpegts-flv",flv,hls};
+  // Last browser-side fallback for Chromium when only HLS is available.
+  if(hls)return {kind:"hls-js",flv,hls};
+  return {kind:"none",flv,hls};
+}
+function ensureHlsJs(){
+  if(window.Hls?.isSupported?.())return Promise.resolve(window.Hls);
+  if(hlsLoaderPromise)return hlsLoaderPromise;
+  hlsLoaderPromise=new Promise((resolve,reject)=>{
+    const script=document.createElement("script");
+    script.src=HLS_JS_URL;
+    script.async=true;
+    script.onload=()=>window.Hls?.isSupported?.()?resolve(window.Hls):reject(new Error("HLS.js unsupported"));
+    script.onerror=()=>reject(new Error("HLS.js load failed"));
+    document.head.appendChild(script);
+  }).catch(error=>{
+    hlsLoaderPromise=null;
+    throw error;
+  });
+  return hlsLoaderPromise;
+}
+async function attachHlsStream(mediaEl,hlsUrl,{autoplay=false,muted=false}={}){
+  if(!hlsUrl)throw new Error("missing_hls");
+  mediaEl.muted=Boolean(muted);
+  if(supportsNativeHls(mediaEl)){
+    mediaEl.src=hlsUrl;
+    mediaEl.load();
+    if(autoplay)await mediaEl.play().catch(()=>{});
+    return {kind:"native-hls",player:null};
+  }
+  const Hls=await ensureHlsJs();
+  const player=new Hls({
+    lowLatencyMode:true,
+    backBufferLength:8,
+    maxBufferLength:12,
+    maxMaxBufferLength:20,
+    liveSyncDurationCount:2,
+    liveMaxLatencyDurationCount:5
+  });
+  player.loadSource(hlsUrl);
+  player.attachMedia(mediaEl);
+  if(autoplay){
+    player.once(Hls.Events.MANIFEST_PARSED,()=>mediaEl.play().catch(()=>{}));
+  }
+  return {kind:"hls-js",player};
+}
+
 function liveFeedRows(){
   return [...sessionLiveStates.entries()].filter(([h,row])=>
     sessionChannels.has(h)&&Boolean(row?.streamUrl||row?.hlsUrl)
@@ -224,6 +291,7 @@ function destroyMobileLiveSlot(rawHandle){
   const slot=mobileLiveSlots.get(h);
   if(!slot)return;
   try{slot.player?.destroy?.()}catch{}
+  try{slot.hlsPlayer?.destroy?.()}catch{}
   try{slot.video.pause()}catch{}
   try{slot.video.removeAttribute("src");slot.video.load()}catch{}
   try{slot.video.remove()}catch{}
@@ -252,7 +320,7 @@ async function createMobileLiveSlot(rawHandle,state){
   el.setAttribute("aria-hidden","true");
   document.querySelector(".mediaframe")?.appendChild(el);
 
-  const slot={handle:h,state,signature,video:el,player:null,ready:false};
+  const slot={handle:h,state,signature,video:el,player:null,hlsPlayer:null,ready:false,fallbackStarted:false};
   mobileLiveSlots.set(h,slot);
   const markReady=()=>{
     slot.ready=true;
@@ -261,20 +329,37 @@ async function createMobileLiveSlot(rawHandle,state){
   el.addEventListener("loadedmetadata",markReady,{once:true});
   el.addEventListener("canplay",()=>{slot.ready=true},{once:true});
 
-  const flv=String(state?.streamUrl||"");
-  const hls=String(state?.hlsUrl||"");
+  const plan=preferredLiveTransport(state,el);
+  const useHls=async()=>{
+    if(!plan.hls)return false;
+    const result=await attachHlsStream(el,plan.hls,{autoplay:false,muted:true});
+    slot.hlsPlayer=result.player;
+    slot.kind=result.kind;
+    return true;
+  };
   try{
-    if(flv&&window.mpegts?.isSupported?.()){
+    if(plan.kind==="native-hls"){
+      await useHls();
+    }else if(plan.kind==="mpegts-flv"){
       const player=mpegts.createPlayer(
-        {type:"flv",isLive:true,url:flv,cors:true,withCredentials:false},
+        {type:"flv",isLive:true,url:plan.flv,cors:true,withCredentials:false},
         LIVE_MPEGTS_WARM_CONFIG
       );
       slot.player=player;
+      slot.kind="mpegts-flv";
       player.attachMediaElement(el);
       player.load();
-    }else if(hls){
-      el.src=hls;
-      el.load();
+      if(plan.hls){
+        player.on(mpegts.Events.ERROR,()=>{
+          if(slot.fallbackStarted||!mobileLiveSlots.has(h))return;
+          slot.fallbackStarted=true;
+          try{player.destroy()}catch{}
+          slot.player=null;
+          useHls().catch(()=>{});
+        });
+      }
+    }else if(plan.kind==="hls-js"){
+      await useHls();
     }else{
       destroyMobileLiveSlot(h);
       return null;
@@ -477,6 +562,8 @@ function stopPlayer(){
   resetVodEmbedNode();
   destroyMobileLiveDeck();
   if(flvPlayer){try{flvPlayer.destroy()}catch{} flvPlayer=null}
+  if(hlsPlayer){try{hlsPlayer.destroy()}catch{} hlsPlayer=null}
+  liveFallbackStarted=false;
   video.onerror=null;
   try{video.pause()}catch{}
   video.controls=false;
@@ -523,31 +610,47 @@ async function playLive(state,{mutedAutoplay=false}={}){
   video.muted=Boolean(mutedAutoplay);
   currentVideoIndex=-1;
   setMediaChrome({...state,handle}, "live");
-  const flv=String(state?.streamUrl||"");
-  const hls=String(state?.hlsUrl||"");
-  const stream=flv||hls;
-  streamUrlEl.value=stream;
-  if(!stream){
+  const plan=preferredLiveTransport(state,video);
+  const selected=(plan.kind==="native-hls"||plan.kind==="hls-js")?plan.hls:(plan.flv||plan.hls);
+  streamUrlEl.value=selected;
+  if(!selected){
     nowEl.textContent="Đang phát nhưng chưa có link phát.";
     return false;
   }
 
-  nowEl.textContent="@"+handle+" · đã lấy link phát mới";
-  if(flv&&window.mpegts?.isSupported?.()){
+  const fallbackToHls=async()=>{
+    if(liveFallbackStarted||!plan.hls)return false;
+    liveFallbackStarted=true;
+    try{
+      if(flvPlayer){try{flvPlayer.destroy()}catch{} flvPlayer=null}
+      const result=await attachHlsStream(video,plan.hls,{autoplay:true,muted:Boolean(mutedAutoplay)});
+      hlsPlayer=result.player;
+      streamUrlEl.value=plan.hls;
+      nowEl.textContent="@"+handle+" · "+(result.kind==="native-hls"?"HLS native":"HLS.js");
+      return true;
+    }catch(error){
+      nowEl.textContent="HLS lỗi: "+String(error?.message||error);
+      return false;
+    }
+  };
+
+  if(plan.kind==="native-hls"||plan.kind==="hls-js"){
+    liveFallbackStarted=false;
+    return fallbackToHls();
+  }
+
+  if(plan.kind==="mpegts-flv"){
+    nowEl.textContent="@"+handle+" · FLV/mpegts";
     flvPlayer=mpegts.createPlayer(
-      {type:"flv",isLive:true,url:flv,cors:true,withCredentials:false},
+      {type:"flv",isLive:true,url:plan.flv,cors:true,withCredentials:false},
       LIVE_MPEGTS_ACTIVE_CONFIG
     );
     flvPlayer.attachMediaElement(video);
     flvPlayer.load();
-    flvPlayer.play().catch(()=>video.play().catch(()=>{}));
-    return true;
-  }
-
-  if(hls){
-    video.src=hls;
-    video.load();
-    video.play().catch(()=>{});
+    if(plan.hls){
+      flvPlayer.on(mpegts.Events.ERROR,()=>{ fallbackToHls(); });
+    }
+    flvPlayer.play().catch(()=>video.play().catch(()=>fallbackToHls()));
     return true;
   }
 
