@@ -40,6 +40,7 @@ jobs:
       - name: Test frontend production contracts
         run: |
           node --test tests/feed-refresh.test.cjs
+          node --test tests/youtube-live-demand-contract.test.cjs
           node tests/source-state-contract.test.cjs
           node tests/search-resource-contract.test.cjs
           node tests/read-model-resource-contract.test.cjs
