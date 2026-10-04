@@ -38,7 +38,7 @@ test('prepared package checks include LIVE',()=>{
   assert.ok(start>=0&&end>start,'checkPackagesOnDemand missing');
   const block=html.slice(start,end);
   assert.doesNotMatch(block,/value!=="live"/);
-  assert.match(block,/requestPreparedRefresh\(wanted\)/);
+  assert.match(block,/requestPreparedRefresh\(due\)/);
 });
 
 console.log('youtube-live-demand-contract: assertions passed');
