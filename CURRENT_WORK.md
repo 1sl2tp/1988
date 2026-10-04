@@ -320,6 +320,25 @@ Thời gian: **2026-10-04**.
 - Giới hạn còn lại: TikTok/YouTube native dùng ABR/player native và có quyền sâu hơn với CDN/codec, nên web direct-FLV không thể bảo đảm giống 100%; bản này xử lý hai nút thắt lớn nhất trong kiến trúc hiện tại.
 - Rollback frontend: `0b123c02d43222c4a6b9616ddd5dacb7761440df`; rollback edge về worker trước `55228c...` nếu có regression chất lượng.
 
+
+## 2.0.16. TikTok VOD — thử official Embed Player, LIVE giữ direct FLV/HLS
+
+Thời gian: **2026-10-04**.
+
+- Owner: frontend VOD playback; không đổi Cloudflare LIVE, Render, Supabase hay canonical data.
+- Mục tiêu: kiểm tra xem VOD dùng player chính thức của TikTok có nét/mượt hơn đường MP4 tự phát hiện hay không.
+- VOD primary dùng iframe chính thức `https://www.tiktok.com/player/v1/<video_id>` với controls/progress/fullscreen/timestamp và `rel=0`.
+- Host nghe `onPlayerReady/onPlayerError` qua TikTok `postMessage`; ready thì gửi `play`.
+- Nếu iframe không ready sau 6.5s hoặc báo lỗi playback/server/invalid video thì tự fallback về luồng cũ TikWM HD → BHWA.
+- `AUTOPLAY_ERROR` 3002 không fallback vì video vẫn hợp lệ; giữ official player để người dùng chạm Play.
+- Mỗi lần đổi video tạo iframe node mới để message trễ từ iframe cũ không làm fallback nhầm video mới.
+- Khi official embed là primary, bỏ warm TikWM ở hover/pointer để không fan-out request thừa; fallback chỉ gọi khi thực sự cần.
+- LIVE không dùng embed và không thay đổi: vẫn direct retained FLV/HLS từ Cloudflare/TikTok.
+- Hai deploy thử đầu `13e139...` / `34f9d86...` fail ở stale marker test, không deploy custom Pages. Theo rule 2 fail đã rollback về last-known-good `4fc4214a13beb6318a13a7ed950c5fa8c39886fd`; rollback run `37172475937` SUCCESS.
+- Clean implementation final: `0cccf8bef4c1d512cad7df44aa92ad3aeb2c789e`; deploy run `37172573035`.
+- Data impact: none. Không thêm polling/background jobs/media proxy.
+- Rollback: `4fc4214a13beb6318a13a7ed950c5fa8c39886fd`.
+
 ## 2.1. TikTok production branch — canonical library + demand-only refresh
 
 Thời gian: **2026-10-04**.

@@ -1,3 +1,12 @@
+## 2026-10-04 — Thử TikTok official Embed Player cho VOD
+
+- VOD chuyển primary sang `www.tiktok.com/player/v1/<id>`; LIVE giữ direct FLV/HLS.
+- Player dùng postMessage ready/play/error; timeout 6.5s hoặc playback error thì fallback TikWM → BHWA.
+- Autoplay error 3002 giữ iframe để người dùng chạm Play.
+- Không warm TikWM song song khi embed đang dùng; giảm request thừa.
+- Hai lần đầu fail stale test marker → rollback LKG `4fc4214a...` run `37172475937` SUCCESS; clean patch final `0cccf8be...`, deploy `37172573035`.
+- Không đổi backend/data/polling.
+
 ## 2026-10-04 — TikTok LIVE nét hơn và mượt hơn
 
 - Edge quality selection giờ giữ rank từ path/key TikTok (`origin/full_hd/1080/hd1/sd1...`), không chỉ nhìn URL string.
