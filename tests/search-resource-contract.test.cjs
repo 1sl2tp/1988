@@ -23,16 +23,20 @@ assert.doesNotMatch(app,/sourceSearchAlternates\(q\)/);
 assert.doesNotMatch(app,/source_video_timeout/);
 assert.doesNotMatch(app,/preview_video_timeout/);
 
-// SEARCH-03 production rollback lock:
-// Git source must stay on the proven v8 provider shape until a replacement
-// strategy is production-verified. Do not leave an unverified bounded-search
-// experiment on main while production is still running the v8 rollback.
-// This contract is validated by the dedicated Verify 1988 owner.
+// SEARCH-03 hedged fallback contract:
+// Keep all providers available as a final safety net, but wake them in waves.
+// A fast winner must prevent later waves from starting and abort started losers.
 const edge=fs.readFileSync(path.join(root,'supabase','functions','yt1988','index.ts'),'utf8');
+assert.match(edge,/const PIPED_HEDGE_FIRST_WAVE = 3/);
+assert.match(edge,/const PIPED_HEDGE_SECOND_WAVE = 7/);
+assert.match(edge,/const PIPED_HEDGE_SECOND_WAVE_MS = 220/);
+assert.match(edge,/const PIPED_HEDGE_FINAL_WAVE_MS = 450/);
 assert.match(edge,/async function raceApis\(/);
 assert.match(edge,/const winner = await Promise\.any\(\s*candidates\.map/);
+assert.match(edge,/if \(settled\) throw new Error\("piped_race_settled"\)/);
+assert.match(edge,/fetchJson\(base, path, timeoutMs, raceController\.signal\)/);
+assert.match(edge,/raceController\.abort\(\)/);
 assert.doesNotMatch(edge,/const MAX_PIPED_ATTEMPTS = 3/);
 assert.doesNotMatch(edge,/async function sequentialPiped\(/);
-assert.doesNotMatch(edge,/orderedPipedCandidates\(\)/);
 
 console.log('search resource contract ok');
