@@ -47,16 +47,20 @@ assert.doesNotMatch(serviceWorker,/1988-tiktok-live-state/);
 assert.doesNotMatch(serviceWorker,/tiktok-originals/);
 assert.doesNotMatch(serviceWorker,/TIKTOK_IMAGE_CACHE/);
 
-// RT-05: production HTML is YouTube-only at the integration surface. Retired
-// TikTok helpers may still exist temporarily, but no DOM/API/router owner may.
+// RT-05/06b: production HTML integration and runtime script are YouTube-only.
+// Retired provider rows are explicitly rejected rather than relabeled.
 assert.doesNotMatch(index,/id="tiktokAccountRail"/);
 assert.doesNotMatch(index,/id="tiktokWatchActions"/);
 assert.doesNotMatch(index,/id="tiktokLiveVideo"/);
 assert.doesNotMatch(index,/id="tiktokMediaVideo"/);
 assert.doesNotMatch(index,/const TIKTOK_LIVE_API=/);
 assert.doesNotMatch(index,/const TIKTOK_LIBRARY_API=/);
-assert.match(index,/function normalizedMediaProvider\(\)\{\s*return "youtube";\s*\}/);
+const runtimeScriptStart=index.indexOf('<script src="./src/api.js"></script>');
+assert.ok(runtimeScriptStart>=0,"runtime script marker missing");
+assert.doesNotMatch(index.slice(runtimeScriptStart),/tiktok/i);
+assert.match(index,/function normalizedMediaProvider\(value\)[\s\S]{0,160}===["']youtube["']\?["']youtube["']:["']retired["']/);
 assert.match(index,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
+assert.match(index,/function openMedia\(meta=\{\},options=\{\}\)[\s\S]{0,240}normalizedMediaProvider\(meta\?\.provider\)!==["']youtube["']\)return false/);
 
 // RT-06a: retired TikTok presentation CSS is no longer shipped.
 assert.doesNotMatch(index,/\/\* ===== TikTok dedicated workspace =====/);

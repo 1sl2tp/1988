@@ -162,30 +162,32 @@ if(simpleProduction){
   assert.equal((html.match(/showPlayerAsPip\(\)/g)||[]).length,2);
   assert.equal((html.match(/attachPlayerToCard\(/g)||[]).length,2);
   assert.match(html,/html\.viewer-active\.two-col \.row\.selected[\s\S]{0,120}display:none!important/);
-  // TikTok runtime has been retired from the production integration surface.
-  // The old helper island may remain temporarily until RT-06, but it must have
-  // no DOM owner, endpoint owner, startup hook, or media/platform routing path.
+  // RT-06b: production runtime script is YouTube-only. Retired provider rows
+  // are rejected rather than relabeled as YouTube, so stale caches cannot open
+  // the removed media branch.
   assert.doesNotMatch(html,/id="tiktokAccountRail"/);
   assert.doesNotMatch(html,/id="tiktokWatchActions"/);
   assert.doesNotMatch(html,/id="tiktokLiveVideo"/);
   assert.doesNotMatch(html,/id="tiktokMediaVideo"/);
   assert.doesNotMatch(html,/const TIKTOK_LIVE_API=/);
   assert.doesNotMatch(html,/const TIKTOK_LIBRARY_API=/);
-  assert.doesNotMatch(html,/const TIKTOK_UI_ENABLED=/);
   assert.doesNotMatch(html,/id="platformTikTok"/);
-  assert.match(html,/function normalizedMediaProvider\(\)\{\s*return "youtube";\s*\}/);
+  const runtimeScriptStart=html.indexOf('<script src="./src/api.js"></script>');
+  assert.ok(runtimeScriptStart>=0,"runtime script marker missing");
+  const runtimeScript=html.slice(runtimeScriptStart);
+  assert.doesNotMatch(runtimeScript,/tiktok/i);
+  assert.match(html,/function normalizedMediaProvider\(value\)[\s\S]{0,160}===["']youtube["']\?["']youtube["']:["']retired["']/);
   assert.match(html,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
   assert.match(html,/function activeLiveProvider\(\)\{\s*return "youtube";\s*\}/);
-  assert.match(html,/function openMedia\(meta=\{\},options=\{\}\)[\s\S]{0,220}return navigateToVideo\(id,meta,\{replace:options\?\.replace===true\}\);/);
-  assert.doesNotMatch(html,/\n\s*installTikTokLiveControls\(\);/);
+  assert.match(html,/function openMedia\(meta=\{\},options=\{\}\)[\s\S]{0,240}normalizedMediaProvider\(meta\?\.provider\)!==["']youtube["']\)return false;[\s\S]{0,140}navigateToVideo/);
   const hydrateLiveStart=html.indexOf("async function hydrateUnifiedLiveSnapshots");
   const hydrateLiveEnd=html.indexOf("async function refreshUnifiedLiveInBackground",hydrateLiveStart);
   const hydrateLiveBlock=html.slice(hydrateLiveStart,hydrateLiveEnd);
-  assert.doesNotMatch(hydrateLiveBlock,/provider==="tiktok"/);
+  assert.doesNotMatch(hydrateLiveBlock,/retired|tiktok/i);
   const refreshLiveStart=html.indexOf("async function refreshUnifiedLiveInBackground");
   const refreshLiveEnd=html.indexOf("function paintUnifiedLiveFromEdge",refreshLiveStart);
   const refreshLiveBlock=html.slice(refreshLiveStart,refreshLiveEnd);
-  assert.doesNotMatch(refreshLiveBlock,/provider==="tiktok"/);
+  assert.doesNotMatch(refreshLiveBlock,/retired|tiktok/i);
   assert.match(html,/filter\(meta=>normalizedMediaProvider\(meta\?\.provider\)==="youtube"\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);

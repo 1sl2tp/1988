@@ -56,7 +56,9 @@ assert.doesNotMatch(html,/primeUnifiedChannelLibrary\(remote\)/);
 assert.match(html,/SOURCE_STATE_URL\+"\?view=manifest"/);
 assert.match(html,/SOURCE_STATE_URL\+"\?view=lite"/);
 assert.match(html,/channelLibraryEntry\("youtube",sourceId\)/);
-assert.match(html,/channelLibraryEntry\("tiktok",handle\)/);
+// MAIN is YouTube-only after RT-06b. Retired TikTok identity rows must not be
+// consumed by the production player, even if legacy backend schema is cleaned later.
+assert.doesNotMatch(html,/channelLibraryEntry\("tiktok"/);
 
 // Source manager alone consumes/caches the canonical identity library.
 assert.match(sourceManager,/state\.remote\?\.channelLibrary/);
