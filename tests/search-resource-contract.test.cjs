@@ -27,6 +27,7 @@ assert.doesNotMatch(app,/preview_video_timeout/);
 // Git source must stay on the proven v8 provider shape until a replacement
 // strategy is production-verified. Do not leave an unverified bounded-search
 // experiment on main while production is still running the v8 rollback.
+// This contract is validated by the dedicated Verify 1988 owner.
 const edge=fs.readFileSync(path.join(root,'supabase','functions','yt1988','index.ts'),'utf8');
 assert.match(edge,/async function raceApis\(/);
 assert.match(edge,/const winner = await Promise\.any\(\s*candidates\.map/);
