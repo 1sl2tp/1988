@@ -2,83 +2,11 @@
 
 const CACHE='1988-simple-media-v96';
 const AVATAR_CACHE='1988-avatar-assets-v1';
-const TIKTOK_IMAGE_CACHE='1988-tiktok-image-assets-v1';
-const TIKTOK_IMAGE_CACHE_MAX=480;
 const AVATAR_CACHE_MAX=480;
-const SUPABASE_STORAGE_HOST_RE=/^[a-z0-9]+\.supabase\.co$/i;
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
 function isAvatarRequest(req,url){
   return req.destination==='image'&&AVATAR_HOST_RE.test(url.hostname);
-}
-
-function isTikTokOriginalImage(req,url){
-  return req.destination==='image'&&
-    SUPABASE_STORAGE_HOST_RE.test(url.hostname)&&
-    url.pathname.startsWith('/storage/v1/object/public/tiktok-originals/');
-}
-function isTikTokPwaMedia(url){
-  return url.origin===self.location.origin&&url.pathname==='/__tiktok-media';
-}
-
-async function tiktokPwaMediaResponse(req,url){
-  const edge=new URL('https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-stream');
-  for(const key of ['user','id','source','try']){
-    const value=url.searchParams.get(key);
-    if(value)edge.searchParams.set(key,value);
-  }
-
-  const headers=new Headers();
-  const range=req.headers.get('range');
-  if(range)headers.set('range',range);
-  const accept=req.headers.get('accept');
-  if(accept)headers.set('accept',accept);
-
-  const upstream=await fetch(edge.href,{
-    method:'GET',
-    headers,
-    cache:'no-store',
-    redirect:'follow'
-  });
-
-  // Rebuild the response as a same-origin SW response so installed iOS/macOS
-  // PWAs do not hand a cross-origin Workers.dev media URL directly to <video>.
-  const outHeaders=new Headers();
-  for(const key of [
-    'content-type','content-length','content-range','accept-ranges',
-    'etag','last-modified','cache-control'
-  ]){
-    const value=upstream.headers.get(key);
-    if(value)outHeaders.set(key,value);
-  }
-  outHeaders.set('cache-control','no-store');
-
-  return new Response(upstream.body,{
-    status:upstream.status,
-    statusText:upstream.statusText,
-    headers:outHeaders
-  });
-}
-
-
-async function trimTikTokImageCache(cache){
-  const keys=await cache.keys();
-  const extra=keys.length-TIKTOK_IMAGE_CACHE_MAX;
-  if(extra<=0)return;
-  await Promise.all(keys.slice(0,extra).map(req=>cache.delete(req)));
-}
-
-async function tikTokImageResponse(req){
-  const cache=await caches.open(TIKTOK_IMAGE_CACHE);
-  const cached=await cache.match(req,{ignoreVary:true});
-  if(cached)return cached;
-
-  const fresh=await fetch(req);
-  if(fresh&&(fresh.ok||fresh.type==='opaque')){
-    await cache.put(req,fresh.clone()).catch(()=>{});
-    void trimTikTokImageCache(cache).catch(()=>{});
-  }
-  return fresh;
 }
 
 async function trimAvatarCache(cache){
@@ -150,7 +78,7 @@ self.addEventListener('activate',event=>{
     const keys=await caches.keys();
     await Promise.all(
       keys
-        .filter(k=>k.startsWith('1988-')&&k!==CACHE&&k!==AVATAR_CACHE&&k!==TIKTOK_IMAGE_CACHE)
+        .filter(k=>k.startsWith('1988-')&&k!==CACHE&&k!==AVATAR_CACHE)
         .map(k=>caches.delete(k))
     );
     await self.clients.claim();
@@ -168,20 +96,12 @@ self.addEventListener('fetch',event=>{
   if(req.method!=='GET')return;
   const url=new URL(req.url);
 
-  if(isTikTokPwaMedia(url)){
-    event.respondWith(tiktokPwaMediaResponse(req,url));
-    return;
-  }
 
   if(isAvatarRequest(req,url)){
     event.respondWith(avatarResponse(req));
     return;
   }
 
-  if(isTikTokOriginalImage(req,url)){
-    event.respondWith(tikTokImageResponse(req));
-    return;
-  }
 
   if(url.origin!==self.location.origin)return;
 
