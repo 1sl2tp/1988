@@ -3382,23 +3382,10 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   const root=document.documentElement;
   const top=document.getElementById("top");
   const mainEl=document.querySelector("main");
-  const tiktokAccountRail=null;
-  const tiktokWatchClose=null;
-  const tiktokWatchActions=null;
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
   const embedMediaCore=document.getElementById("embedMediaCore");
-  const liveMediaCore=null;
-  const nativeMediaCore=null;
-  const tiktokLivePreview=null;
-  const tiktokMediaPreview=null;
-  const tiktokLiveVideo=null;
-  const tiktokMediaVideo=null;
-  const tiktokLiveControls=null;
-  const tiktokLivePlay=null;
-  const tiktokLiveMute=null;
-  const tiktokLiveFull=null;
   const pipActivateZone=document.getElementById("pipActivateZone");
   const pipDragZones=[...document.querySelectorAll("[data-pip-drag]")];
   const pipMoveZone=document.getElementById("pipMoveZone");
@@ -3435,8 +3422,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   let currentMediaProvider="youtube";
   let currentMediaType="embed";
 
-  function normalizedMediaProvider(){
-    return "youtube";
+  function normalizedMediaProvider(value){
+    return String(value||"youtube").trim().toLowerCase()==="youtube"?"youtube":"retired";
   }
   function mediaProviderFor(){
     return "youtube";
@@ -3458,28 +3445,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   let inlineVideoId="";
   let metaRequest=0;
   let currentMeta=null;
-  let tiktokLivePlayer=null;
-  let tiktokPreparedLiveId="";
-  let tiktokPreparedTimer=0;
-  let tiktokControlsTimer=0;
-  let tiktokLiveMetas=[];
-  let tiktokLiveFetchPromise=null;
-  let tiktokLiveScanPromise=null;
-  let tiktokLiveLastAt=0;
-  let tiktokLiveReady=false;
-  let tiktokVideoMetas=[];
-  let tiktokLibraryChannels=[];
-  let tiktokChannelStatus="online";
-  let tiktokChannelPage=1;
-  let tiktokWorkspaceHandle="";
-  let tiktokWorkspaceView="profile";
-  let tiktokWatchSequence=[];
-  let tiktokWatchMoveLockedUntil=0;
-  let tiktokWatchTouchStart=null;
-  const TIKTOK_CHANNEL_PAGE_SIZE=18;
-  let tiktokLibraryVersion=-1;
-  let tiktokLibraryFetchPromise=null;
-  let activeTikTokSubtab="live";
   let unifiedLiveSnapshotPromise=null;
   let unifiedLiveRefreshPromise=null;
   let youtubeEdgeLiveMetas=[];
@@ -3495,7 +3460,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   let liveLastSelectedId="";
   let liveBackgroundTimer=0;
   let livePackageLastWakeAt=0;
-  const LIVE_CLIENT_SNAPSHOT_KEY="yt1988-live-client-snapshot-v1";
   let feedMetas=[];
   let relatedMetas=[];
   let feedRequest=0;
@@ -3506,11 +3470,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   let startupLandingActive=true;
   let activePlatformNav="";
   let youtubePlatformRows=[];
-  const TIKTOK_PLATFORM_ROWS=[
-    {key:"live",label:"Live"},
-    {key:"video",label:"Video"},
-    {key:"lists",label:"Danh sách"}
-  ];
   // A full app entry always starts from the lightweight video landing feed.
   // Tab clicks still persist during the session, but a later reload does not
   // resurrect LIVE and force the user to wait on realtime discovery.
@@ -3892,12 +3851,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   function channelLibraryKey(platform="",id=""){
     platform=String(platform||"").trim().toLowerCase();
     id=String(id||"").trim().replace(/^@/,"");
-    if(!platform||!id)return "";
-    return platform+":"+(
-      platform==="tiktok"
-        ?id.toLowerCase()
-        :id
-    );
+    if(platform!=="youtube"||!id)return "";
+    return "youtube:"+id;
   }
 
   function channelLibraryEntry(platform="",id=""){
@@ -3910,11 +3865,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     const rows=Array.isArray(remote?.channelLibrary)?remote.channelLibrary:[];
     for(const raw of rows){
       const platform=String(raw?.platform||"").trim().toLowerCase();
-      const id=String(
-        platform==="tiktok"
-          ?(raw?.handle||raw?.id||"")
-          :(raw?.id||"")
-      ).trim().replace(/^@/,"");
+      if(platform!=="youtube")continue;
+      const id=String(raw?.id||"").trim().replace(/^@/,"");
       const key=channelLibraryKey(platform,id);
       if(!key)continue;
       const avatar=String(
@@ -5051,7 +5003,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   }
 
   function scheduleCurrentPlayerKind(player=ytPlayer){
-    if(currentMediaProvider!=="youtube"||current?.provider==="tiktok")return;
+    if(currentMediaProvider!=="youtube")return;
     const id=String(current?.id||"").trim();
     if(!id)return;
 
@@ -7359,7 +7311,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
 
   function openMedia(meta={},options={}){
     const id=String(meta?.id||"").trim();
-    if(!id)return false;
+    if(!id||normalizedMediaProvider(meta?.provider)!=="youtube")return false;
     return navigateToVideo(id,meta,{replace:options?.replace===true});
   }
 
