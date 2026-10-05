@@ -5137,7 +5137,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     const metaRatio=mediaAspectFromMeta(meta||{});
     const primedRatio=cachedPrimedAspect(id);
 
-    // Reuse only YouTube's own previous geometry. Never inherit TikTok shape.
+    // Reuse only YouTube's own previous geometry.
     const previousYoutubeRatio=
       current?.provider==="youtube"
         ?(
@@ -7059,7 +7059,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       }
 
       // Cheap sync is allowed only while LIVE is visible. YouTube still renders
-      // only its prepared Supabase package; TikTok reads its edge snapshot.
+      // only its prepared Supabase package.
       if(provider==="youtube"){
         await loadPackageManifest();
         await syncPreparedPackages(["live"]);
@@ -8462,7 +8462,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
 
     // Desktop/two-column cards already have fixed grid geometry. Watching every
     // thumbnail/avatar decode there caused repeated ResizeObserver -> rAF cycles
-    // while scrolling a TikTok channel list.
+    // while scrolling long channel lists.
     if(!isTwoColumn()){
       rows.querySelectorAll(".row").forEach(card=>feedMasonryObserver.observe(card));
       scheduleFeedMasonry();
@@ -9633,7 +9633,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     root.classList.toggle("viewer-active",viewerActive);
     root.classList.toggle("media-empty",!viewerActive);
 
-    // One viewer contract for YouTube + TikTok on every viewport.
+    // One viewer contract for YouTube on every viewport.
     // Inline-thumbnail playback and auto-PiP are no longer layout modes.
     if(
       inlineVideoId||
