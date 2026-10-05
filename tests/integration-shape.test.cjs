@@ -162,65 +162,31 @@ if(simpleProduction){
   assert.equal((html.match(/showPlayerAsPip\(\)/g)||[]).length,2);
   assert.equal((html.match(/attachPlayerToCard\(/g)||[]).length,2);
   assert.match(html,/html\.viewer-active\.two-col \.row\.selected[\s\S]{0,120}display:none!important/);
-  assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active main[\s\S]{0,260}grid-template-areas:"media feed"!important/);
-  assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active \.tiktok-account-rail[\s\S]{0,100}display:none!important/);
-  assert.match(html,/html\.tiktok-ui\.tiktok-watch\.viewer-active \.rows[\s\S]{0,260}grid-template-columns:minmax\(0,1fr\)!important/);
-  assert.match(html,/TIKTOK YOUTUBE-SHELL v1/);
-  assert.match(html,/class="tiktok-profile-banner"/);
-  assert.match(html,/class="tiktok-profile-tabs"/);
-  assert.match(html,/class="tiktok-profile-grid"/);
-  assert.match(html,/id="tiktokWatchActions"/);
-  assert.match(html,/grid-template-areas:"stage actions"!important/);
-  assert.match(html,/tiktok-profile-grid[\s\S]{0,180}grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
-  assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}tiktok-profile-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(html,/data-tiktok-watch-share="1"/);
-  assert.match(html,/function tiktokSmartWatchSequence\(\)/);
-  assert.match(html,/function showTikTokLiveFeed\(\)[\s\S]{0,900}refreshTikTokLiveFeed\(\{paint:false,force:true\}\)[\s\S]{0,520}feedMetas=Array\.isArray\(items\)\?items:\[\]/);
-  const tiktokLiveFeedStart=html.indexOf("function showTikTokLiveFeed()");
-  const tiktokLiveFeedEnd=html.indexOf("function showTikTokVideoFeed()",tiktokLiveFeedStart);
-  const tiktokLiveFeedBlock=html.slice(tiktokLiveFeedStart,tiktokLiveFeedEnd);
-  assert.doesNotMatch(tiktokLiveFeedBlock,/refreshUnifiedLiveInBackground/);
-  assert.match(html,/function moveTikTokWatch\(step=1\)/);
-  assert.match(html,/data-tiktok-watch-nav="-1"/);
-  assert.match(html,/data-tiktok-watch-nav="1"/);
-  assert.match(html,/window\.addEventListener\("wheel"[\s\S]{0,520}moveTikTokWatch/);
-  assert.match(html,/event\.key==="ArrowDown"\?1:-1/);
-  assert.match(html,/mediaCol\?\.addEventListener\("touchstart"/);
-  assert.match(html,/ratio:sourceRatio,[\s\S]{0,80}detectedRatio:sourceRatio/);
-  assert.match(html,/commitCurrentAspect\(id,detected,\{relayout:true,provider:"tiktok"\}\)/);
-  assert.doesNotMatch(html,/current\.ratio=detectedKind==="portrait"\?9\/16:16\/9/);
-  assert.match(html,/TikTok Watch navigation \+ exact source geometry/);
-  // YouTube/TikTok are hard media branches: stale state cannot cross-open,
-  // generic feed is YouTube-only, and TikTok never falls back to i.ytimg.com.
-  assert.match(html,/provider==="tiktok"&&activePlatformNav!=="tiktok"\)return false/);
-  assert.match(html,/provider==="youtube"&&activePlatformNav==="tiktok"\)return false/);
-  assert.match(html,/filter\(meta=>normalizedMediaProvider\(meta\?\.provider\)==="youtube"\)/);
-  assert.match(html,/Provider boundaries are strict: TikTok never falls through to a YouTube/);
-  assert.match(html,/provider==="tiktok"\?transparentThumb:providerFallbackThumb/);
-  assert.match(html,/stopTikTokLivePlayback\(\);[\s\S]{0,120}stopTikTokVideoPlayback\(\);[\s\S]{0,160}clearTikTokWorkspace\(\)/);
+  // TikTok runtime has been retired from the production integration surface.
+  // The old helper island may remain temporarily until RT-06, but it must have
+  // no DOM owner, endpoint owner, startup hook, or media/platform routing path.
+  assert.doesNotMatch(html,/id="tiktokAccountRail"/);
+  assert.doesNotMatch(html,/id="tiktokWatchActions"/);
+  assert.doesNotMatch(html,/id="tiktokLiveVideo"/);
+  assert.doesNotMatch(html,/id="tiktokMediaVideo"/);
+  assert.doesNotMatch(html,/const TIKTOK_LIVE_API=/);
+  assert.doesNotMatch(html,/const TIKTOK_LIBRARY_API=/);
+  assert.doesNotMatch(html,/const TIKTOK_UI_ENABLED=/);
   assert.doesNotMatch(html,/id="platformTikTok"/);
-  assert.match(html,/const TIKTOK_UI_ENABLED=false/);
-  assert.match(html,/provider==="tiktok"&&!TIKTOK_UI_ENABLED\)return false/);
-  assert.match(html,/async function showTikTokWorkspace\(handle=""\)\{[\s\S]{0,80}!TIKTOK_UI_ENABLED/);
-  assert.doesNotMatch(html,/platformTikTok\?\.addEventListener/);
-
-  // Unknown TikTok LIVE viewers are null/hidden, never presented as a real 0.
-  assert.match(html,/const knownViewerCount=[\s\S]{0,180}rawViewerCount>0[\s\S]{0,120}:null/);
-  assert.match(html,/viewerCount:knownViewerCount,[\s\S]{0,100}viewsLabel:knownViewerCount\?compactLiveViewerCount/);
-  assert.match(html,/\(live\.length[\s\S]{0,260}Đang LIVE · '\+live\.length/);
-
-  assert.match(html,/\.native-media-core > #tiktokMediaVideo,[\s\S]{0,420}object-fit:contain!important;[\s\S]{0,100}object-position:center center!important/);
-  assert.match(html,/TikTok VOD geometry guard:[\s\S]{0,420}place-items:center!important[\s\S]{0,420}object-position:50% 50%!important/);
-  assert.match(html,/\.row\.tiktok-profile-video \.row-thumb\{[\s\S]{0,100}aspect-ratio:9\/16!important/);
-  assert.doesNotMatch(html,/\.row\.tiktok-profile-video \.row-thumb\{[\s\S]{0,100}aspect-ratio:var\(--media-ratio\)!important/);
-  assert.match(html,/tiktok-ui\.tiktok-watch\.landscape \.stage[\s\S]{0,260}aspect-ratio:var\(--media-ratio\)!important/);
-  assert.doesNotMatch(html,/latestCover[\s\S]{0,260}meta\.livePreview=latestCover/);
-  assert.match(html,/function tiktokSmartLandingDemandActive\(\)[\s\S]{0,260}activePlatformNav==="tiktok"[\s\S]{0,160}max-width:656px/);
-  assert.match(html,/runTikTokLiveCycle\(\{smartLanding=false\}=\{\}\)[\s\S]{0,260}smartLanding&&tiktokSmartLandingDemandActive/);
-  assert.match(html,/smartMobileLanding[\s\S]{0,420}runTikTokLiveCycle\(\{smartLanding:true\}\)[\s\S]{0,520}firstLive/);
-  assert.match(html,/@media\(min-width:1280px\)[\s\S]{0,360}grid-template-areas:"tiktok-accounts media feed"!important/);
-  assert.match(html,/@media\(max-width:999px\)[\s\S]{0,260}html\.tiktok-ui\.tiktok-profile main\{[\s\S]{0,80}padding:8px 10px 28px!important/);
-  assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}html\.tiktok-ui\.tiktok-profile main\{padding:calc\(var\(--top-boundary\) \+ 8px\)/);
+  assert.match(html,/function normalizedMediaProvider\(\)\{\s*return "youtube";\s*\}/);
+  assert.match(html,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
+  assert.match(html,/function activeLiveProvider\(\)\{\s*return "youtube";\s*\}/);
+  assert.match(html,/function openMedia\(meta=\{\},options=\{\}\)[\s\S]{0,220}return navigateToVideo\(id,meta,\{replace:options\?\.replace===true\}\);/);
+  assert.doesNotMatch(html,/\n\s*installTikTokLiveControls\(\);/);
+  const hydrateLiveStart=html.indexOf("async function hydrateUnifiedLiveSnapshots");
+  const hydrateLiveEnd=html.indexOf("async function refreshUnifiedLiveInBackground",hydrateLiveStart);
+  const hydrateLiveBlock=html.slice(hydrateLiveStart,hydrateLiveEnd);
+  assert.doesNotMatch(hydrateLiveBlock,/provider==="tiktok"/);
+  const refreshLiveStart=html.indexOf("async function refreshUnifiedLiveInBackground");
+  const refreshLiveEnd=html.indexOf("function paintUnifiedLiveFromEdge",refreshLiveStart);
+  const refreshLiveBlock=html.slice(refreshLiveStart,refreshLiveEnd);
+  assert.doesNotMatch(refreshLiveBlock,/provider==="tiktok"/);
+  assert.match(html,/filter\(meta=>normalizedMediaProvider\(meta\?\.provider\)==="youtube"\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
   assert.match(sw,/1988-simple-media-v\d+/);
