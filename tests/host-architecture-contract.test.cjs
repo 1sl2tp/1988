@@ -12,6 +12,7 @@ const yt1988=fs.readFileSync(path.join(root,'supabase','functions','yt1988','ind
 const worker=fs.readFileSync(path.join(root,'cloudflare','youtube-live-state','worker.js'),'utf8');
 const state=fs.readFileSync(path.join(root,'supabase','functions','yt1988-state','index.ts'),'utf8');
 const legacy=fs.readFileSync(path.join(root,'src','channel-library.js'),'utf8');
+const serviceWorker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
 
 // GitHub is code, not canonical production data.
 assert.doesNotMatch(index,/channel-library\.js/);
@@ -37,5 +38,12 @@ assert.doesNotMatch(worker,/fetchJson\(STATE_URL,8000\)/);
 // Direct search/channel results may reuse cached aspect metadata, but must not
 // fan out hidden background resolvers over every returned card.
 assert.doesNotMatch(yt1988,/void warmVideoMeta\(missing\)/);
+
+// TikTok runtime is retired. The production service worker must not retain a
+// same-origin media proxy, retired Workers.dev dependency, or TikTok image cache.
+assert.doesNotMatch(serviceWorker,/__tiktok-media/);
+assert.doesNotMatch(serviceWorker,/1988-tiktok-live-state/);
+assert.doesNotMatch(serviceWorker,/tiktok-originals/);
+assert.doesNotMatch(serviceWorker,/TIKTOK_IMAGE_CACHE/);
 
 console.log('host architecture contract ok');
