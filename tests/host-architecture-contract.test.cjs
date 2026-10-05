@@ -13,6 +13,7 @@ const worker=fs.readFileSync(path.join(root,'cloudflare','youtube-live-state','w
 const state=fs.readFileSync(path.join(root,'supabase','functions','yt1988-state','index.ts'),'utf8');
 const legacy=fs.readFileSync(path.join(root,'src','channel-library.js'),'utf8');
 const serviceWorker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+const pagesWorkflow=fs.readFileSync(path.join(root,'.github','workflows','pages.yml'),'utf8');
 
 // GitHub is code, not canonical production data.
 assert.doesNotMatch(index,/channel-library\.js/);
@@ -45,5 +46,11 @@ assert.doesNotMatch(serviceWorker,/__tiktok-media/);
 assert.doesNotMatch(serviceWorker,/1988-tiktok-live-state/);
 assert.doesNotMatch(serviceWorker,/tiktok-originals/);
 assert.doesNotMatch(serviceWorker,/TIKTOK_IMAGE_CACHE/);
+
+// Pages publishes only runtime assets actually referenced by production HTML/SW.
+// Source-only modules remain test/development inputs and are not shipped blindly.
+assert.doesNotMatch(pagesWorkflow,/cp -R icons src sources _site\//);
+assert.match(pagesWorkflow,/cp -R icons sources _site\//);
+assert.match(pagesWorkflow,/cp src\/api\.js src\/media-meta\.js src\/yt-local\.js _site\/src\//);
 
 console.log('host architecture contract ok');

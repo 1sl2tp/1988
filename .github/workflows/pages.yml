@@ -64,7 +64,9 @@ jobs:
           rm -rf _site
           mkdir -p _site
           cp index.html manifest.webmanifest sw.js CNAME .nojekyll apple-touch-icon.png silent.wav _site/
-          cp -R icons src sources _site/
+          cp -R icons sources _site/
+          mkdir -p _site/src
+          cp src/api.js src/media-meta.js src/yt-local.js _site/src/
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
