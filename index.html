@@ -7353,16 +7353,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
 
   function renderInfoQuickActions(meta={}){
     if(!videoQuickActions)return;
-    if(meta?.provider==="tiktok"){
-      videoQuickActions.replaceChildren();
-      return;
-    }
     const sourceId=validSourceId(meta?.sourceId);
-    const tiktokHandle=
-      String(meta?.provider||"").toLowerCase()==="tiktok"
-        ?String(meta?.handle||"").trim().replace(/^@/,"")
-        :"";
-    const canViewChannel=Boolean(sourceId||tiktokHandle);
+    const canViewChannel=Boolean(sourceId);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
     const labels=sourceMenuLabels(sourceId,scope,scopeLabel);
@@ -7408,12 +7400,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     titleEl.textContent=title;
     videoSourceEl.innerHTML=
       escapeHtml(source)+(meta.verified?verifiedBadgeMarkup():"");
-    // TikTok LIVE already shows LIVE + viewer count on the thumbnail.
-    // Do not repeat "N đang xem" again in the detail/info line.
-    const hideTikTokLiveFacts=
-      String(meta?.provider||"").toLowerCase()==="tiktok" &&
-      meta?.isLive===true;
-    videoFactsEl.innerHTML=hideTikTokLiveFacts?"":compactFactsMarkup(meta);
+    videoFactsEl.innerHTML=compactFactsMarkup(meta);
     renderInfoQuickActions(meta);
     if(videoMetaSep)videoMetaSep.hidden=true;
     syncVideoDocumentIdentity({push:false});
@@ -7789,11 +7776,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     openRowMenuMeta=meta||{};
     openRowMenuAnchor=anchor||null;
     const sourceId=validSourceId(meta?.sourceId);
-    const tiktokHandle=
-      String(meta?.provider||"").toLowerCase()==="tiktok"
-        ?String(meta?.handle||"").trim().replace(/^@/,"")
-        :"";
-    const canViewChannel=Boolean(sourceId||tiktokHandle);
+    const canViewChannel=Boolean(sourceId);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
     const labels=sourceMenuLabels(sourceId,scope,scopeLabel);
@@ -8037,42 +8020,19 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     const id=meta.id || current.id;
     const title=meta.title || current.label;
     const source=meta.sourceName || "1988";
-    const provider=normalizedMediaProvider(meta?.provider);
-    const transparentThumb="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
     const liveThumb=meta.isLive?livePreviewForMeta(meta):"";
-    const providerFallbackThumb=
-      provider==="youtube"
-        ?("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg")
-        :(String(meta?.sourceAvatar||"").trim()||transparentThumb);
+    const providerFallbackThumb="https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg";
     const baseThumb=meta.isLive
-      ?(
-          liveThumb||
-          (provider==="tiktok"?transparentThumb:providerFallbackThumb)
-        )
-      :(
-          String(meta.thumbnail||"").trim()||
-          providerFallbackThumb
-        );
-    // Provider boundaries are strict: TikTok never falls through to a YouTube
-    // thumbnail/origin, and YouTube never uses TikTok media fallbacks.
+      ?(liveThumb||providerFallbackThumb)
+      :(String(meta.thumbnail||"").trim()||providerFallbackThumb);
     const thumb=baseThumb;
 
-    const tiktokLive=meta?.isLive&&provider==="tiktok";
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
-    const tiktokViewerCount=Math.max(0,Number(meta?.viewerCount)||0);
-    const tiktokViewerNumber=compactLiveViewerNumber(tiktokViewerCount);
-    const tiktokLiveMarkup=tiktokLive
-      ?'<span class="tiktok-live-badge"><span class="tiktok-live-label">LIVE</span>'+
-        (tiktokViewerCount>0
-          ?'<span class="tiktok-live-viewers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg><span>'+escapeHtml(tiktokViewerNumber)+'</span></span>'
-          :"")+
-        '</span>'
-      :"";
     const durationMarkup=meta.isLive
-      ?(tiktokLive?"":'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>')
+      ?'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>'
       :(duration?'<span class="duration-badge">'+escapeHtml(duration)+'</span>':"");
-    const facts=tiktokLive?"":[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
-    const factsMarkup=tiktokLive?"":compactFactsMarkup(meta);
+    const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
+    const factsMarkup=compactFactsMarkup(meta);
     const verified=meta.verified?verifiedBadgeMarkup():"";
     const thumbStyle="";
 
@@ -8080,7 +8040,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       '<article class="row'+(meta.isLive?' live-card':'')+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-provider="'+escapeHtml(meta.provider||"youtube")+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb"'+thumbStyle+'>'+
           '<img src="'+escapeHtml(thumb)+'" data-thumb-base="'+escapeHtml(baseThumb)+'" data-thumb-fallback-stage="0" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async" fetchpriority="'+(index<2?'high':'auto')+'">'+
-          tiktokLiveMarkup+
           durationMarkup+
         '</div>'+
         '<div class="row-details">'+
@@ -8203,13 +8162,11 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       activePackageScope=remembered;
       try{localStorage.setItem(ACTIVE_SCOPE_KEY,remembered)}catch{}
     }
-    if(activePlatformNav!=="tiktok"){
-      sourceNameChips.innerHTML=list.map(row=>
-        '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
-          escapeHtml(row.label)+
-        '</button>'
-      ).join("");
-    }
+    sourceNameChips.innerHTML=list.map(row=>
+      '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
+        escapeHtml(row.label)+
+      '</button>'
+    ).join("");
     sourceScroll?.scrollTo?.({left:0,behavior:"auto"});
     requestAnimationFrame(()=>{
       updateHeaderSearchRoom();
