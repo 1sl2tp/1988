@@ -62,10 +62,9 @@ assert.match(index,/function normalizedMediaProvider\(value\)[\s\S]{0,160}===["'
 assert.match(index,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
 assert.match(index,/function openMedia\(meta=\{\},options=\{\}\)[\s\S]{0,240}normalizedMediaProvider\(meta\?\.provider\)!==["']youtube["']\)return false/);
 
-// RT-06a: retired TikTok presentation CSS is no longer shipped.
-assert.doesNotMatch(index,/\/\* ===== TikTok dedicated workspace =====/);
-assert.doesNotMatch(index,/\.platform-tiktok \.tt-cyan/);
-assert.doesNotMatch(index,/\.tiktok-live-badge\{/);
+// RT-06c: the production HTML artifact is fully YouTube-only. No TikTok
+// DOM, CSS, comments, API owners, or inline runtime references may remain.
+assert.doesNotMatch(index,/tiktok/i);
 
 // Pages publishes only runtime assets actually referenced by production HTML/SW.
 // Source-only modules remain test/development inputs and are not shipped blindly.
