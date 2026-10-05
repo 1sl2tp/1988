@@ -35,4 +35,12 @@ assert.doesNotMatch(edge,/const MAX_PIPED_ATTEMPTS = 3/);
 assert.doesNotMatch(edge,/async function sequentialPiped\(/);
 assert.doesNotMatch(edge,/orderedPipedCandidates\(\)/);
 
+
+const refresh=fs.readFileSync(path.join(root,'supabase','functions','yt1988-refresh','index.ts'),'utf8');
+const exactResolver=refresh.match(/async function youtubeSearchVideoMetadata\([\s\S]*?\n}\n\n\nfunction youtubeShortsPageSignal/);
+assert.ok(exactResolver,'exact video metadata resolver must exist');
+assert.doesNotMatch(exactResolver[0],/action=search&q=/);
+assert.match(exactResolver[0],/youtubePlayerMetadata\(id\)/);
+assert.match(exactResolver[0],/action=video_meta&id=/);
+
 console.log('search resource contract ok');
