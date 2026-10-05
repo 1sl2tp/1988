@@ -2585,6 +2585,666 @@ html.one-col.portrait .player.pip{
   }
 }
 
+/* ============================================================
+   FOCUSED VIEWER v1
+   Browse = responsive feed.
+   Watch = one media viewer; mobile stacks queue below, desktop places queue right.
+   Inline-thumbnail playback and automatic PiP are retired from the primary flow.
+   ============================================================ */
+html.viewer-active.one-col body{
+  min-height:100vh;
+}
+@media(max-width:999px){
+  html.viewer-active.one-col main{
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    /* 657–999px keeps the header in document/sticky flow, so do not reserve
+       another top-boundary here or the viewer gets a duplicate black gap. */
+    padding:0!important;
+    margin:0!important;
+  }
+  html.viewer-active.one-col .media-col{
+    display:block!important;
+    position:relative!important;
+    left:auto!important;
+    top:auto!important;
+    width:100%!important;
+    height:auto!important;
+    max-width:none!important;
+    margin:0!important;
+    overflow:visible!important;
+    z-index:1!important;
+    isolation:isolate!important;
+    contain:none!important;
+    pointer-events:auto!important;
+  }
+  html.viewer-active.one-col .media-col > .stage{
+    position:relative!important;
+    left:auto!important;
+    top:auto!important;
+    width:100%!important;
+    height:auto!important;
+    max-height:calc(100dvh - var(--visible-top-boundary,0px) - 8px)!important;
+    aspect-ratio:var(--media-ratio)!important;
+    overflow:hidden!important;
+    background:#000!important;
+  }
+  html.viewer-active.one-col .media-col > .info{
+    display:block!important;
+  }
+  /* Portrait watch is intentionally a little narrower than the viewport.
+     This keeps the tall video visually balanced like a dedicated portrait card
+     without changing the real media ratio or the landscape viewer. */
+  html.viewer-active.one-col.portrait .media-col > .stage{
+    width:min(calc(100% - 32px),480px)!important;
+    max-width:480px!important;
+    margin-left:auto!important;
+    margin-right:auto!important;
+    border-radius:var(--floating-radius)!important;
+  }
+  html.viewer-active.one-col.portrait .media-col > .stage > .player,
+  html.viewer-active.one-col.portrait .media-col > .stage > .player iframe{
+    border-radius:var(--floating-radius)!important;
+  }
+  html.viewer-active.one-col .player{
+    position:absolute!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    transform:none!important;
+    pointer-events:auto!important;
+  }
+  html.viewer-active.one-col .rows{
+    padding-top:16px!important;
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  /* The selected video is already represented by the focused viewer above. */
+  html.viewer-active.one-col .row.selected{
+    display:none!important;
+  }
+  html.media-empty.one-col .media-col{
+    display:none!important;
+  }
+}
+/* Only the <=656px breakpoint uses fixed top chrome. Reserve its measured
+   height here; wider one-column layouts already flow below the sticky header. */
+@media(max-width:656px){
+  html.viewer-active.one-col main{
+    padding:var(--top-boundary) 0 0!important;
+  }
+}
+@media(min-width:1000px){
+  html.viewer-active.two-col .rows{
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  /* Queue means next choices; do not repeat the video already in the viewer. */
+  html.viewer-active.two-col .row.selected{
+    display:none!important;
+  }
+}
+
+
+/* TikTok watch follows the same focus contract as YouTube:
+   browse may show account navigation; watch is only viewer + next queue. */
+@media(min-width:1000px){
+  html.tiktok-ui.tiktok-watch.viewer-active main{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(280px,360px)!important;
+    grid-template-areas:"media feed"!important;
+    gap:18px!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .tiktok-account-rail{
+    display:none!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .media-col{
+    grid-area:media!important;
+    width:100%!important;
+    max-width:none!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .rows{
+    grid-area:feed!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    width:100%!important;
+    min-width:0!important;
+  }
+}
+@media(max-width:999px){
+  html.tiktok-ui.tiktok-watch.viewer-active,
+  html.tiktok-ui.tiktok-watch.viewer-active body{
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:auto!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active main{
+    display:block!important;
+    min-height:100vh!important;
+    padding:0!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .tiktok-account-rail{
+    display:none!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .media-col{
+    position:relative!important;
+    inset:auto!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    z-index:1!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .stage{
+    position:relative!important;
+    inset:auto!important;
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:var(--media-ratio)!important;
+  }
+  html.tiktok-ui.tiktok-watch.viewer-active .rows{
+    display:grid!important;
+    position:relative!important;
+    width:100%!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:20px!important;
+    padding:16px 12px calc(24px + env(safe-area-inset-bottom,0px))!important;
+  }
+}
+
+
+/* ============================================================
+   TIKTOK YOUTUBE-SHELL v1
+   Same 1988 shell language as YouTube: left navigation, channel banner/tabs,
+   portrait Shorts-style watch, while keeping TikTok data/player ownership.
+   ============================================================ */
+html.tiktok-ui{
+  --tiktok-sidebar-w:224px;
+  --tiktok-watch-w:430px;
+}
+@media(min-width:1000px){
+  html.tiktok-ui.tiktok-profile main{
+    width:min(100%,1600px)!important;
+    margin:0 auto!important;
+    padding:16px 24px 32px!important;
+    display:grid!important;
+    grid-template-columns:var(--tiktok-sidebar-w) minmax(0,1fr)!important;
+    grid-template-areas:"tiktok-accounts feed"!important;
+    gap:24px!important;
+  }
+  html.tiktok-ui .tiktok-account-rail{
+    top:calc(var(--top-boundary) + 12px)!important;
+    padding:0 10px 28px 0!important;
+    border-right:1px solid var(--yt-border);
+  }
+  html.tiktok-ui.tiktok-profile .rows{
+    display:block!important;
+    width:min(100%,1120px)!important;
+    margin:0 auto!important;
+  }
+}
+.tiktok-sidebar-brand{
+  height:54px;
+  padding:0 12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:var(--yt-text);
+  font:700 20px/24px Roboto,Arial,sans-serif;
+}
+.tiktok-sidebar-mark{
+  width:32px;height:32px;border-radius:9px;
+  display:grid;place-items:center;
+  background:#111;color:#fff;
+  box-shadow:inset 3px 0 #25f4ee,inset -3px 0 #fe2c55;
+}
+.tiktok-sidebar-nav{
+  display:grid;
+  gap:4px;
+  padding:4px 0 14px;
+  border-bottom:1px solid var(--yt-border);
+  margin-bottom:14px;
+}
+.tiktok-sidebar-nav-button{
+  width:100%;
+  min-height:42px;
+  border:0;
+  border-radius:10px;
+  padding:0 12px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  background:transparent;
+  color:var(--yt-text);
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  cursor:pointer;
+  text-align:left;
+}
+.tiktok-sidebar-nav-button:hover,
+.tiktok-sidebar-nav-button.active{background:var(--yt-press)}
+.tiktok-sidebar-nav-icon{width:24px;text-align:center;font-size:20px}
+html.tiktok-ui .tiktok-account-group-title{
+  padding:8px 12px!important;
+  color:var(--yt-text)!important;
+  font-weight:700!important;
+}
+html.tiktok-ui .tiktok-account-button{
+  border-radius:10px!important;
+  min-height:48px;
+  padding:6px 10px!important;
+}
+html.tiktok-ui .tiktok-account-avatar-wrap,
+html.tiktok-ui .tiktok-account-avatar{width:34px!important;height:34px!important}
+html.tiktok-ui .tiktok-account-button{
+  grid-template-columns:34px minmax(0,1fr) auto!important;
+}
+html.tiktok-ui .tiktok-account-name{font-size:13px!important}
+html.tiktok-ui .tiktok-account-handle{font-size:11px!important}
+
+/* Channel page */
+.tiktok-profile-shell{width:100%;min-width:0}
+.tiktok-profile-banner{
+  position:relative;
+  width:100%;
+  aspect-ratio:5.2/1;
+  min-height:150px;
+  max-height:230px;
+  overflow:hidden;
+  border-radius:16px;
+  background:linear-gradient(135deg,#12251d,#151515 58%,#24171b);
+}
+.tiktok-profile-banner-img{
+  width:100%;height:100%;display:block;object-fit:cover;
+  filter:saturate(.78) brightness(.62) blur(1px);
+  transform:scale(1.04);
+}
+.tiktok-profile-banner-shade{
+  position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(0,0,0,.36),rgba(0,0,0,.08) 52%,rgba(0,0,0,.3));
+}
+.tiktok-profile-shell .tiktok-profile-head{
+  display:grid!important;
+  grid-template-columns:132px minmax(0,1fr) auto!important;
+  gap:22px!important;
+  align-items:end!important;
+  padding:0 18px 18px!important;
+  margin-top:-56px!important;
+  margin-bottom:0!important;
+  border-bottom:0!important;
+  position:relative;
+  z-index:2;
+}
+.tiktok-profile-shell .tiktok-profile-avatar{
+  width:132px!important;height:132px!important;
+  border:5px solid var(--yt-bg);
+  box-shadow:0 2px 10px rgba(0,0,0,.22);
+}
+.tiktok-profile-shell .tiktok-profile-copy{padding-bottom:4px}
+.tiktok-profile-shell .tiktok-profile-name{
+  font:700 30px/36px Roboto,Arial,sans-serif!important;
+}
+.tiktok-profile-shell .tiktok-profile-handle{
+  margin-top:4px!important;
+  font:500 13px/19px Roboto,Arial,sans-serif!important;
+}
+.tiktok-profile-bio{
+  max-width:720px;
+  margin-top:7px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--yt-text-secondary);
+  font:400 13px/19px Roboto,Arial,sans-serif;
+}
+.tiktok-profile-shell .tiktok-profile-stats{
+  margin-top:10px!important;
+  gap:10px!important;
+}
+.tiktok-profile-follow-pill{
+  height:34px;
+  padding:0 14px;
+  border-radius:18px;
+  display:inline-flex;
+  align-items:center;
+  background:var(--yt-press);
+  color:var(--yt-text);
+  font-weight:600;
+}
+.tiktok-profile-shell .tiktok-profile-live{
+  align-self:end;
+  margin-bottom:4px;
+}
+.tiktok-profile-tabs{
+  height:50px;
+  display:flex;
+  align-items:flex-end;
+  gap:26px;
+  padding:0 12px;
+  border-bottom:1px solid var(--yt-border);
+}
+.tiktok-profile-tab{
+  height:50px;
+  display:flex;
+  align-items:center;
+  position:relative;
+  color:var(--yt-text-secondary);
+  font:600 14px/20px Roboto,Arial,sans-serif;
+  white-space:nowrap;
+}
+.tiktok-profile-tab.active{color:var(--yt-text)}
+.tiktok-profile-tab.active::after{
+  content:"";
+  position:absolute;left:0;right:0;bottom:-1px;height:3px;
+  border-radius:3px 3px 0 0;background:var(--yt-text);
+}
+.tiktok-profile-grid{
+  margin-top:24px;
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:6px;
+  align-items:start;
+}
+.tiktok-profile-grid .tiktok-profile-video{border-radius:10px!important}
+.tiktok-profile-grid .tiktok-profile-video .row-thumb{border-radius:10px!important}
+
+/* Shorts-style watch */
+@media(min-width:1000px){
+  html.tiktok-ui.tiktok-watch main{
+    width:min(100%,1600px)!important;
+    margin:0 auto!important;
+    padding:14px 24px 28px!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(320px,420px)!important;
+    grid-template-areas:"media feed"!important;
+    gap:26px!important;
+  }
+  html.tiktok-ui.tiktok-watch .tiktok-account-rail{display:none!important}
+  html.tiktok-ui.tiktok-watch .media-col{
+    grid-area:media!important;
+    position:sticky!important;
+    top:calc(var(--top-boundary) + 12px)!important;
+    height:auto!important;
+    min-height:0!important;
+    background:transparent!important;
+    overflow:visible!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,var(--tiktok-watch-w)) 58px!important;
+    grid-template-areas:"stage actions"!important;
+    justify-content:center!important;
+    align-items:end!important;
+    gap:12px!important;
+  }
+  html.tiktok-ui.tiktok-watch.portrait .stage,
+  html.tiktok-ui.tiktok-watch .stage{
+    grid-area:stage!important;
+    width:min(var(--tiktok-watch-w),calc((100dvh - var(--top-boundary) - 38px) * .5625))!important;
+    height:auto!important;
+    aspect-ratio:var(--media-ratio)!important;
+    max-height:calc(100dvh - var(--top-boundary) - 38px)!important;
+    border-radius:14px!important;
+  }
+  html.tiktok-ui.tiktok-watch .tiktok-watch-actions{
+    grid-area:actions;
+    display:flex!important;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+    gap:15px;
+    padding-bottom:8px;
+  }
+  html.tiktok-ui.tiktok-watch .rows{
+    grid-area:feed!important;
+    display:block!important;
+    padding:0!important;
+  }
+}
+.tiktok-watch-action-item{
+  width:54px;
+  border:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:5px;
+  background:transparent;
+  color:var(--yt-text);
+  font:500 11px/15px Roboto,Arial,sans-serif;
+  text-align:center;
+}
+button.tiktok-watch-action-item{cursor:pointer}
+.tiktok-watch-action-icon{
+  width:48px;height:48px;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--yt-press);
+  color:var(--yt-text);
+  font:500 26px/48px Arial,sans-serif;
+}
+.tiktok-watch-panel{
+  border:0!important;
+  background:transparent!important;
+  border-radius:0!important;
+}
+.tiktok-watch-head{
+  padding:2px 0 16px!important;
+  border-bottom:1px solid var(--yt-border)!important;
+}
+.tiktok-watch-title{
+  margin:0 0 12px!important;
+  font:600 16px/22px Roboto,Arial,sans-serif!important;
+}
+.tiktok-watch-creator{
+  grid-template-columns:40px minmax(0,1fr) auto!important;
+}
+.tiktok-watch-avatar{width:40px!important;height:40px!important}
+.tiktok-watch-follow{
+  min-height:34px;
+  padding:0 13px;
+  border-radius:18px;
+  display:flex;align-items:center;
+  background:var(--yt-press);
+  color:var(--yt-text);
+  font:600 12px/18px Roboto,Arial,sans-serif;
+}
+.tiktok-watch-list-title{
+  padding:16px 0 8px!important;
+  font-size:15px!important;
+}
+.tiktok-watch-videos{
+  max-height:calc(100dvh - var(--top-boundary) - 180px)!important;
+  padding:0!important;
+}
+.row.tiktok-watch-video{
+  grid-template-columns:112px minmax(0,1fr)!important;
+  padding:8px 0!important;
+  border-radius:0!important;
+}
+.row.tiktok-watch-video .row-thumb{
+  width:112px!important;height:150px!important;border-radius:9px!important;
+}
+
+/* Mobile/tablet: YouTube-like channel page, two-column Shorts grid, watch card. */
+@media(max-width:999px){
+  html.tiktok-ui.tiktok-profile main{
+    padding:8px 10px 28px!important;
+  }
+  html.tiktok-ui.tiktok-profile .tiktok-account-rail{display:none!important}
+  html.tiktok-ui.tiktok-profile .rows{
+    display:block!important;
+    padding:0!important;
+  }
+  .tiktok-profile-banner{aspect-ratio:3.5/1;min-height:96px;border-radius:12px}
+  .tiktok-profile-shell .tiktok-profile-head{
+    grid-template-columns:78px minmax(0,1fr)!important;
+    gap:12px!important;
+    padding:0 8px 12px!important;
+    margin-top:-30px!important;
+    align-items:end!important;
+  }
+  .tiktok-profile-shell .tiktok-profile-avatar{
+    width:78px!important;height:78px!important;border-width:4px!important;
+  }
+  .tiktok-profile-shell .tiktok-profile-name{font-size:20px!important;line-height:25px!important}
+  .tiktok-profile-bio{display:none}
+  .tiktok-profile-shell .tiktok-profile-live{
+    grid-column:1/-1!important;
+    width:100%!important;
+    margin:2px 0 0!important;
+  }
+  .tiktok-profile-tabs{
+    height:44px;gap:20px;padding:0 6px;overflow-x:auto;scrollbar-width:none;
+  }
+  .tiktok-profile-tab{height:44px;font-size:13px}
+  .tiktok-profile-grid{
+    margin-top:14px;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:4px;
+  }
+
+  html.tiktok-ui.tiktok-watch,
+  html.tiktok-ui.tiktok-watch body{
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+  }
+  html.tiktok-ui.tiktok-watch #top{display:flex!important}
+  html.tiktok-ui.tiktok-watch main{
+    padding:8px 10px 26px!important;
+    display:block!important;
+  }
+  html.tiktok-ui.tiktok-watch .media-col{
+    position:relative!important;
+    inset:auto!important;
+    width:100%!important;
+    height:auto!important;
+    max-width:none!important;
+    margin:0!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) 50px!important;
+    grid-template-areas:"stage actions"!important;
+    gap:8px!important;
+    background:transparent!important;
+    overflow:visible!important;
+    z-index:1!important;
+  }
+  html.tiktok-ui.tiktok-watch .stage{
+    grid-area:stage!important;
+    position:relative!important;
+    inset:auto!important;
+    width:min(calc(100% - 2px),420px)!important;
+    height:auto!important;
+    max-height:none!important;
+    aspect-ratio:var(--media-ratio)!important;
+    justify-self:center!important;
+    border-radius:14px!important;
+  }
+  html.tiktok-ui.tiktok-watch .player{
+    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+    border-radius:inherit!important;
+  }
+  html.tiktok-ui.tiktok-watch .tiktok-watch-actions{
+    grid-area:actions;
+    display:flex!important;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+    gap:12px;
+    padding-bottom:8px;
+  }
+  html.tiktok-ui.tiktok-watch .rows{
+    display:block!important;
+    position:relative!important;
+    width:100%!important;
+    padding:14px 0 0!important;
+  }
+  html.tiktok-ui.tiktok-watch .tiktok-watch-close{display:none!important}
+  .tiktok-watch-videos{max-height:none!important}
+}
+@media(max-width:656px){
+  html.tiktok-ui.tiktok-profile main{padding:calc(var(--top-boundary) + 8px) 8px 24px!important}
+  .tiktok-profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  html.tiktok-ui.tiktok-watch main{padding:var(--top-boundary) 6px 24px!important}
+  html.tiktok-ui.tiktok-watch .media-col{grid-template-columns:minmax(0,1fr) 48px!important}
+  html.tiktok-ui.tiktok-watch .stage{width:min(calc(100% - 4px),390px)!important}
+  .tiktok-watch-action-icon{width:44px;height:44px;font-size:23px}
+}
+
+@media(min-width:1280px){
+  html.tiktok-ui.tiktok-watch main{
+    grid-template-columns:var(--tiktok-sidebar-w) minmax(0,1fr) minmax(320px,390px)!important;
+    grid-template-areas:"tiktok-accounts media feed"!important;
+    gap:22px!important;
+  }
+  html.tiktok-ui.tiktok-watch .tiktok-account-rail{
+    display:flex!important;
+    grid-area:tiktok-accounts!important;
+  }
+}
+
+/* TikTok Watch navigation + exact source geometry. */
+.tiktok-watch-nav{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-bottom:4px;
+}
+.tiktok-watch-nav-button{
+  width:46px;height:46px;
+  border:0;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--yt-press);
+  color:var(--yt-text);
+  font:600 24px/1 Arial,sans-serif;
+  cursor:pointer;
+}
+.tiktok-watch-nav-button:hover{background:var(--yt-hover)}
+.tiktok-watch-nav-button:disabled{opacity:.28;cursor:default}
+.tiktok-watch-live-action{
+  min-width:48px;height:30px;padding:0 9px;
+  border-radius:6px;
+  display:grid;place-items:center;
+  background:#fe2c55;color:#fff;
+  font:800 11px/1 Roboto,Arial,sans-serif;
+}
+.tiktok-watch-live-pill{
+  position:absolute;left:7px;top:7px;z-index:4;
+  height:20px;padding:0 6px;border-radius:4px;
+  display:flex;align-items:center;
+  background:#fe2c55;color:#fff;
+  font:800 10px/20px Roboto,Arial,sans-serif;
+}
+.row.tiktok-watch-video .row-thumb{position:relative}
+@media(min-width:1000px){
+  html.tiktok-ui.tiktok-watch.landscape .media-col{
+    grid-template-columns:minmax(0,1fr) 58px!important;
+  }
+  html.tiktok-ui.tiktok-watch.landscape .stage{
+    width:min(100%,900px)!important;
+    max-width:900px!important;
+    height:auto!important;
+    aspect-ratio:var(--media-ratio)!important;
+  }
+}
+@media(max-width:999px){
+  html.tiktok-ui.tiktok-watch .stage{
+    aspect-ratio:var(--media-ratio)!important;
+  }
+  html.tiktok-ui.tiktok-watch.landscape .stage{
+    width:100%!important;
+    max-width:none!important;
+  }
+}
+
+/* TikTok VOD geometry guard: native video is always contained and centered.
+   The stage may change from portrait to landscape after loadedmetadata, but the
+   video element itself never uses intrinsic pixels as layout size and never crops. */
+html.tiktok-ui.tiktok-watch .native-media-core{
+  display:grid!important;
+  place-items:center!important;
+}
+html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  object-position:50% 50%!important;
+  margin:auto!important;
+}
 </style>
 </head>
 <body>
