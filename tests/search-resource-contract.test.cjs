@@ -23,15 +23,15 @@ assert.doesNotMatch(app,/sourceSearchAlternates\(q\)/);
 assert.doesNotMatch(app,/source_video_timeout/);
 assert.doesNotMatch(app,/preview_video_timeout/);
 
-// Edge provider fallback is bounded and sequential. One committed action may
-// try one preferred Piped provider plus at most two fallbacks.
+// SEARCH-03 production rollback lock:
+// Git source must stay on the proven v8 provider shape until a replacement
+// strategy is production-verified. Do not leave an unverified bounded-search
+// experiment on main while production is still running the v8 rollback.
 const edge=fs.readFileSync(path.join(root,'supabase','functions','yt1988','index.ts'),'utf8');
-assert.match(edge,/const MAX_PIPED_ATTEMPTS = 3/);
-assert.match(edge,/async function sequentialPiped\(/);
-assert.match(edge,/if \(attempts >= MAX_PIPED_ATTEMPTS\) break/);
-assert.match(edge,/orderedPipedCandidates\(\)/);
-assert.match(edge,/API_FAILURE_TTL_MS = 60 \* 1000/);
-assert.doesNotMatch(edge,/async function raceApis\(/);
-assert.doesNotMatch(edge,/const winner = await Promise\.any\(\s*candidates\.map/);
+assert.match(edge,/async function raceApis\(/);
+assert.match(edge,/const winner = await Promise\.any\(\s*candidates\.map/);
+assert.doesNotMatch(edge,/const MAX_PIPED_ATTEMPTS = 3/);
+assert.doesNotMatch(edge,/async function sequentialPiped\(/);
+assert.doesNotMatch(edge,/orderedPipedCandidates\(\)/);
 
 console.log('search resource contract ok');
