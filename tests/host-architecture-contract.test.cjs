@@ -58,6 +58,11 @@ assert.doesNotMatch(index,/const TIKTOK_LIBRARY_API=/);
 assert.match(index,/function normalizedMediaProvider\(\)\{\s*return "youtube";\s*\}/);
 assert.match(index,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
 
+// RT-06a: retired TikTok presentation CSS is no longer shipped.
+assert.doesNotMatch(index,/\/\* ===== TikTok dedicated workspace =====/);
+assert.doesNotMatch(index,/\.platform-tiktok \.tt-cyan/);
+assert.doesNotMatch(index,/\.tiktok-live-badge\{/);
+
 // Pages publishes only runtime assets actually referenced by production HTML/SW.
 // Source-only modules remain test/development inputs and are not shipped blindly.
 assert.doesNotMatch(pagesWorkflow,/cp -R icons src sources _site\//);
