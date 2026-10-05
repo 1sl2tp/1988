@@ -47,6 +47,17 @@ assert.doesNotMatch(serviceWorker,/1988-tiktok-live-state/);
 assert.doesNotMatch(serviceWorker,/tiktok-originals/);
 assert.doesNotMatch(serviceWorker,/TIKTOK_IMAGE_CACHE/);
 
+// RT-05: production HTML is YouTube-only at the integration surface. Retired
+// TikTok helpers may still exist temporarily, but no DOM/API/router owner may.
+assert.doesNotMatch(index,/id="tiktokAccountRail"/);
+assert.doesNotMatch(index,/id="tiktokWatchActions"/);
+assert.doesNotMatch(index,/id="tiktokLiveVideo"/);
+assert.doesNotMatch(index,/id="tiktokMediaVideo"/);
+assert.doesNotMatch(index,/const TIKTOK_LIVE_API=/);
+assert.doesNotMatch(index,/const TIKTOK_LIBRARY_API=/);
+assert.match(index,/function normalizedMediaProvider\(\)\{\s*return "youtube";\s*\}/);
+assert.match(index,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
+
 // Pages publishes only runtime assets actually referenced by production HTML/SW.
 // Source-only modules remain test/development inputs and are not shipped blindly.
 assert.doesNotMatch(pagesWorkflow,/cp -R icons src sources _site\//);
