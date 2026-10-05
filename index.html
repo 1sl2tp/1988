@@ -8475,97 +8475,12 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
 
   const rowsImageHost=document.getElementById("rows");
 
-  // Desktop hover and mobile pointer-down give the direct TikTok CDN a head
-  // start before the click handler attaches mpegts/native HLS.
-  for(const eventName of ["pointerover","pointerdown"]){
-    rowsImageHost?.addEventListener(eventName,event=>{
-      const card=event.target?.closest?.('.row[data-provider="tiktok"][data-video-id]');
-      if(!card)return;
-      const id=String(card.dataset.videoId||"");
-      const meta=feedMetas.find(item=>String(item?.id||"")===id);
-      if(meta?.isLive===true){
-        prepareTikTokLivePlayer(meta);
-        primeTikTokPlaybackNeighborhood(id,2);
-      }
-    },{passive:true});
-  }
-
   rowsImageHost?.addEventListener("error",event=>{
     const img=event.target;
     if(!(img instanceof HTMLImageElement)||!img.closest(".row-thumb"))return;
 
     const card=img.closest(".row[data-video-id]");
     const id=String(card?.dataset?.videoId||"").trim();
-    const provider=String(card?.dataset?.provider||"youtube").toLowerCase();
-
-    if(provider==="tiktok"){
-      const meta=feedMetas.find(item=>String(item?.id||"")===id);
-      const currentSrc=String(img.currentSrc||img.src||img.getAttribute("src")||"").trim();
-      const tried=new Set(
-        String(img.dataset.tiktokThumbTried||"")
-          .split("\n")
-          .map(value=>value.trim())
-          .filter(Boolean)
-      );
-      if(currentSrc)tried.add(currentSrc);
-
-      const candidates=[
-        ...(Array.isArray(meta?.livePreviewFallbacks)?meta.livePreviewFallbacks:[]),
-        String(meta?.livePreview||"").trim(),
-        String(meta?.thumbnail||"").trim(),
-        String(meta?.sourceAvatar||"").trim()
-      ].filter(Boolean);
-
-      const next=candidates.find(url=>!tried.has(url));
-      img.dataset.tiktokThumbTried=[...tried].join("\n");
-
-      if(next){
-        img.src=next;
-        if(meta){
-          meta.livePreview=next;
-          meta.thumbnail=next;
-        }
-        return;
-      }
-
-      // One fresh edge refresh can provide a newly signed live-cover URL.
-      if(img.dataset.tiktokThumbRefresh!=="1"){
-        img.dataset.tiktokThumbRefresh="1";
-        const handle=String(meta?.handle||"").trim();
-        void refreshTikTokLiveFeed({paint:false,force:true}).then(()=>{
-          if(!img.isConnected)return;
-          const fresh=feedMetas.find(item=>String(item?.id||"")===id)||
-            tiktokLiveMetas.find(item=>String(item?.handle||"")===handle);
-          const refreshed=[
-            ...(Array.isArray(fresh?.livePreviewFallbacks)?fresh.livePreviewFallbacks:[]),
-            String(fresh?.livePreview||"").trim(),
-            String(fresh?.thumbnail||"").trim(),
-            String(fresh?.sourceAvatar||"").trim()
-          ].filter(Boolean).find(url=>!tried.has(url));
-          if(refreshed){
-            img.src=refreshed;
-            return;
-          }
-
-          // Never leave the browser's broken-image icon over a LIVE card.
-          const avatar=String(fresh?.sourceAvatar||meta?.sourceAvatar||"").trim();
-          if(avatar&&avatar!==currentSrc){
-            img.src=avatar;
-          }else{
-            img.removeAttribute("src");
-            img.style.visibility="hidden";
-          }
-        }).catch(()=>{
-          const avatar=String(meta?.sourceAvatar||"").trim();
-          if(avatar&&avatar!==currentSrc)img.src=avatar;
-          else{
-            img.removeAttribute("src");
-            img.style.visibility="hidden";
-          }
-        });
-      }
-      return;
-    }
 
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return;
 
@@ -8821,13 +8736,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     channelFeedName=String(snapshot.channelFeedName||"");
 
     syncSourceChipForCurrentFeed();
-    if(feedMode==="tiktok-channels"){
-      activeTikTokSubtab="lists";
-      renderTikTokChannelList();
-    }else{
-      renderSampleContent();
-      syncFeedHeader();
-    }
+    renderSampleContent();
+    syncFeedHeader();
     scrollPageToTop();
     return true;
   }
@@ -8926,11 +8836,9 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
     const renderLimit=
-      feedMode==="tiktok-video"
-        ?60
-        :(feedMode==="package"&&activePackageScope==="live"
-          ?cards.length
-          :18);
+      feedMode==="package"&&activePackageScope==="live"
+        ?cards.length
+        :18;
     const rendered=cards.slice(0,renderLimit);
     const signature=feedVisualSignature(rendered);
 
@@ -10134,26 +10042,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   });
 
   sourcebar.addEventListener("click",event=>{
-    const platformSubchip=event.target.closest(".platform-subchip[data-platform-subtab]");
-    if(platformSubchip){
-      sourceNameChips.querySelectorAll(".platform-subchip").forEach(x=>x.classList.remove("active"));
-      platformSubchip.classList.add("active");
-      platformSubchip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
-      requestAnimationFrame(updateSourceRailArrows);
-
-      const subtab=String(platformSubchip.dataset.platformSubtab||"");
-      if(activePlatformNav==="tiktok"){
-        if(subtab==="live"){
-          showTikTokLiveFeed();
-        }else if(subtab==="video"){
-          showTikTokVideoFeed();
-        }else{
-          void showTikTokWorkspace(tiktokWorkspaceHandle);
-        }
-      }
-      return;
-    }
-
     const chip=event.target.closest(".source-chip[data-source-tab]");
     if(!chip)return;
     startupLandingActive=false;
@@ -10206,141 +10094,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     return true;
   }
 
-  tiktokAccountRail?.addEventListener("click",event=>{
-    const liveJump=event.target.closest("[data-tiktok-scroll-live]");
-    if(liveJump){
-      event.preventDefault();
-      tiktokAccountRail.querySelector("[data-tiktok-live-group]")?.scrollIntoView?.({block:"start",behavior:"smooth"});
-      return;
-    }
-    const button=event.target.closest("[data-tiktok-account]");
-    if(!button)return;
-    event.preventDefault();
-    const handle=String(button.dataset.tiktokAccount||"");
-    const live=button.dataset.tiktokAccountLive==="1";
-    openTikTokAccount(handle,live);
-  });
-
-  tiktokWatchActions?.addEventListener("click",async event=>{
-    const nav=event.target.closest("[data-tiktok-watch-nav]");
-    if(nav&&!nav.disabled){
-      event.preventDefault();
-      event.stopPropagation();
-      moveTikTokWatch(Number(nav.dataset.tiktokWatchNav)||0);
-      return;
-    }
-    const share=event.target.closest("[data-tiktok-watch-share]");
-    if(!share)return;
-    event.preventDefault();
-    const url=String(currentMeta?.pageUrl||location.href).trim()||location.href;
-    const title=String(currentMeta?.title||"TikTok").trim()||"TikTok";
-    try{
-      if(navigator.share){
-        await navigator.share({title,url});
-      }else if(navigator.clipboard?.writeText){
-        await navigator.clipboard.writeText(url);
-      }
-    }catch{}
-  });
-
-  tiktokWatchClose?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    exitTikTokWatch();
-  });
-
-  window.addEventListener("wheel",event=>{
-    if(
-      !root.classList.contains("tiktok-watch")||
-      String(current?.provider||"").toLowerCase()!=="tiktok"||
-      event.target.closest?.(".tiktok-watch-videos,.searchbox,input,textarea,select")
-    )return;
-    if(Math.abs(Number(event.deltaY)||0)<34)return;
-    event.preventDefault();
-    moveTikTokWatch(event.deltaY>0?1:-1);
-  },{passive:false});
-
-  document.addEventListener("keydown",event=>{
-    if(
-      !root.classList.contains("tiktok-watch")||
-      String(current?.provider||"").toLowerCase()!=="tiktok"||
-      event.target.closest?.("input,textarea,select,[contenteditable='true']")
-    )return;
-    if(event.key!=="ArrowUp"&&event.key!=="ArrowDown")return;
-    event.preventDefault();
-    moveTikTokWatch(event.key==="ArrowDown"?1:-1);
-  });
-
-  mediaCol?.addEventListener("touchstart",event=>{
-    if(!root.classList.contains("tiktok-watch")||String(current?.provider||"").toLowerCase()!=="tiktok")return;
-    const touch=event.touches?.[0];
-    if(!touch)return;
-    tiktokWatchTouchStart={x:touch.clientX,y:touch.clientY,at:Date.now()};
-  },{passive:true});
-
-  mediaCol?.addEventListener("touchend",event=>{
-    if(!tiktokWatchTouchStart||!root.classList.contains("tiktok-watch")){
-      tiktokWatchTouchStart=null;
-      return;
-    }
-    const touch=event.changedTouches?.[0];
-    const start=tiktokWatchTouchStart;
-    tiktokWatchTouchStart=null;
-    if(!touch)return;
-    const dx=touch.clientX-start.x;
-    const dy=touch.clientY-start.y;
-    if(Date.now()-start.at>900||Math.abs(dy)<54||Math.abs(dy)<Math.abs(dx)*1.2)return;
-    moveTikTokWatch(dy<0?1:-1);
-  },{passive:true});
-
   document.getElementById("rows").addEventListener("click",event=>{
-    const openLive=event.target.closest("[data-tiktok-open-live]");
-    if(openLive){
-      event.preventDefault();
-      event.stopPropagation();
-      const handle=String(openLive.dataset.tiktokOpenLive||"");
-      const live=tiktokLiveForHandle(handle);
-      if(live)openTikTokAccount(handle,true);
-      return;
-    }
-
-    const profileHandle=event.target.closest("[data-tiktok-profile-handle]");
-    if(profileHandle&&!event.target.closest(".row")){
-      event.preventDefault();
-      event.stopPropagation();
-      renderTikTokCreatorProfile(String(profileHandle.dataset.tiktokProfileHandle||""));
-      return;
-    }
-    const channelFilter=event.target.closest("[data-tiktok-channel-filter]");
-    if(channelFilter){
-      event.preventDefault();
-      event.stopPropagation();
-      const next=String(channelFilter.dataset.tiktokChannelFilter||"");
-      if(next==="online"||next==="offline"){
-        tiktokChannelStatus=next;
-        tiktokChannelPage=1;
-        renderTikTokChannelList();
-      }
-      return;
-    }
-
-    const channelPage=event.target.closest("[data-tiktok-channel-page]");
-    if(channelPage&&!channelPage.disabled){
-      event.preventDefault();
-      event.stopPropagation();
-      tiktokChannelPage=Math.max(1,Number(channelPage.dataset.tiktokChannelPage)||1);
-      renderTikTokChannelList();
-      return;
-    }
-
-    const tiktokChannel=event.target.closest("[data-tiktok-channel]");
-    if(tiktokChannel){
-      event.preventDefault();
-      event.stopPropagation();
-      void openTikTokChannelInApp(String(tiktokChannel.dataset.tiktokChannel||""));
-      return;
-    }
-
     const channelBack=event.target.closest("[data-channel-back]");
     if(channelBack){
       event.preventDefault();
@@ -10396,10 +10150,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       activePackageScope==="live"
     ){
       maybeRefreshLiveOnUserSwitch(id);
-      if(String(selectedMeta?.provider||"").toLowerCase()==="tiktok"){
-        prepareTikTokLivePlayer(selectedMeta);
-        primeTikTokPlaybackNeighborhood(id,2);
-      }
     }
 
     const opened=selectedMeta?openMedia(selectedMeta):false;
@@ -10426,11 +10176,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     kind=String(kind||"");
     if(kind==="view-channel"){
       closeRowActionMenu();
-      if(String(meta?.provider||"").toLowerCase()==="tiktok"&&String(meta?.handle||"").trim()){
-        void openTikTokChannelInApp(meta.handle);
-      }else{
-        void openChannelInApp(meta);
-      }
+      void openChannelInApp(meta);
       return true;
     }
     if(kind==="download"){
