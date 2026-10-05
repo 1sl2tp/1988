@@ -2014,17 +2014,59 @@ async function youtubeSearchVideoMetadata(
   id:string
 ){
   if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+
+  // Exact video verification must not go through the general search endpoint.
+  // Prefer the direct YouTube player metadata already available in this
+  // runtime; it avoids Edge -> Edge -> Piped fan-out for every video id.
+  try{
+    const player=await youtubePlayerMetadata(id);
+    if(
+      player&&(
+        player?.isLive===true||
+        player?.ended===true||
+        Number(player?.duration)>0
+      )
+    ){
+      return {
+        duration:Math.max(0,Number(player?.duration)||0),
+        isLive:player?.isLive===true,
+        sourceId:clean(player?.sourceId||"",180),
+        sourceName:validChannelDisplayName(player?.sourceName||""),
+        sourceThumbnailUrl:"",
+        title:clean(player?.title||"",300),
+        thumbnailUrl:clean(player?.thumbnailUrl||"",1000),
+        views:Math.max(0,Number(player?.views)||0)
+      };
+    }
+  }catch{}
+
+  // Bounded compatibility fallback. video_meta is fail-soft and returns 200
+  // with YouTube oEmbed/basic metadata even when Piped is unavailable.
   try{
     const result=await fetchJson(
-      supabaseUrl+"/functions/v1/yt1988?action=search&q="+
-        encodeURIComponent(id)+"&filter=videos",
+      supabaseUrl+"/functions/v1/yt1988?action=video_meta&id="+
+        encodeURIComponent(id),
       {
         "apikey":serviceKey,
         "authorization":"Bearer "+serviceKey
       },
-      6000
+      4500
     );
-    return exactSearchVideoMeta(result?.data||result,id);
+    const row=result?.data||null;
+    if(!row)return null;
+    return {
+      duration:durationSeconds(row),
+      isLive:isLive(row),
+      sourceId:channelId(row),
+      sourceName:validChannelDisplayName(row?.uploaderName||row?.uploader||row?.channelName||""),
+      sourceThumbnailUrl:normalizeAvatarUrl(clean(
+        row?.uploaderAvatar||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",
+        1000
+      )),
+      title:clean(row?.title||row?.name||"",300),
+      thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
+      views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0)
+    };
   }catch{
     return null;
   }
@@ -3423,9 +3465,10 @@ Deno.serve(async(req:Request)=>{
           :Promise.resolve(null)
       ]);
 
-      // Keep the package path simple and bounded: exact video-ID search is the
-      // duration source. If it cannot resolve a row, that row stays out of the
-      // next package and is retried on a later scheduled refresh.
+      // Keep the package path simple and bounded: exact video metadata is
+      // resolved directly, without routing each video ID through general search.
+      // If it cannot resolve duration, the row stays out of the next package and
+      // is retried on a later scheduled refresh.
       const duration=Number(searchMeta?.duration)>0
         ?Number(searchMeta.duration)
         :candidate.duration||0;
