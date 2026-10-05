@@ -176,6 +176,7 @@ if(simpleProduction){
   assert.ok(runtimeScriptStart>=0,"runtime script marker missing");
   const runtimeScript=html.slice(runtimeScriptStart);
   assert.doesNotMatch(runtimeScript,/tiktok/i);
+  assert.doesNotMatch(html,/tiktok/i);
   assert.match(html,/function normalizedMediaProvider\(value\)[\s\S]{0,160}===["']youtube["']\?["']youtube["']:["']retired["']/);
   assert.match(html,/function mediaTypeFor\(\)\{\s*return "embed";\s*\}/);
   assert.match(html,/function activeLiveProvider\(\)\{\s*return "youtube";\s*\}/);
