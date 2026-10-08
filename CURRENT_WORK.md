@@ -1,3 +1,14 @@
+## 2026-10-08 — YouTube UI Foundation / mobile controls (PROD VERIFIED)
+
+- Intent: chuẩn hóa giao diện 1988 theo RULE CHUNG, giữ mobile core flow Chọn video → Xem liên tục, không đổi data/media/realtime.
+- Owner: `index.html` inline CSS đang được Pages build copy trực tiếp; `src/styles/tokens.css` là legacy, không có trong Pages artifact.
+- Patch: tăng source-chip hit area 32→40px nhưng giữ nav 56px; source-arrow 32→40px; input tìm kiếm mobile 15→16px; focus-visible đồng nhất cho keyboard và theme sáng/tối.
+- MUST-STAY: source selected/tab, search commit, player/PiP, 16:9 video ratio, scroll owner, YouTube LIVE demand-only, current packages và identity.
+- Runtime code commit: `5653149c778f491ea8f1b1182483be321b55463d`. Verify run `37716480297` PASS; Pages run `37716480313` PASS, including custom-domain HTTPS 200 step.
+- Resource diff by design: API/DB writes/providers/background jobs/logging = 0; static CSS in existing HTML +426 chars; 1 production Pages release. Không có benchmark browser/network riêng nên không tuyên bố đo throughput.
+- Rollback code: `0df678dac8abdc751da16cfcc805885ad39d259e`. No DB migration.
+- Next: chỉ xử lý tiếp màn hình/thiết bị gặp lỗi UX cụ thể; chưa xác nhận trải nghiệm bằng ảnh chụp browser iPhone/Safari. Không khôi phục TikTok/News.
+
 
 
 ## 2026-10-05 — External runtime SSOT cleanup

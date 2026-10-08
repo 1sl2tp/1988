@@ -1,3 +1,13 @@
+## 2026-10-08 — 1988 UI Foundation / mobile navigation
+
+- Branch: `main`; baseline: `0df678dac8abdc751da16cfcc805885ad39d259e`.
+- Owner: `index.html` inline CSS (Pages runtime).
+- Patch: source chip + arrow hit area 40px, mobile search 16px, visible keyboard focus dark/light. No JS/data/media changes.
+- Code: `5653149c778f491ea8f1b1182483be321b55463d`.
+- Verify: `37716480297` PASS; Pages: `37716480313` PASS / HTTPS 200.
+- Data delta: none; runtime request/DB/provider/log delta expected 0; static HTML +426 chars.
+- Rollback: code baseline above; visual device QA remains unverified.
+
 ## 2026-10-04 — VOD direct trở lại + LIVE startup nhanh hơn
 
 - Bỏ TikTok official iframe VOD; quay lại TikWM HD direct → BHWA fallback.
