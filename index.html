@@ -52,6 +52,8 @@
   --yt-placeholder:#888;
   --yt-icon:#f1f1f1;
   --yt-disabled:#646464;
+  --ui-focus-ring:#8ec5ff;
+  --ui-touch-min:40px;
   --yt-skeleton:#292929;
   --yt-menu-shadow:0 8px 28px rgba(0,0,0,.28);
   --yt-floating-shadow:0 12px 34px rgba(0,0,0,.55);
@@ -119,6 +121,7 @@
   --yt-border:#dbdbdb;
   --yt-divider:#dbdbdb;
   --yt-text:#212121;
+  --ui-focus-ring:#1c62b9;
   --yt-text-secondary:#737373;
   --yt-hover:rgba(0,0,0,.055);
   --yt-press:rgba(0,0,0,.10);
@@ -581,9 +584,9 @@ html.one-col .player.inline-overlay:not(.pip){
 .source-chip{
   flex:0 0 auto;
   position:relative;
-  height:32px;
+  height:40px;
   min-width:12px;
-  margin:12px 8px 12px 0;
+  margin:8px 8px 8px 0;
   padding:0 12px;
   display:inline-flex;
   align-items:center;
@@ -673,12 +676,12 @@ html.one-col .player.inline-overlay:not(.pip){
 .source-arrow-button{
   position:relative;
   z-index:2;
-  width:32px;
-  height:32px;
+  width:var(--ui-touch-min);
+  height:var(--ui-touch-min);
   margin:0;
   padding:0;
   border:0;
-  border-radius:16px;
+  border-radius:20px;
   display:grid;
   place-items:center;
   background:rgba(var(--header-rgb),var(--header-alpha));
@@ -2566,7 +2569,7 @@ html.one-col.portrait .player.pip{
   .masthead > .searchbox .search-input{
     padding-left:11px;
     padding-right:8px;
-    font-size:15px;
+    font-size:16px;
   }
   .masthead > .searchbox .search-button{
     flex-basis:40px;
@@ -2674,6 +2677,12 @@ html.viewer-active.one-col body{
 }
 
 
+/* P4 UI Foundation: consistent keyboard focus on existing controls, both themes.
+   No media/frame/scroll owner and no external asset or business call changes. */
+:where(button, a, input, select, textarea, [role="button"], [tabindex="0"]):focus-visible{
+  outline:2px solid var(--ui-focus-ring);
+  outline-offset:2px;
+}
 </style>
 </head>
 <body>
