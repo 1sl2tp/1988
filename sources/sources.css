@@ -1893,3 +1893,24 @@ main{
   .search-column .search-box input,
   .source-manager-search-wrap input{font-size:16px!important}
 }
+
+/* YT UX rule 41: mobile tap targets, not merely visual icon size. */
+@media(hover:none) and (pointer:coarse){
+  .search-column .search-box{
+    flex:0 0 42px;
+    height:42px;
+    min-height:42px;
+  }
+  .search-column .search-box input{height:40px}
+  .search-column .search-box .source-voice-button,
+  .search-column .search-box .search-submit{
+    height:42px;
+    min-height:42px;
+  }
+  .source-manager-tools input,
+  .source-manager-search-wrap .source-voice-button,
+  .source-manager-tools .primary{
+    height:42px;
+    min-height:42px;
+  }
+}
