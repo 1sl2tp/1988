@@ -44,6 +44,7 @@ jobs:
           node --test tests/youtube-live-demand-contract.test.cjs
           node tests/source-state-contract.test.cjs
           node tests/search-resource-contract.test.cjs
+          node tests/search-ux-1988.test.cjs
           node tests/read-model-resource-contract.test.cjs
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
