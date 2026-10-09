@@ -1531,8 +1531,13 @@ function startSourceVoice(input,button,commit){
   }
 }
 el.voiceSearch?.addEventListener("click",()=>{
-  startSourceVoice(el.searchInput,el.voiceSearch,
-    ()=>el.searchForm?.requestSubmit?.());
+  startSourceVoice(el.searchInput,el.voiceSearch,()=>{
+    if(typeof el.searchForm?.requestSubmit==="function"){
+      el.searchForm.requestSubmit();
+    }else{
+      el.searchForm?.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));
+    }
+  });
 });
 el.sourceManagerVoice?.addEventListener("click",()=>{
   startSourceVoice(el.sourceManagerSearch,el.sourceManagerVoice,
