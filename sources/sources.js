@@ -147,6 +147,7 @@ const el={
   searchCount:qs("#searchCount"),
   searchForm:qs("#searchForm"),
   searchInput:qs("#searchInput"),
+  voiceSearch:qs("#voiceSearch"),
   searchStatus:qs("#searchStatus"),
   searchList:qs("#searchList"),
   searchBack:qs("#searchBack"),
@@ -170,6 +171,7 @@ const el={
   sourceManagerModal:qs("#sourceManagerModal"),
   sourceManagerClose:qs("#sourceManagerClose"),
   sourceManagerSearch:qs("#sourceManagerSearch"),
+  sourceManagerVoice:qs("#sourceManagerVoice"),
   sourceManagerAdd:qs("#sourceManagerAdd"),
   sourceManagerList:qs("#sourceManagerList"),
   filtersToggle:qs("#filtersToggle"),
@@ -1449,8 +1451,100 @@ for(const [list,kind] of [
   });
 }
 
+// YT UX rule 41: deliberate focus/click selects an existing query,
+ // without dispatching input/search or changing the browser's typing flow.
+function selectExistingSourceSearch(event){
+  const input=event.target;
+  if(!input?.value||input.disabled||input.readOnly)return;
+  try{input.select()}catch{}
+}
+for(const input of [el.searchInput,el.sourceManagerSearch]){
+  input?.addEventListener("focus",selectExistingSourceSearch);
+  input?.addEventListener("click",selectExistingSourceSearch);
+}
+
+// Only a user-initiated press starts browser recognition. The browser may
+// route microphone data through its speech provider; 1988 never uploads audio.
+let sourceVoiceSession=null;
+function finishSourceVoice(session){
+  if(sourceVoiceSession!==session)return;
+  sourceVoiceSession=null;
+  session.button.setAttribute("aria-pressed","false");
+  session.button.setAttribute("aria-label","Tìm bằng giọng nói");
+}
+function cancelSourceVoice(){
+  const session=sourceVoiceSession;
+  if(!session)return;
+  finishSourceVoice(session);
+  try{session.recognition.abort()}catch{}
+}
+function startSourceVoice(input,button,commit){
+  if(!input||!button||input.disabled||input.readOnly)return;
+  if(sourceVoiceSession){
+    const previous=sourceVoiceSession;
+    cancelSourceVoice();
+    if(previous.input===input)return;
+  }
+  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!Recognition){
+    window.alert?.("Trình duyệt chưa hỗ trợ tìm kiếm bằng giọng nói.");
+    return;
+  }
+  let recognition;
+  try{recognition=new Recognition()}catch(_){
+    window.alert?.("Không thể mở nhận dạng giọng nói.");
+    return;
+  }
+  recognition.lang="vi-VN";
+  recognition.continuous=false;
+  recognition.interimResults=false;
+  recognition.maxAlternatives=1;
+  const session={recognition,button,input,committed:false};
+  sourceVoiceSession=session;
+  button.setAttribute("aria-pressed","true");
+  button.setAttribute("aria-label","Dừng tìm bằng giọng nói");
+  recognition.onresult=event=>{
+    if(sourceVoiceSession!==session||session.committed)return;
+    const phrase=Array.from(event.results||[])
+      .filter(result=>result.isFinal===true)
+      .map(result=>String(result[0]?.transcript||"").trim())
+      .filter(Boolean).join(" ").trim();
+    if(!phrase)return;
+    session.committed=true;
+    input.value=phrase;
+    // Channel/video search already has a form submit owner; source-name
+    // filtering already has an input-event owner. Reuse exactly one.
+    commit();
+    try{recognition.stop()}catch{}
+  };
+  recognition.onerror=event=>{
+    if(sourceVoiceSession!==session)return;
+    finishSourceVoice(session);
+    if(["not-allowed","service-not-allowed","audio-capture"].includes(event.error)){
+      window.alert?.("Không truy cập được micro. Hãy kiểm tra quyền trình duyệt.");
+    }
+  };
+  recognition.onend=()=>finishSourceVoice(session);
+  try{recognition.start()}catch(_){
+    finishSourceVoice(session);
+    window.alert?.("Không thể bắt đầu nghe. Hãy kiểm tra micro.");
+  }
+}
+el.voiceSearch?.addEventListener("click",()=>{
+  startSourceVoice(el.searchInput,el.voiceSearch,
+    ()=>el.searchForm?.requestSubmit?.());
+});
+el.sourceManagerVoice?.addEventListener("click",()=>{
+  startSourceVoice(el.sourceManagerSearch,el.sourceManagerVoice,
+    ()=>el.sourceManagerSearch.dispatchEvent(new Event("input",{bubbles:true})));
+});
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)cancelSourceVoice();
+});
+
 qsa(".search-mode-btn").forEach(button=>{
   button.addEventListener("click",()=>{
+    cancelSourceVoice();
     state.searchMode=button.dataset.searchMode;
     qsa(".search-mode-btn").forEach(x=>x.classList.toggle("active",x===button));
     el.searchInput.placeholder=state.searchMode==="channel"
