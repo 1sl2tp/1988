@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=17">
+  <link rel="stylesheet" href="./sources.css?v=18">
 </head>
 <body>
   <main>
@@ -67,8 +67,16 @@
 
         <form id="searchForm" class="search-box">
           <input id="searchInput" type="search" inputmode="search" enterkeyhint="search"
-            autocomplete="off" placeholder="Tìm kênh YouTube">
-          <button type="submit">Tìm</button>
+            autocomplete="off" placeholder="Tìm kênh YouTube" aria-label="Tìm kênh hoặc video YouTube">
+          <button id="voiceSearch" class="source-voice-button" type="button"
+            aria-label="Tìm bằng giọng nói" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="2" width="6" height="12" rx="3"/>
+              <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/>
+            </svg>
+          </button>
+          <button class="search-submit" type="submit">Tìm</button>
         </form>
 
         <div id="searchStatus" class="status"></div>
@@ -150,7 +158,17 @@
         <button id="sourceManagerClose" class="icon-btn" type="button">×</button>
       </div>
       <div class="source-manager-tools">
-        <input id="sourceManagerSearch" type="search" placeholder="Tìm nguồn">
+        <div class="source-manager-search-wrap">
+          <input id="sourceManagerSearch" type="search" placeholder="Tìm nguồn" aria-label="Tìm nguồn">
+          <button id="sourceManagerVoice" class="source-voice-button" type="button"
+            aria-label="Tìm nguồn bằng giọng nói" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="2" width="6" height="12" rx="3"/>
+              <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/>
+            </svg>
+          </button>
+        </div>
         <button id="sourceManagerAdd" class="primary" type="button">+ Thêm nguồn</button>
       </div>
       <div class="source-manager-table-head">
@@ -188,6 +206,6 @@
   })();
   </script>
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=22"></script>
+  <script src="./sources.js?v=23"></script>
 </body>
 </html>
