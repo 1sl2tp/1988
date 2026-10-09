@@ -1,3 +1,12 @@
+## 2026-10-09 — YouTube 1988 search UX + package/RLS audit
+
+- Read: CURRENT_WORK / README_MAINTENANCE / README_NO_WAIT_WORKFLOW / CHECKPOINT / README_RESOURCE_GUARDRAILS / README_HOST_ARCHITECTURE and project/global Google Sheets.
+- UX/UI: MAIN reuses existing mic with select-all and final-only search; /sources/ adds mic to channel/video form and local source-name search, preserves existing mode/provider owner, 42px touch micro controls, no audio proxy. Code main head `78143a44739e5890a7f59b448b78433a4fd8c568`, pre-repair docs baseline `a58e292500983ba9f9bc65a18fb106da4ab4c8a8`.
+- Tests: `tests/search-ux-1988.test.cjs` added to existing Pages job, JS parse and simulated contract/speech behavior PASS; main Actions deployment and real device testing NOT VERIFIED.
+- Read-only audit: canonical Supabase project `mstltsunsawqomzniqok`, 1,319 channel directory named, 725 source-state rows incl. 308 selected and 387 blocked per scope, 15 packages hashes all present; latest 09/10, LIVE/Week older demand-only. No scheduler or refresh triggered. Provider-side legacy Edge names not treated as running TikTok.
+- Rules: 1988 sheet #41/#42 added; old TikTok #35–40 retired, YouTube sheet baseline updated, checklist/pending gate recorded; global Rule chung row17 linked. Data/media/Cloudflare/Render/TikTok untouched.
+- Open gates: GitHub Actions release and actual `yt.taphoa.xyz` inaccessible from current tools; PROD VERIFIED/RESOURCE DIFF await real Chrome/Safari one-request probe. Docs commit is documentation only, excluded from Pages deploy.
+
 ## 2026-10-08 — 1988 UI Foundation / mobile navigation
 
 - Branch: `main`; baseline: `0df678dac8abdc751da16cfcc805885ad39d259e`.
