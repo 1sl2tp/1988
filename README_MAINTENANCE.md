@@ -11,6 +11,15 @@
 > Mục tiêu số 1: **sửa nhanh, đúng lớp, không làm gián đoạn phần đang chạy**.  
 > Áp dụng cho mọi sửa chữa, tối ưu, migration, UI, data, kết nối, deploy, rollback và bảo trì repo `1sl2tp/1988`.
 
+## 0.A. SEARCH UX / RETIRE LOCK — 2026-10-09
+
+- RUNTIME SCOPE: 1988 = **YouTube only**. Google Sheet `README Quy tac` #35–40 are RETIRED historical TikTok, not instructions to reactivate workers, cron, Render, libraries or video providers.
+- SEARCH OWNER: MAIN `index.html` has the canonical existing `voiceSearchButton` / `startVoiceSearch`, so **never** inject a second mic controller in MAIN. `sources/index.html` + `sources/sources.js` own the separate source-management search inputs.
+- For every real search field (MAIN current query, /sources/ channel/video, local source-name search), click/focus with a nonempty query selects the full text. This selection never dispatches input nor searches.
+- Voice starts only after explicit mic press; use browser SpeechRecognition/webkitSpeechRecognition `vi-VN` if supported. Only one accepted final result causes ONE existing search submit (channel/video) or ONE local input event (source name). Speech provider may process audio remotely outside our infrastructure; never route raw audio through Supabase, Render or Cloudflare, nor create background polling/wake.
+- Mobile UX: mic remains at the input's right without overlapping Search/+Source buttons; >=40px touch target, search input >=16px for coarse pointer to avoid Safari focus zoom. PIN/keyword/form values are not search targets; no mic there. Unsupported/denied prompts only after user action.
+- Before declaring PROD VERIFIED: run existing Pages contract workflow incl. `tests/search-ux-1988.test.cjs`, inspect the Pages run/custom-domain HTTPS, then tap test on Safari/Chrome and measure any actual resource delta. Source patch or syntax-only tests are not a production check.
+
 ## 0. FAST REPAIR — quy trình ưu tiên ít gián đoạn
 
 ### 0.1. Trước khi viết code phải nói được 4 ý
