@@ -9344,22 +9344,21 @@ html.viewer-active.one-col body{
     voiceRecognition=recognition;
     recognition.lang="vi-VN";
     recognition.continuous=false;
-    recognition.interimResults=true;
+    recognition.interimResults=false;
     recognition.maxAlternatives=1;
 
     let submitted=false;
     recognition.onstart=()=>setVoiceListening(true);
     recognition.onresult=event=>{
-      let interim="";
+      if(submitted||voiceRecognition!==recognition)return;
       let finalText="";
       for(let i=event.resultIndex;i<event.results.length;i++){
         const text=String(event.results[i]?.[0]?.transcript||"").trim();
         if(!text)continue;
         if(event.results[i].isFinal)finalText+=(finalText?" ":"")+text;
-        else interim+=(interim?" ":"")+text;
       }
 
-      const spoken=(finalText||interim).trim();
+      const spoken=finalText.trim();
       if(spoken){
         searchInput.value=spoken;
         searchInput.dispatchEvent(new Event("input",{bubbles:true}));
@@ -9405,6 +9404,15 @@ html.viewer-active.one-col body{
   searchToggle.addEventListener("click",openNarrowSearch);
   searchBack.addEventListener("click",closeNarrowSearch);
 
+  // YT UX rule 41: a deliberate tap/focus on an existing query selects it all.
+  // No extra provider call; Enter/Search remains the only search commit owner.
+  function selectExistingSearchQuery(){
+    if(searchInput.value && !searchInput.disabled && !searchInput.readOnly){
+      try{searchInput.select()}catch{}
+    }
+  }
+  searchInput.addEventListener("focus",selectExistingSearchQuery);
+  searchInput.addEventListener("click",selectExistingSearchQuery);
   searchInput.addEventListener("input",()=>{
     const key=normalizedSearchQuery(searchInput.value);
     if(key)scrollPageToTop();
