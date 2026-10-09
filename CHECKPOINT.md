@@ -1,5 +1,13 @@
 # CHECKPOINT — MAIN 1988
 
+> **09/10/2026: mới cập nhật rollback gần nhất.** Phần 03/10 phía dưới là checkpoint lịch sử.
+>
+> - Last independently verified frontend production: `5653149c778f491ea8f1b1182483be321b55463d`, GitHub Pages run `37716480313` PASS on 08/10, custom-domain HTTPS 200 then.
+> - Baseline trước đợt search UX 09/10: `a58e292500983ba9f9bc65a18fb106da4ab4c8a8` (docs-only head).
+> - Code search UX mới HEAD `78143a44739e5890a7f59b448b78433a4fd8c568` (micro /sources/, MAIN select-all, touch target fix); **chưa được xác nhận run Pages / Safari production**. Không nâng last-known-good chỉ từ việc GitHub nhận commit.
+> - Khi có regression: chỉ rollback thay đổi search UI, không thay Supabase project `mstltsunsawqomzniqok`, TikTok retired, LIVE demand-only hoặc package cache.
+
+
 Cập nhật vận hành: **2026-10-03**
 
 ## Last-known-good gần nhất
