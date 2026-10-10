@@ -233,49 +233,10 @@ function normalizeCommittedSearchQuery(value=""){
 const searchCommitState=new WeakMap();
 
 function repairImeCommittedQuery(value,state={}){
-  const current=normalizeCommittedSearchQuery(value);
-  if(!current)return "";
-
-  // Only repair a duplicated IME commit when composition happened very
-  // recently. This prevents changing an intentionally typed repeated word.
-  const imeRecent=
-    state.pendingEnter||
-    state.composing||
-    (Date.now()-Number(state.lastCompositionAt||0)<1400);
-  if(!imeRecent)return current;
-
-  const history=Array.isArray(state.history)?state.history:[];
-  for(let i=history.length-1;i>=0;i--){
-    const previous=normalizeCommittedSearchQuery(history[i]?.value||"");
-    if(!previous||previous===current)continue;
-    if(Date.now()-Number(history[i]?.at||0)>1800)continue;
-
-    const lastWord=(()=>{const words=previous.split(/\s+/).filter(Boolean);return words[words.length-1]||"";})();
-    // Typical Vietnamese IME Enter bug:
-    //   jack -> jackjack
-    //   anh tho -> anh thotho
-    if(lastWord.length>=3&&current===previous+lastWord)return previous;
-
-    // Also cover a duplicated whole query without an inserted space.
-    if(previous.length>=3&&current===previous+previous)return previous;
-  }
-
-  // Final conservative fallback when the duplicated token itself is exactly
-  // two equal halves (jackjack, thotho). Require >=3 chars per half so common
-  // short words such as "mama" are not rewritten.
-  const parts=current.split(/\s+/);
-  const tail=parts[parts.length-1]||"";
-  if(tail.length>=6&&tail.length%2===0){
-    const half=tail.length/2;
-    const left=tail.slice(0,half);
-    const right=tail.slice(half);
-    if(left===right&&left.length>=3){
-      parts[parts.length-1]=left;
-      return parts.join(" ");
-    }
-  }
-
-  return current;
+  // The native IME owns the committed text. Repeated syllables or words
+  // may be intentional ("jackjack", "thotho"). Never heuristically delete
+  // characters from user input based on timings or recent history.
+  return normalizeCommittedSearchQuery(value);
 }
 
 function bindCommittedSearchInput(input,commit,{form=null}={}){
@@ -15196,11 +15157,18 @@ function commitSearch(value){
   void doSearch(q);
 }
 
-// Main search uses the same simple submit path as the working Kira proof.
-// Do not keep a custom IME/pending state here: the browser owns composition,
-// and every form submit reads the current input and starts a fresh search.
+// Main search respects native IME composition. An Enter completing a
+// Vietnamese syllable must not also submit or rewrite the query.
+let mainSearchComposing=false;
+queryInput?.addEventListener("compositionstart",()=>{mainSearchComposing=true;});
+queryInput?.addEventListener("compositionend",()=>{
+  mainSearchComposing=false;
+  normalSuggestionArmed=true;
+  scheduleNormalSuggestions();
+});
 searchForm?.addEventListener("submit",event=>{
   event.preventDefault();
+  if(mainSearchComposing)return;
   const q=normalizeCommittedSearchQuery(queryInput?.value||"");
   if(!q)return;
   queryInput.value=q;
@@ -15208,7 +15176,7 @@ searchForm?.addEventListener("submit",event=>{
 });
 
 queryInput?.addEventListener("keydown",event=>{
-  if(event.key!=="Enter"||event.isComposing)return;
+  if(event.key!=="Enter"||event.isComposing||event.keyCode===229||mainSearchComposing)return;
   event.preventDefault();
   const q=normalizeCommittedSearchQuery(queryInput.value||"");
   if(!q)return;
@@ -15217,6 +15185,7 @@ queryInput?.addEventListener("keydown",event=>{
 });
 
 queryInput?.addEventListener("search",()=>{
+  if(mainSearchComposing)return;
   const q=normalizeCommittedSearchQuery(queryInput.value||"");
   if(!q){
     clearSearchSuggestionPanel();
@@ -15227,7 +15196,8 @@ queryInput?.addEventListener("search",()=>{
 });
 
 // Normal YouTube-like suggestions while typing; search runs only on submit/click.
-queryInput.addEventListener("input",()=>{
+queryInput.addEventListener("input",event=>{
+  if(event.isComposing||mainSearchComposing)return;
   normalSuggestionArmed=true;
   clearSearchRefinements();
   scheduleNormalSuggestions();

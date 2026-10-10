@@ -44,3 +44,19 @@ assert.match(exactResolver[0],/youtubePlayerMetadata\(id\)/);
 assert.match(exactResolver[0],/action=video_meta&id=/);
 
 console.log('search resource contract ok');
+
+
+// UI-136: committed repeated text is user data, never guessed duplicates.
+const vm=require('node:vm');
+const helperStart=app.indexOf('function normalizeCommittedSearchQuery(value="")');
+const helperEnd=app.indexOf('\nfunction bindCommittedSearchInput',helperStart);
+assert.ok(helperStart>=0&&helperEnd>helperStart);
+const stateCtx={clean:s=>String(s??'').replace(/\s+/g,' ').trim()};
+vm.createContext(stateCtx);
+vm.runInContext(app.slice(helperStart,helperEnd),stateCtx);
+assert.equal(stateCtx.repairImeCommittedQuery('jackjack',{composing:true}), 'jackjack');
+assert.equal(stateCtx.repairImeCommittedQuery('anh thotho',{pendingEnter:true}), 'anh thotho');
+assert.equal(stateCtx.repairImeCommittedQuery('sữa chua không đường',{}), 'sữa chua không đường');
+assert.match(app,/if\(mainSearchComposing\)return;/);
+assert.match(app,/event\.keyCode===229\|\|mainSearchComposing/);
+console.log('1988 Vietnamese IME preserves intentional text and defers search while composing');
