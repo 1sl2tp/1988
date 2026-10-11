@@ -1,3 +1,14 @@
+## 2026-10-11 — First-open SW update dedupe (SOURCE MERGED; E4/E5 PENDING)
+
+- User intent: continue performance work on YouTube without affecting LIVE, feed package, player or PiP.
+- Scope: only `index.html` bottom Service Worker registration; removed immediate explicit `registration.update()` after `navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'})`. Browser normal SW registration update check still applies. No changes to SW source, API, backend, manifest/hash, LIVE demand or media.
+- CI: PR #226 Verify 1988 run `38148144681` PASS; merged main commit `254db722953f7e39bb1f88cdc0a3f26970aa8a5e`; main readback confirms register remains and extra update was removed.
+- Resource expectation: avoid an unnecessary extra SW update check per page entry; **real request/byte savings unmeasured**. E3 Pages deploy run and E4 Chrome/Safari/PWA new-build visibility/offline behavior PENDING because runtime site was inaccessible; E5 before/after network trace PENDING.
+- MUST-STAY: YouTube-only, latest/week server packs, LIVE triggered only by visible user demand, search, title/avatar identity, PiP/player, no new cron/Edge/provider.
+- Rollback: revert the single `index.html` change from commit above if SW updates stall or UI regresses. Rule chung `SPEC-1988-SW-REG-20261011` row102. Next: real Safari/PWA initial/revisit load + compare SW network check and video tap before/after; do not run Live refresh just for test.
+
+---
+
 ## 2026-10-09 — YouTube-only UX search + read-only operations audit (SOURCE PATCHED, PROD PENDING)
 
 - Scope/user intent: continue unfinished 1988 YouTube maintenance; read/add rule first, then improve UX/UI and audit. **TikTok/News remain retired**; no migration or background refresh was run.
