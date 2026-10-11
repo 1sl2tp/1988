@@ -1,3 +1,10 @@
+## 2026-10-11 — YouTube first-open SW update dedupe
+
+- `index.html`: kept native SW `register` and `updateViaCache:none`; removed the extra immediate `registration.update()` on every entry.
+- PR https://github.com/1sl2tp/1988/pull/226 ; Verify 1988 run 38148144681 PASS; main merge `254db722953f7e39bb1f88cdc0a3f26970aa8a5e`.
+- No changes to Live, packages, player, PiP, Cloudflare, Supabase, logs, cron. E3 Pages production run/E4 Safari-PWA/E5 request delta PENDING.
+- Rollback: revert the specific index patch if a real SW update regression is proven. Canonical Rule chung SDD row102.
+
 ## 2026-10-09 — YouTube 1988 search UX + package/RLS audit
 
 - Read: CURRENT_WORK / README_MAINTENANCE / README_NO_WAIT_WORKFLOW / CHECKPOINT / README_RESOURCE_GUARDRAILS / README_HOST_ARCHITECTURE and project/global Google Sheets.
