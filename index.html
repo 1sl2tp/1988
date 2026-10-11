@@ -5792,9 +5792,12 @@ html.viewer-active.one-col body{
     feedMetas=startupVisibleMetas(scope,baseMetas);
     renderSampleContent();
 
-    // Every normal tab is stale-while-revalidate: show its committed package
-    // first, then ask the server to rebuild only when that scope is due.
-    setTimeout(()=>{ void checkPackagesOnDemand([scope]); },0);
+    // First app entry delegates the wake to the one daily batch after the
+    // server's tab list is known. Ordinary later tab clicks retain on-demand.
+    setTimeout(()=>{
+      if(startupDailyWakePending&&scope===STARTUP_SCOPE)return;
+      void checkPackagesOnDemand([scope]);
+    },0);
     return feedMetas;
   }
 
@@ -5861,6 +5864,14 @@ html.viewer-active.one-col body{
   const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
   const LIVE_ACTIVE_CHECK_MS=60_000;
   const PACKAGE_WAKE_CACHE_KEY="1988-package-wake-at-v1";
+  // One visitor-triggered refresh request per Vietnam calendar day for normal
+  // feed tabs. This is an ACCEPTED REQUEST marker, not proof every server job
+  // finished. The existing server lease/queue owns refresh completion.
+  const DAILY_CONTENT_WAKE_KEY="1988-daily-content-request-v1";
+  let startupDailyWakePending=true;
+  let dailyContentRows=[];
+  let dailyContentWakePending=null;
+  let lastDailyContentWakeAttemptAt=0;
   let packageDemandPending=null;
   let lastPackageDemandAt=0;
   let packageWakeAtByScope=(()=>{
@@ -5917,6 +5928,77 @@ html.viewer-active.one-col body{
     }
   }
 
+  function dailyVietnamKey(now=Date.now()){
+    const parts=new Intl.DateTimeFormat("en-GB",{
+      timeZone:"Asia/Ho_Chi_Minh",year:"numeric",month:"2-digit",day:"2-digit"
+    }).formatToParts(new Date(now));
+    const value=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+    return value.year+"-"+value.month+"-"+value.day;
+  }
+
+  function dailyContentScopes(rows=[]){
+    // Use the current server-provided tab list. LIVE must remain demand-only.
+    return [...new Set((Array.isArray(rows)?rows:[])
+      .map(row=>String(row?.key||"").trim())
+      .filter(scope=>scope==="latest"||scope==="week"||/^hash_[a-z0-9]+$/.test(scope))
+    )];
+  }
+
+  async function wakeDailyContentOnVisibleVisit(rows=[]){
+    if(document.hidden||navigator.onLine===false)return false;
+    const scopes=dailyContentScopes(rows);
+    if(!scopes.includes("latest")||!scopes.includes("week"))return false;
+    const day=dailyVietnamKey();
+    const signature=scopes.slice().sort().join("|");
+    try{
+      const previous=JSON.parse(localStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"null");
+      if(previous?.day===day&&previous?.signature===signature&&previous?.status==="accepted"){
+        return true;
+      }
+    }catch{}
+    if(dailyContentWakePending)return dailyContentWakePending;
+    // Failed, offline, or lease-busy visits may retry on a later foreground
+    // visit, but never spin/retry/poll in the background.
+    const now=Date.now();
+    if(now-lastDailyContentWakeAttemptAt<2*60_000)return false;
+    lastDailyContentWakeAttemptAt=now;
+    dailyContentWakePending=(async()=>{
+      try{
+        const response=await fetch(PACKAGE_REFRESH_URL,{
+          method:"POST",cache:"no-store",
+          headers:{"content-type":"application/json"},
+          body:JSON.stringify({scopes,client_check:true,daily_open:true})
+        });
+        if(!response.ok)return false;
+        const result=await response.json();
+        if(result?.ok!==true)return false;
+        // A busy lease did NOT queue these scopes, so do not mark accepted.
+        if(result?.reason==="refresh_already_running")return false;
+        if(result?.skipped===true&&result?.reason!=="not_due")return false;
+        try{
+          localStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
+            day,signature,status:"accepted",at:Date.now()
+          }));
+        }catch{}
+        // Hash-only read for the currently visible normal tab. Do not send
+        // another POST immediately after the daily batch or fetch unopened tabs.
+        if(!document.hidden&&activePackageScope!=="live"){
+          void loadPackageManifest().then(()=>{
+            if(!document.hidden&&activePackageScope!=="live"){
+              return syncPreparedPackages([activePackageScope]);
+            }
+          }).catch(()=>{});
+        }
+        return true;
+      }catch(_){
+        return false;
+      }finally{
+        dailyContentWakePending=null;
+      }
+    })();
+    return dailyContentWakePending;
+  }
+
   async function checkPackagesOnDemand(scopes=[]){
     if(document.hidden)return false;
     const wanted=[...new Set(
@@ -5952,6 +6034,9 @@ html.viewer-active.one-col body{
 
   function resumeVisibleDemand(reason="resume"){
     if(document.hidden||feedMode!=="package")return false;
+    if(!startupDailyWakePending&&dailyContentRows.length){
+      void wakeDailyContentOnVisibleVisit(dailyContentRows);
+    }
     if(activePackageScope==="live"){
       const provider=activeLiveProvider();
       void refreshUnifiedLiveInBackground({
@@ -7793,17 +7878,17 @@ html.viewer-active.one-col body{
       await showPackageScope(activePackageScope);
     }
 
-    // Do not fetch unopened scopes. The active tab is demand-driven; every
-    // other committed package stays local until the user actually opens it.
+    // Restore old packages, not every fresh network payload. A single visible
+    // visitor opens one daily server-side refresh batch for all normal tabs.
+    // Server handles lease and bounded pending scopes, with no LIVE discovery.
     prefetchPackages([activePackageScope]);
-
-    // The visible package may refresh in the background after its first paint.
-    // Other tabs refresh only when opened; their committed packages are already
-    // prefetched above and therefore remain instant.
+    dailyContentRows=rows;
+    startupDailyWakePending=false;
     setTimeout(()=>{
-      if(feedMode==="package"){
-        void checkPackagesOnDemand([activePackageScope]);
-      }
+      if(document.hidden||feedMode!=="package")return;
+      void wakeDailyContentOnVisibleVisit(dailyContentRows).then(accepted=>{
+        if(!accepted)void checkPackagesOnDemand([activePackageScope]);
+      });
     },0);
     return rows;
   }
