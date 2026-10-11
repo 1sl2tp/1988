@@ -9869,9 +9869,10 @@ html.viewer-active.one-col body{
 <script>
 if("serviceWorker" in navigator){
   addEventListener("load",()=>{
+    // register() already performs the browser's normal SW update check.
+    // Avoid a second explicit update() request on every page entry.
     navigator.serviceWorker
       .register("./sw.js",{updateViaCache:"none"})
-      .then(registration=>registration.update())
       .catch(()=>{});
   },{once:true});
 }
