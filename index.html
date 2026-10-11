@@ -5980,9 +5980,15 @@ html.viewer-active.one-col body{
             day,signature,status:"accepted",at:Date.now()
           }));
         }catch{}
-        // Hash-only check; unfinished server scopes will be rechecked when
-        // their tab is opened, never downloaded en masse at app startup.
-        void checkPackagesOnDemand([activePackageScope]);
+        // Hash-only read for the currently visible normal tab. Do not send
+        // another POST immediately after the daily batch or fetch unopened tabs.
+        if(!document.hidden&&activePackageScope!=="live"){
+          void loadPackageManifest().then(()=>{
+            if(!document.hidden&&activePackageScope!=="live"){
+              return syncPreparedPackages([activePackageScope]);
+            }
+          }).catch(()=>{});
+        }
         return true;
       }catch(_){
         return false;
