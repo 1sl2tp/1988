@@ -28,6 +28,7 @@ function create({hidden=false,online=true,reply={ok:true,scopes:[{scope:'latest'
     dailyContentWakePending:null,lastDailyContentWakeAttemptAt:0,
     activePackageScope:'latest',document:{hidden},navigator:{onLine:online},
     checkPackagesOnDemand:scopes=>{checks.push(scopes);return Promise.resolve(true)},
+    loadPackageManifest:async()=>({}),syncPreparedPackages:async()=>true,
     fetch:async(_url,args)=>{requests.push(JSON.parse(args.body));return {ok:true,json:async()=>reply}}
   };
   vm.createContext(box);vm.runInContext(body,box);
