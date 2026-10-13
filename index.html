@@ -2479,6 +2479,18 @@ html.one-col.portrait .player.pip{
   height:40px;
   margin-left:auto;
 }
+@media(min-width:1000px){
+  .masthead{position:relative}
+  .masthead > .searchbox{
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+    width:min(640px,calc(100% - 176px));
+    max-width:640px;
+    margin-left:0;
+    flex:none;
+  }
+}
 .masthead > .search-toggle,
 .masthead > .search-back,
 .masthead > .settings-button,
@@ -8206,7 +8218,7 @@ html.viewer-active.one-col body{
   }
 
   function playNextFeedVideo(){
-    if(!autoplayNext||!isTwoColumn())return false;
+    if(!autoplayNext)return false;
 
     const currentId=String(current?.id||"").trim();
     const list=Array.isArray(feedMetas)?feedMetas:[];

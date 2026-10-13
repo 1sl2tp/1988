@@ -1,3 +1,11 @@
+## 2026-10-14 — 1988 centered desktop search / mobile autoplay-next (SOURCE PREPARED, DEPLOY PENDING)
+
+- Source verified 14 Oct: desktop MAIN search uses leftover flex space (not viewport-centered); new desktop-only >=1000px center alignment keeps mobile behavior. Existing autoplay default is true and saved-off respected, but `playNextFeedVideo()` returned false at all mobile widths because of `isTwoColumn()`. Removed only that breakpoint veto; ENDED, queue and playback engine remain unchanged.
+- New test `tests/desktop-search-mobile-autonext.test.cjs` checks desktop selector plus actual VM mobile next playback and disabled switch, gated in Verify and Pages. No media or backend changes.
+- Feed freshness: once-daily first visible visit requests normal scopes via existing batched server job; acknowledgement means queued/accepted, NOT every scope finished. To diagnose thin tabs, read-only per-scope package counts, source coverage, pending/last successful jobs, then patch the correct server owner only if evidence shows a fault. Do NOT initiate live scans or normal refresh simply to test.
+- Pending: E1 actions + E3 Pages/custom-domain, E4 user Safari/PWA and E5 package refresh-resource audit. No false production claims.
+
+---
 ## 2026-10-11 — First daily visible visit wakes NORMAL YouTube packages (SOURCE MERGED, PROD E4 PENDING)
 
 - **User requirement:** If a real user opens `yt.taphoa.xyz` at least once on a Vietnam calendar day, refresh/check all *normal* tab packages (`latest`, `week` and all currently enabled `hash_*`) once. On days without visitors, NO content crawl or cron. LIVE remains demand-only, only when user opens LIVE.
