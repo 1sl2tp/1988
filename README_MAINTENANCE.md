@@ -20,6 +20,14 @@
 - Mobile UX: mic remains at the input's right without overlapping Search/+Source buttons; >=40px touch target, search input >=16px for coarse pointer to avoid Safari focus zoom. PIN/keyword/form values are not search targets; no mic there. Unsupported/denied prompts only after user action.
 - Before declaring PROD VERIFIED: run existing Pages contract workflow incl. `tests/search-ux-1988.test.cjs`, inspect the Pages run/custom-domain HTTPS, then tap test on Safari/Chrome and measure any actual resource delta. Source patch or syntax-only tests are not a production check.
 
+## 0.B. FEED DISPLAY / AUTO-NEXT / OPEN-WEB RULE — 2026-10-14
+
+- Desktop search center is relative to the **viewport**, not leftover space after logo; mobile header is unchanged.
+- Mobile one-column and desktop share `autoplayNext` (default ON; saved user OFF respected). YouTube `ENDED` may play next video in the current queue; no separate mobile player, no API fan-out.
+- Non-LIVE server packages must be **fully browsable**: initial 18 thumbnail cards, append next 18 when user scrolls near bottom using RAM `feedMetas` ONLY; never truncate package permanently to 18, never re-fetch/rebuild on scroll. Preserve DOM nodes/player/position. LIVE package always shows every member (no render limit).
+- Freshness is a separate backend contract: first visible daily visit may issue one scoped batch wake for latest/week/hashtags (not LIVE), but `accepted` means requested, not every scope completed. Verify config last_enqueued + refresh_state pending/last_ok + package hash/time/read-only counts. Empty/thin scopes cannot be 'fixed' with UI-side enrichment, source-guessing, additional client crawls or new cron.
+- Preserve YouTube-only transport, Supabase canonical identity, 24h/7d filters and dedupe, on-demand LIVE, selected/blocked source state. Source/read-model test gates precede deploy; Safari/PWA and network delta require actual observation.
+
 ## 0. FAST REPAIR — quy trình ưu tiên ít gián đoạn
 
 ### 0.1. Trước khi viết code phải nói được 4 ý

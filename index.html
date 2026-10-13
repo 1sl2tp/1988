@@ -8370,6 +8370,57 @@ html.viewer-active.one-col body{
     }).join("\u001e");
   }
 
+  // The server owns ALL package membership; the browser only reveals
+  // already-cached cards in 18-item viewport chunks. No API call on scroll.
+  const FEED_VISIBLE_CHUNK=18;
+  let feedVisibleLimit=FEED_VISIBLE_CHUNK;
+  let feedVisibleOwner="";
+  let feedVisibleFirstId="";
+  let feedMoreObserver=null;
+  let feedMoreFallbackInstalled=false;
+
+  function loadNextVisibleFeedChunk(rows){
+    if(document.hidden||!rows||!rows.isConnected)return;
+    if(feedMode==="package"&&activePackageScope==="live")return;
+    if(rows.dataset.renderOwner!==feedVisibleOwner)return;
+    const total=Array.isArray(feedMetas)
+      ?feedMetas.filter(meta=>normalizedMediaProvider(meta?.provider)==="youtube").length
+      :0;
+    if(feedVisibleLimit>=total)return;
+    feedVisibleLimit=Math.min(total,feedVisibleLimit+FEED_VISIBLE_CHUNK);
+    renderSampleContent();
+  }
+
+  function syncFeedMoreSentinel(rows,hasMore){
+    if(feedMoreObserver)feedMoreObserver.disconnect();
+    rows.querySelector('[data-feed-load-more]')?.remove();
+    if(!hasMore)return;
+    const sentinel=document.createElement("span");
+    sentinel.dataset.feedLoadMore="1";
+    sentinel.setAttribute("aria-hidden","true");
+    // Absolute positioning keeps the sentinel out of the existing CSS grid.
+    sentinel.style.cssText="position:absolute;left:0;bottom:0;width:1px;height:1px;pointer-events:none;";
+    rows.appendChild(sentinel);
+    if("IntersectionObserver" in window){
+      if(!feedMoreObserver){
+        feedMoreObserver=new IntersectionObserver(entries=>{
+          if(entries.some(entry=>entry.isIntersecting)){
+            loadNextVisibleFeedChunk(document.getElementById("rows"));
+          }
+        },{rootMargin:"600px 0px"});
+      }
+      feedMoreObserver.observe(sentinel);
+    }else if(!feedMoreFallbackInstalled){
+      feedMoreFallbackInstalled=true;
+      window.addEventListener("scroll",()=>{
+        const target=document.querySelector("[data-feed-load-more]");
+        if(target&&target.getBoundingClientRect().top<window.innerHeight+600){
+          loadNextVisibleFeedChunk(document.getElementById("rows"));
+        }
+      },{passive:true});
+    }
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
 
@@ -8381,16 +8432,45 @@ html.viewer-active.one-col body{
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
-    const renderLimit=
-      feedMode==="package"&&activePackageScope==="live"
-        ?cards.length
-        :18;
+    const isLivePackage=feedMode==="package"&&activePackageScope==="live";
+    const owner=feedMode==="package"
+      ?"package:"+activePackageScope
+      :feedMode==="channel"?"channel:"+channelFeedSourceId
+      :feedMode+":"+(searchInput?.value||"").trim();
+    const firstId=String(cards[0]?.id||"");
+    if(owner!==feedVisibleOwner||firstId!==feedVisibleFirstId){
+      feedVisibleOwner=owner;
+      feedVisibleFirstId=firstId;
+      feedVisibleLimit=FEED_VISIBLE_CHUNK;
+    }
+    const renderLimit=isLivePackage
+      ?cards.length
+      :Math.min(cards.length,feedVisibleLimit);
     const rendered=cards.slice(0,renderLimit);
     const signature=feedVisualSignature(rendered);
+    const hasMore=!isLivePackage&&rendered.length<cards.length;
+    const previouslyRendered=Number(rows.dataset.renderedCount||0);
+    const canAppend=
+      previouslyRendered>0&&rendered.length>previouslyRendered&&
+      rows.dataset.renderOwner===owner&&rows.querySelector(".row")&&
+      rows.dataset.renderSignature===feedVisualSignature(rendered.slice(0,previouslyRendered));
+    if(canAppend){
+      // Do not recreate existing thumbnails/player anchors while scrolling.
+      rows.querySelector('[data-feed-load-more]')?.remove();
+      rows.insertAdjacentHTML("beforeend",rendered.slice(previouslyRendered).map(cardMarkup).join(""));
+      rows.dataset.renderedCount=String(rendered.length);
+      rows.dataset.renderSignature=signature;
+      syncFeedHeader(rows);
+      observeRowThumbQuality(rows);
+      applyRenderedCardTints(rows);
+      observeFeedMasonryRows();
+      syncFeedMoreSentinel(rows,hasMore);
+      return;
+    }
 
     // Package hashes may change while the visible first page does not. Do not
     // destroy/recreate the same DOM in that case.
-    if(rows.dataset.renderSignature===signature&&rows.querySelector(".row")){
+    if(rows.dataset.renderOwner===owner&&rows.dataset.renderSignature===signature&&rows.querySelector(".row")){
       syncFeedHeader(rows);
       const currentId=String(current?.id||"");
       rows.querySelectorAll(".row[data-video-id]").forEach(row=>{
@@ -8400,6 +8480,7 @@ html.viewer-active.one-col body{
       observeRowThumbQuality(rows);
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
+      syncFeedMoreSentinel(rows,hasMore);
       return;
     }
 
@@ -8407,6 +8488,8 @@ html.viewer-active.one-col body{
     rememberRenderedAvatars(rows);
     rows.innerHTML=feedHeaderMarkup()+rendered.map(cardMarkup).join("");
     rows.dataset.renderSignature=signature;
+    rows.dataset.renderOwner=owner;
+    rows.dataset.renderedCount=String(rendered.length);
     syncFeedHeader(rows);
     restoreRenderedThumbs(rows);
     restoreRenderedAvatars(rows);
@@ -8417,6 +8500,7 @@ html.viewer-active.one-col body{
 
     primeVisibleLivePreviews();
     observeFeedMasonryRows();
+    syncFeedMoreSentinel(rows,hasMore);
   }
 
   function normalizedSearchQuery(value){
