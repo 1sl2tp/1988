@@ -1,20 +1,20 @@
-## 2026-10-14 — Non-LIVE feed progressive RAM-only cards (SOURCE PATCH; VERIFY/PAGES PENDING)
+## 2026-10-14 — Non-LIVE feed progressive RAM-only cards (VERIFY + PAGES PASS; MOBILE E4 PENDING)
 
 - Diagnosed UI root: `index.html::renderSampleContent` was hard-capping *all* non-LIVE cards to 18 even when Supabase package contained more (Ngày 64, Tuần 33; e.g. dynamic scope 273). Previous 18-only view was not proof of missing API sources.
 - Non-LIVE starts with 18 cards; IntersectionObserver sentinel near viewport bottom appends +18 using existing `feedMetas` in memory. The sentinel is absolutely positioned, never becomes a card/grid item; new cards append with `insertAdjacentHTML`, preserving all existing nodes and inline YouTube player. No network call or API on scroll. Fallback scroll event only when IO absent. Reset 18 on new feed identity/scope; LIVE renders all members as before.
 - Added VM test `tests/feed-progressive-1988.test.cjs` verifying 18→36→37 via simulated observer, no full DOM replacement, scope reset, LIVE unbounded. Test gates both workflows.
 - Supabase read-only operational audit 14 Oct (owner): Ngày 64 video / 10 actual channels vs 12 selected, Tuần 33 / 7 actual vs 29 selected, one dynamic scope 10 / 1 actual vs 1 selected, another 8 / 2 actual vs 3 selected. Packages and timestamp state show last run 13 Oct 18:12 UTC success, pending=0; selected counts aren't promised recent uploads. Source membership package remains server-authoritative.
 - No new wake, crawler, Supabase writes, Edge, Worker, media preload or DB/log activity; live detection only on demand; retained first-visible daily batched normal-scope refresh and due lease gate.
-- E3/E4/E5 pending accurate workflow/browser/resource verification. Rollback only non-LIVE feed pagination + test changes if scroll regression; don't touch backend.
+- E1/E3 verified: commit `d0d8aae533e8b8251f4db96aa9cd274e391eabfb`, Verify run `38446150693` SUCCESS and Pages run `38446150800` SUCCESS including the HTTPS custom-domain step. No server code/config changed. E4 actual Safari/iPhone/PWA scroll + playback and E5 measured browser request/byte delta remain PENDING, do not claim device UX tested. Rollback only non-LIVE feed pagination + test changes if scroll regression; don't touch backend.
 
 ---
 
-## 2026-10-14 — 1988 centered desktop search / mobile autoplay-next (SOURCE PREPARED, DEPLOY PENDING)
+## 2026-10-14 — 1988 centered desktop search / mobile autoplay-next (VERIFY + PAGES PASS; DEVICE E4 PENDING)
 
 - Source verified 14 Oct: desktop MAIN search uses leftover flex space (not viewport-centered); new desktop-only >=1000px center alignment keeps mobile behavior. Existing autoplay default is true and saved-off respected, but `playNextFeedVideo()` returned false at all mobile widths because of `isTwoColumn()`. Removed only that breakpoint veto; ENDED, queue and playback engine remain unchanged.
 - New test `tests/desktop-search-mobile-autonext.test.cjs` checks desktop selector plus actual VM mobile next playback and disabled switch, gated in Verify and Pages. No media or backend changes.
 - Feed freshness: once-daily first visible visit requests normal scopes via existing batched server job; acknowledgement means queued/accepted, NOT every scope finished. To diagnose thin tabs, read-only per-scope package counts, source coverage, pending/last successful jobs, then patch the correct server owner only if evidence shows a fault. Do NOT initiate live scans or normal refresh simply to test.
-- Pending: E1 actions + E3 Pages/custom-domain, E4 user Safari/PWA and E5 package refresh-resource audit. No false production claims.
+- E1/E3 verified: commit `35ee9d24f5623c8b381d283cea0ed87f89ffad64`, Verify run `38445130822` SUCCESS, Pages run `38445130929` SUCCESS; follow-up release `d0d8aae5...` also passed. E4 Safari/PWA video-ended → next actual playback and E5 request cost remain PENDING. No false production claims.
 
 ---
 ## 2026-10-11 — First daily visible visit wakes NORMAL YouTube packages (SOURCE MERGED, PROD E4 PENDING)
