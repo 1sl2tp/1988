@@ -4461,6 +4461,9 @@ html.viewer-active.one-col body{
   }
 
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
+    // Any delayed geometry probes from the old API must not touch the
+    // single native fullscreen iframe (or write an aspect correction).
+    if(backgroundNativeActive)return false;
     if(
       !player||
       !current?.id||
