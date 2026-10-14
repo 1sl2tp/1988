@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="robots" content="noindex,nofollow">
+<title>1988 · Trình phát nổi</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;overflow:hidden;font:12px/1.4 Arial,sans-serif}
+#player{position:absolute;inset:0;width:100%;height:100%;background:#000}
+#player iframe{display:block;border:0;width:100%;height:100%}
+#error{position:absolute;inset:0;display:grid;place-items:center;padding:18px;text-align:center;background:#111}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div id="player"></div>
+<div id="error" hidden>Không mở được video nổi. Hãy trở lại trang xem.</div>
+<script>
+(function(){
+'use strict';
+const qs=new URLSearchParams(location.search);
+const valid=/^[A-Za-z0-9_-]{11}$/;
+const videoId=String(qs.get('v')||'').trim();
+let start=Number(qs.get('t')||0);
+start=Number.isFinite(start)?Math.max(0,Math.min(86400,Math.floor(start))):0;
+const candidates=String(qs.get('next')||'').split(',').slice(0,24);
+const seen=new Set([videoId]),next=[];
+for(const item of candidates){
+  const id=String(item||'').trim();
+  if(!valid.test(id)||seen.has(id))continue;
+  seen.add(id);
+  next.push(id);
+  if(next.length===12)break;
+}
+function notify(state,code=''){
+  try{
+    parent.postMessage(
+      {source:'yt1988-floating-youtube',state:String(state),code:String(code).slice(0,24)},
+      location.origin
+    );
+  }catch{}
+}
+function fail(code){
+  document.getElementById('error').hidden=false;
+  notify('error',code);
+}
+if(!valid.test(videoId)){
+  fail('invalid-video-id');
+  return;
+}
+// This is a normal HTTPS page with an explicit referrer policy, unlike the
+// about:blank Document-PiP owner. YouTube's request must see this HTTPS Referer.
+window.onYouTubeIframeAPIReady=function(){
+  try{
+    new YT.Player('player',{
+      host:'https://www.youtube-nocookie.com',
+      width:'100%',
+      height:'100%',
+      videoId,
+      playerVars:{
+        autoplay:1,
+        controls:1,
+        playsinline:1,
+        fs:1,
+        rel:0,
+        loop:0,
+        enablejsapi:1,
+        origin:location.origin,
+        start,
+        ...(next.length?{playlist:next.join(',')}:{})
+      },
+      events:{
+        onReady:function(event){
+          try{
+            const frame=event.target.getIframe();
+            frame.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
+            frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture; fullscreen');
+            frame.setAttribute('allowfullscreen','');
+          }catch{}
+          notify('ready');
+        },
+        onStateChange:function(event){
+          if(event.data===YT.PlayerState.PLAYING)notify('playing');
+        },
+        onAutoplayBlocked:function(){notify('autoplay-blocked')},
+        onError:function(event){fail(Number(event?.data)||'player-error')}
+      }
+    });
+  }catch{fail('player-create')}
+};
+const script=document.createElement('script');
+script.src='https://www.youtube.com/iframe_api';
+script.async=true;
+script.referrerPolicy='strict-origin-when-cross-origin';
+script.onerror=function(){fail('api-load')};
+document.head.appendChild(script);
+})();
+</script>
+</body>
+</html>
