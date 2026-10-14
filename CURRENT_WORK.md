@@ -1,3 +1,13 @@
+## 2026-10-15 — CHROME XEM NỔI: 6PX BLACK EDGE + 10PX CLIPPED CORNERS (RELEASED; MAC USER E4 PENDING)
+
+- User provided screenshots comparing desktop Chrome floating Document PiP to main media, explicitly requested black edge and clipped/rounded video corners. Keep Chrome-native PiP titlebar and system return/close controls; no extra toolbar or changed playback policy.
+- RULE FIRST: `README_MAINTENANCE.md §0.L` `9313357e3221ecfa210464642a74654f6f209655`. Production `index.html` final `2aa5cbbc45daa74805758f3432b8ee056418e01d` (initial edit `8315442eecb7de130a90cf8ad141a396dd3e6d91`) adds only PiP-document CSS `html,body box-sizing:border-box; overflow:hidden; background:#000`, `body{padding:6px}`, and stage `border-radius:10px;overflow:hidden;background:#000`; only child HTTPS host iframe remains borderless/fills/clips to stage. No object-fit:cover, zoom, duplicate player/stream, or native Chrome border changes.
+- Initial window geometry recalculated for inner width minus 12px black margin + 30px native Chrome titlebar; 16:9 -> `480×305`, portrait 9:16 -> `330×607`. User may freely resize; YouTube naturally letterboxes to preserve video pixels.
+- Contract regression `tests/desktop-search-mobile-autonext.test.cjs` `65514b7e6e0361fff1b7807b294a5840d7fb30ad` asserts CSS 6px/10px stage clipping, no zoom, one iframe, and new aspect sizes, as well as old API safety. **Verify `38655470700` SUCCESS, GitHub Pages Deploy `38655470731` SUCCESS including custom-domain HTTPS**. Earlier first code runs `38655384932/38655385146` failed due previous test expected dimensions and were corrected before final release.
+- E4 physical Chrome Mac screenshot to confirm all four corners, black edge, resize and native control placement pending. E5 network bytes unmeasured; only a layout change, no backend/new network calls. Normal Watch, iPhone Safari Chạy nền, official YouTube HTTPS host, error153 restore and autoplay fallback unchanged.
+
+---
+
 ## 2026-10-15 — DESKTOP XEM NỔI: FULL-BLEED VIDEO, REMOVE DUPLICATE RETURN, CHROME PLAY FALLBACK
 
 - User Mac screenshots prove the HTTPS PiP host now displays and plays YouTube video in the real Chrome Document-PiP OS floating window, but UX is wrong: custom title and text "Trở lại xem" duplicated Chrome's native titlebar/return icon, main Watch also shows a large redundant button, video space is wasted and video does not automatically start on their Chrome. The user requested compact PiP just like a video, no duplicate text controls, dynamic aspect matching the main player, smooth resize and best-effort auto-play.
