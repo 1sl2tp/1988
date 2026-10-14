@@ -1,3 +1,12 @@
+## 0.C. DESKTOP WATCH COLUMN MIN/MAX — 2026-10-14
+
+- Applicable only when `html.two-col` (viewport >=1000px) and an actual media item is selected. Mobile <1000px keeps the focused one-column player and queue below; no effect on browse feed density or LIVE packages.
+- Distinguish the **media panel** (CSS grid left track) from the **real video viewport** inside it. Never set left grid width equal to portrait video width; otherwise the next thumbnail expands into a giant competing panel. `syncBoundaries()::watchColumnGeometry` is the single owner.
+- Watch canvas max-width: 1680px landscape, 1260px portrait; center on very wide screens. Horizontal page edges 24px, inter-column gap 16px. Next queue target 34% of inner width, min 340px, max 520px; right column single-card queue. Actual player width = min(left panel width, usable player height × detected/original aspect ratio). Center player and capped metadata independently inside the left panel; do not stretch portrait media.
+- Reserve 98px under landscape or 140px under portrait for info/actions when calculating video height. Re-measure from the existing viewport/top boundary on resize; do not set player dimensions from thumbnail aspect ratio. CSS variable `--two-col-media-w` is the panel, `--two-col-player-w` is the stage.
+- Mandatory smoke checks: 1000/1200/1440/1920/2560 desktop portrait + landscape, no horizontal overflow/giant queue, controls and title readable, mobile at 999px unchanged, no extra media or package API. Gate using `tests/desktop-search-mobile-autonext.test.cjs`; device Safari/PWA verification still required.
+- Release: source commit `807f6097fb21f0c64e46bb13e481def33050f365`; Verify `38494325989` PASS; Pages `38494326256` PASS incl. custom domain. Actual live-device visual E4 and measured network E5 remain pending. No Supabase/Cloudflare/Render owner changed.
+
 # README MAINTENANCE — QUY TẮC BẮT BUỘC DỰ ÁN 1988
 
 > **CURRENT RUNTIME OVERRIDE — 2026-10-05**
