@@ -1,3 +1,11 @@
+## 2026-10-14 — USER DEVICE VALIDATION: 3-video YouTube playlist + PiP/background reported SUCCESS
+
+- After using `https://yt.taphoa.xyz/sources/pip-playlist-lab.html`, user replied **"Có hoạt động tốt nhé"** to the three-video Safari PiP/background auto-next test. Mark **E4 USER-REPORTED overall PASS** for this device/session: the one-iframe YouTube `playlist` approach is viable in the tested Safari→fullscreen→Home→system PiP→lock flow. Avoid claiming that each individual fullscreen/PiP/lock matrix case or the second→third transition was separately logged; user supplied one overall positive report.
+- Keep official iframe parameters `playsinline=0`, `autoplay=0`, initial video `Cfmkk9wAXUw`, successors `pXL2jZFF6_k,wqjoebF6VfI`, one iframe only, no JS background timers/Ended switching, no audio extraction/server proxy. Existing Verify `38500407757` and Pages `38500407788` PASS. **E5 measured network bytes still pending.**
+- **No production integration authorized or made.** Preserve main `index.html` playback, PWA/SW, original single-video A demo, package/cache/provider, Supabase, Render and Cloudflare unchanged. Project Rule45 + global `SPEC-1988-PIP-PLAYLIST-AUTONEXT-20261014` recorded this user acceptance. Next decision only on explicit request: prototype optional "Nghe nền" with a finite next-video queue, no duplicated player, and verify autoplay permissions and queue membership before code changes.
+
+---
+
 ## 2026-10-14 — THREE-VIDEO SAFARI PIP PLAYLIST DEMO (SOURCE / VERIFY / PAGES PASS; IPHONE NEXT-TRACK PENDING)
 
 - User explicitly approved making separate 2–3-video auto-next demo after single-video A proved Safari fullscreen → Home → OS PiP → lock plays audio. No changes to main `yt.taphoa.xyz/`, original single-video `/sources/pip-background-lab.html`, YouTube source packages, iframe owner or player rules.
