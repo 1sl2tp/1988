@@ -186,13 +186,13 @@ assert.equal(mediaMount.children[0].id,'videoFrame','restore original normal pla
 assert(!rootClasses.has('background-native'));
 assert.equal(labels.backgroundModeLabel.textContent,'Chạy nền');
 assert.equal(rebuildCount,1,'return creates only one API player');
-assert.equal(context.backgroundReturnPosition.id,A);
-assert.equal(context.backgroundReturnPosition.seconds,192);
+assert.equal(vm.runInContext('backgroundReturnPosition.id',context),A);
+assert.equal(vm.runInContext('backgroundReturnPosition.seconds',context),192);
 assert.equal(context.enterBackgroundNativeMode(),true);
 assert.equal(context.exitBackgroundNativeMode({restore:false}),true,
   'switching to another video exits native mode with no auto-reload');
 assert.equal(rebuildCount,1,'new selected video owner will recreate regular player');
-assert.equal(context.backgroundReturnPosition,null);
+assert.equal(vm.runInContext('backgroundReturnPosition',context),null);
 context.ytPlayer={getVideoData:()=>({video_id:B}),getCurrentTime:()=>300};
 assert.equal(context.backgroundWatchPayload().seconds,0,'never reuse time of another video');
 context.autoplayNext=false;
