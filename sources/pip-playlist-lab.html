@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#10141e">
+<meta name="robots" content="noindex,nofollow">
+<title>Thử 3 bài tiếp theo khi khóa iPhone · 1988</title>
+<style>
+:root{color-scheme:dark;--bg:#0e1118;--surface:#181e2b;--line:#313b4e;--text:#f1f5ff;--muted:#aab7cc;--blue:#8fbfff;--success:#a1e4bc;--radius:18px}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at 55% -15%,#273a56 0,transparent 57%),var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:900px;margin:0 auto;padding:max(20px,env(safe-area-inset-top)) 16px max(35px,env(safe-area-inset-bottom))}
+h1{font-size:clamp(22px,5.5vw,32px);line-height:1.2;letter-spacing:-.025em;margin:8px 0 12px}
+h2{font-size:17px;margin:0 0 12px}p{margin:0 0 12px}
+b,strong{font-weight:650}.lead{color:var(--muted)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:16px 0}
+.eyebrow{text-transform:uppercase;letter-spacing:.12em;color:var(--blue);font-size:11px;font-weight:750}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.chip{font-size:12px;border:1px solid var(--line);color:var(--muted);border-radius:100px;padding:4px 11px}
+.chip.positive{color:var(--success);border-color:#366a56}
+.screen{width:100%;aspect-ratio:16/9;min-height:165px;background:#000;border-radius:12px;overflow:hidden}
+iframe{width:100%;height:100%;border:0;display:block;background:#000}
+.mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:13px 0 4px}
+button,select{font:inherit}
+button{background:#263449;border:1px solid #485a76;color:var(--text);font-weight:650;padding:12px;border-radius:12px;cursor:pointer;min-height:48px}
+button[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#10243e}
+button:focus-visible,select:focus-visible,a:focus-visible{outline:2px solid white;outline-offset:2px}
+.replay{width:100%;background:transparent;margin-top:10px}
+.subtle{font-size:13px;color:var(--muted)}
+.queue{display:grid;gap:8px}
+.track{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:start;border:1px solid var(--line);background:#121824;border-radius:12px;padding:12px}
+.track .num{background:#29364b;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;color:#c3ddff;font-weight:750}
+.track strong{display:block;font-size:14px}
+.track span{display:block;color:var(--muted);font-size:12px}
+.track a{font-size:12px}
+a{color:#bad6ff}
+ol{margin:0;padding-left:24px}
+li{padding:2px 0 8px}
+.note{border-left:3px solid var(--blue);padding-left:12px;color:var(--muted);font-size:13px}
+.tests{display:grid;gap:10px}
+.test{display:grid;gap:6px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.test label{font-size:14px;font-weight:600}
+select{background:#121824;color:var(--text);border:1px solid #516078;padding:10px;border-radius:10px;min-height:43px;width:100%}
+.log{background:#0e131e;border:1px solid var(--line);color:#c4d0e3;border-radius:10px;min-height:60px;max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}
+.output{min-height:74px;width:100%;background:#101723;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:10px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+.footer{font-size:12px;color:var(--muted);margin-top:24px}
+@media(max-width:390px){.mode-switch{grid-template-columns:1fr}}
+@media(min-width:720px){.panel{padding:20px}.tests{grid-template-columns:repeat(3,minmax(0,1fr))}.test{border-bottom:0;border-right:1px solid var(--line);padding-right:10px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">1988 / Safari PiP / demo riêng</div>
+  <h1>Hết bài 1, iPhone có tự phát bài 2 khi khóa màn hình?</h1>
+  <p class="lead">Tiếp tục từ kết quả bạn đã thử: <strong>fullscreen → Home → PiP → khóa</strong> nghe được một video. Trang này kiểm tra việc <strong>chuyển sang bài kế tiếp</strong> mà không cần trang web tự chạy JavaScript trong nền.</p>
+  <div class="chips">
+    <span class="chip positive">Một video qua PiP: bạn đã thử OK</span>
+    <span class="chip">Chuyển bài khi khóa: đang thử</span>
+    <span class="chip">Không sửa web chính</span>
+  </div>
+
+  <section class="panel" aria-label="Trình phát danh sách bài thử">
+    <h2>Một trình phát YouTube · 3 bài liên tiếp</h2>
+    <div class="screen">
+      <iframe id="video-frame" title="Ba video Bolero thử chuyển bài PiP iPhone"
+        loading="eager" allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowfullscreen webkitallowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    </div>
+    <div class="mode-switch" role="group" aria-label="Chế độ thử">
+      <button type="button" id="mode-playlist" aria-pressed="true">3 bài · tự chuyển</button>
+      <button type="button" id="mode-single" aria-pressed="false">1 bài · đối chứng</button>
+    </div>
+    <button type="button" id="reset" class="replay">Phát lại từ bài 1 (tải lại iframe)</button>
+    <p class="subtle" id="mode-message" aria-live="polite">Ba video được khai báo sẵn cho cùng một iframe qua tham số playlist của YouTube. Bấm Play ngay trong khung.</p>
+    <p class="note">Demo luôn dùng <code>playsinline=0</code> giống chế độ A đã hoạt động trên Safari iPhone. <strong>Không tự bật âm thanh</strong>: phải chạm Play một lần. Chuyển chế độ/tải lại sẽ dừng video đang phát.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Thứ tự phát dự kiến</h2>
+    <div class="queue">
+      <div class="track">
+        <div class="num">1</div>
+        <div><strong>Liên khúc Bolero · Hà Thanh Xuân (video bạn gửi)</strong><span>Cfmkk9wAXUw · bài bắt đầu trong đường dẫn iframe</span><a target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v=Cfmkk9wAXUw">Mở nguồn YouTube</a></div>
+      </div>
+      <div class="track">
+        <div class="num">2</div>
+        <div><strong>Liên khúc Dẫu Biết Xa Rồi · Hà Thanh Xuân Official</strong><span>pXL2jZFF6_k · video kế tiếp #1</span><a target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v=pXL2jZFF6_k">Mở nguồn YouTube</a></div>
+      </div>
+      <div class="track">
+        <div class="num">3</div>
+        <div><strong>Tuyển tập Bolero Trữ Tình · Hà Thanh Xuân Official</strong><span>wqjoebF6VfI · video kế tiếp #2</span><a target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/watch?v=wqjoebF6VfI">Mở nguồn YouTube</a></div>
+      </div>
+    </div>
+    <p class="subtle" style="margin-top:12px">YouTube có thể giới hạn video nhúng hoặc phát nền trên một thiết bị cụ thể; các ID có thật không đảm bảo mọi video phát được trong iframe.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Thử nhanh, không cần đợi hết liên khúc</h2>
+    <ol>
+      <li>Chọn <strong>3 bài · tự chuyển</strong>, bấm <strong>Play</strong> trong video và để Safari mở fullscreen như chế độ A.</li>
+      <li>Trên thanh tua của YouTube, <strong>kéo bài 1 đến còn khoảng 20–30 giây</strong>. Đầu tiên thử để nguyên fullscreen cho hết bài xem có tự vào bài 2 không.</li>
+      <li>Làm lại: Play → tua gần cuối → <strong>Home → PiP</strong>. Xem đến khi bài 1 kết thúc, ghi nhận PiP có tiếp tục phát bài 2 không.</li>
+      <li>Làm lại: Play → tua gần cuối → <strong>Home → PiP → khóa iPhone</strong>. Chờ qua thời điểm hết bài, kiểm tra bài 2 có tự có tiếng mà không cần ấn Play không.</li>
+    </ol>
+    <p class="note" style="margin-top:10px">Đừng khóa trực tiếp từ fullscreen: theo thử nghiệm trước, cách đó thường dừng và phải bấm Play lại. Khi thử phát bài kế tiếp, không dùng JavaScript của trang để nhận ENDED vì iOS có thể ngủ tiến trình sau khi khóa.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Ghi kết quả thử trên iPhone</h2>
+    <div class="tests">
+      <div class="test">
+        <label for="test-visible">1. Hết bài khi fullscreen</label>
+        <select id="test-visible" data-test-label="Fullscreen hết bài">
+          <option value="Chưa thử">Chưa thử</option>
+          <option value="Bài 2 tự phát">Bài 2 tự phát</option>
+          <option value="Dừng sau bài 1">Dừng sau bài 1</option>
+          <option value="Lỗi/trình phát thoát">Lỗi/trình phát thoát</option>
+        </select>
+      </div>
+      <div class="test">
+        <label for="test-pip">2. Hết bài khi đang PiP</label>
+        <select id="test-pip" data-test-label="PiP hết bài">
+          <option value="Chưa thử">Chưa thử</option>
+          <option value="Bài 2 tự phát">Bài 2 tự phát</option>
+          <option value="Dừng sau bài 1">Dừng sau bài 1</option>
+          <option value="PiP bị thoát">PiP bị thoát</option>
+        </select>
+      </div>
+      <div class="test">
+        <label for="test-locked">3. Hết bài khi khóa iPhone</label>
+        <select id="test-locked" data-test-label="Khóa màn hình hết bài">
+          <option value="Chưa thử">Chưa thử</option>
+          <option value="Bài 2 tự phát vẫn có tiếng">Bài 2 tự phát vẫn có tiếng</option>
+          <option value="Dừng, phải nhấn Play">Dừng, phải nhấn Play</option>
+          <option value="Không có media/không có tiếng">Không có media/không có tiếng</option>
+        </select>
+      </div>
+    </div>
+    <button type="button" id="copy-results" style="width:100%;margin:12px 0">Sao chép kết quả gửi lại</button>
+    <textarea id="results-output" class="output" rows="4" readonly aria-label="Kết quả để sao chép">Chọn kết quả thử, sau đó bấm Sao chép.</textarea>
+  </section>
+
+  <section class="panel">
+    <h2>Trạng thái trang (không đo được tiếng của iframe)</h2>
+    <p class="subtle">Safari/PWA: <strong id="client-status">…</strong> · Trang: <strong id="page-status">…</strong></p>
+    <div id="event-log" class="log">Chưa có sự kiện.</div>
+    <p class="subtle" style="margin-top:10px">Nhật ký chỉ ở bộ nhớ trang, không gửi dữ liệu ra máy chủ. Chế độ nền/khóa màn hình chỉ có thể xác nhận bằng tai nghe và giao diện iOS thực tế, không thể kết luận chỉ từ sự kiện \`visibilitychange\`.</p>
+  </section>
+  <p class="footer">Trang thử độc lập · <a href="/sources/pip-background-lab.html">Demo A một video đã thử</a> · <a href="/">Web YouTube chính</a>. Không trích audio/video, không dùng proxy và không chạy tác vụ nền.</p>
+</main>
+<script>
+(function(){
+  'use strict';
+  const FIRST_ID='Cfmkk9wAXUw';
+  const NEXT_IDS=['pXL2jZFF6_k','wqjoebF6VfI'];
+  const player=document.getElementById('video-frame');
+  const playlistBtn=document.getElementById('mode-playlist');
+  const singleBtn=document.getElementById('mode-single');
+  const description=document.getElementById('mode-message');
+  const logTarget=document.getElementById('event-log');
+  let mode='playlist';
+  const history=[];
+
+  function note(message){
+    const at=new Date().toLocaleTimeString('vi-VN',{hour12:false});
+    history.unshift(at+' · '+message);
+    if(history.length>16)history.pop();
+    logTarget.textContent=history.join('\n');
+  }
+  function playerUrl(){
+    const params=new URLSearchParams({
+      autoplay:'0',controls:'1',fs:'1',rel:'0',playsinline:'0',
+      loop:'0',origin:location.origin
+    });
+    if(mode==='playlist')params.set('playlist',NEXT_IDS.join(','));
+    return 'https://www.youtube-nocookie.com/embed/'+FIRST_ID+'?'+params.toString();
+  }
+  function renderPlayer(){
+    playlistBtn.setAttribute('aria-pressed',String(mode==='playlist'));
+    singleBtn.setAttribute('aria-pressed',String(mode==='single'));
+    description.textContent=mode==='playlist'
+      ?'Danh sách ba bài đã khai báo trong một iframe; YouTube sẽ được yêu cầu tự chuyển bài. Bấm Play trong video.'
+      :'Đối chứng một bài, tương tự demo A trước đây. Trình phát được tải lại để tránh hai video phát cùng lúc.';
+    player.src=playerUrl();
+    note('Tải 1 iframe · '+(mode==='playlist'?'3 bài có playlist':'1 bài đối chứng'));
+  }
+  function changeMode(next){
+    if(mode===next)return;
+    mode=next;
+    renderPlayer();
+  }
+  function updatePageStatus(){
+    const ua=navigator.userAgent||'';
+    const ios=/iPhone|iPad|iPod/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+    const standalone=!!(navigator.standalone||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches));
+    document.getElementById('client-status').textContent=(ios?'iOS/iPadOS':'Trình duyệt khác')+' · '+(standalone?'PWA':'Tab Safari/Web');
+    document.getElementById('page-status').textContent=document.visibilityState;
+  }
+  playlistBtn.addEventListener('click',function(){changeMode('playlist')});
+  singleBtn.addEventListener('click',function(){changeMode('single')});
+  document.getElementById('reset').addEventListener('click',renderPlayer);
+  player.addEventListener('load',function(){note('Iframe đã tải trang; không xác minh được video đã phát')});
+  document.addEventListener('visibilitychange',function(){
+    updatePageStatus();
+    note('Trang '+document.visibilityState+' · trạng thái media bên trong iframe không quan sát được');
+  });
+  window.addEventListener('pageshow',function(){updatePageStatus();note('Trang hiển thị/trở lại')});
+  window.addEventListener('pagehide',function(){note('Trang bị rời đi/đưa xuống nền')});
+
+  document.getElementById('copy-results').addEventListener('click',async function(){
+    const parts=['Demo PiP playlist 1988 · video đầu '+FIRST_ID];
+    for(const select of document.querySelectorAll('select[data-test-label]')){
+      parts.push(select.getAttribute('data-test-label')+': '+select.value);
+    }
+    const summary=parts.join('\n');
+    const field=document.getElementById('results-output');
+    field.value=summary;
+    try{
+      if(!navigator.clipboard||!navigator.clipboard.writeText)throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(summary);
+      note('Đã sao chép báo cáo cục bộ');
+    }catch{
+      field.focus();
+      field.select();
+      note('Đã chọn nội dung báo cáo để sao chép thủ công');
+    }
+  });
+  updatePageStatus();
+  renderPlayer();
+})();
+</script>
+</body>
+</html>
