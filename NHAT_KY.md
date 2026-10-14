@@ -1,3 +1,10 @@
+## 2026-10-14 — Standalone Safari PiP/background playback lab, one YouTube video
+
+- New isolated page only: `sources/pip-background-lab.html`; video ID `Cfmkk9wAXUw` from the user's watch URL; no current web/player changes.
+- Side-by-side modes via ONE YouTube-nocookie iframe: A `playsinline=0` native fullscreen preference to test OS auto-PiP on Home; B `playsinline=1` in-page. Manual fullscreen API test and local-only visibility/status history. No bypass of cross-origin PiP restrictions, no raw audio/video URL, proxy, extra network/API, PWA changes, backend, Supabase, Render, Cloudflare or worker.
+- Commit `1d10773bddba3db556adeb99082928eb44e547e7`; JS syntax + one-iframe/source review PASS. GitHub Verify `38498738136` SUCCESS; Pages `38498738003` SUCCESS with custom-domain verification. Pages artifact copies all `sources/` to `https://yt.taphoa.xyz/sources/pip-background-lab.html`.
+- Direct HTTP check of exact new path unavailable in current environment; Safari iPhone lock/background behavior not observed yet. Do not conflate Pages CI PASS with hardware PiP or YouTube music/Premium eligibility. Remove only this lab file if no longer needed.
+
 ## 2026-10-14 — Full-width Watch recommendations 1..N, min 1 (production verified by CI)
 
 - The screenshot showed right-side unused space with 3 columns; user confirmed full use of remaining width is priority, one recommendation card/row is minimum, dynamic columns as wide screen allows.
