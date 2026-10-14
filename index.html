@@ -1547,6 +1547,12 @@ html.two-col .info{
   font:400 12px/17px Roboto,"Arial",sans-serif;
 }
 .info-meta-sep{display:none!important}
+.background-mode-bar[hidden]{display:none!important}
+.background-mode-bar{display:flex;justify-content:flex-end;margin-top:8px}
+.background-mode-button{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 14px;border:0;border-radius:19px;color:var(--yt-text);background:var(--yt-chip-bg);font:600 13px/18px Roboto,Arial,sans-serif;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.background-mode-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.background-mode-button:hover{background:var(--yt-chip-hover)}
+.background-mode-button:active{background:var(--yt-chip-press)}
 .info-actions{
   min-width:0;
   flex:0 1 auto;
@@ -2820,6 +2826,12 @@ html.viewer-active.one-col body{
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>
         </button>
       </div>
+      <div id="backgroundModeBar" class="background-mode-bar" hidden>
+        <button id="backgroundModeButton" class="background-mode-button" type="button" data-info-action="background-listen" aria-label="Chạy nền trên Safari iPhone">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-4a8 8 0 0 1 16 0v4"></path><rect x="2.5" y="13" width="4" height="7" rx="1.5"></rect><rect x="17.5" y="13" width="4" height="7" rx="1.5"></rect></svg>
+          <span>Chạy nền</span>
+        </button>
+      </div>
       <span id="videoMetaSep" hidden></span>
       <span id="layoutHint" hidden></span>
     </div>
@@ -2870,6 +2882,7 @@ html.viewer-active.one-col body{
   const videoSourceEl=document.getElementById("videoSource");
   const videoFactsEl=document.getElementById("videoFacts");
   const videoQuickActions=document.getElementById("videoQuickActions");
+  const backgroundModeBar=document.getElementById("backgroundModeBar");
   const videoMetaSep=document.getElementById("videoMetaSep");
   const videoMenu=document.getElementById("videoMenu");
   const layoutHint=document.getElementById("layoutHint");
@@ -6943,7 +6956,62 @@ html.viewer-active.one-col body{
       infoActionButton("download","Tải xuống","download","quick-download");
   }
 
+  // One user-tap opt-in on supported Safari tabs; normal YouTube stays inline.
+  function isIOSSafariBackgroundTab(){
+    const ua=String(navigator.userAgent||"");
+    const ios=/iPhone|iPad|iPod/.test(ua)||
+      (/Macintosh/.test(ua)&&Number(navigator.maxTouchPoints||0)>1);
+    const safari=/Safari/.test(ua)&&!/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    const standalone=!!navigator.standalone||
+      !!window.matchMedia?.("(display-mode: standalone)")?.matches;
+    return ios&&safari&&!standalone;
+  }
+
+  function backgroundQueueForVideo(videoId,items=feedMetas,enabled=autoplayNext,limit=12){
+    if(!enabled||!/^[A-Za-z0-9_-]{11}$/.test(String(videoId||"")))return [];
+    const list=Array.isArray(items)?items:[];
+    const index=list.findIndex(meta=>String(meta?.id||"")===videoId);
+    if(index<0)return [];
+    const next=[],seen=new Set([videoId]);
+    for(const meta of list.slice(index+1)){
+      const id=String(meta?.id||"").trim();
+      if(!/^[A-Za-z0-9_-]{11}$/.test(id)||seen.has(id)||
+        meta?.isLive===true||normalizedMediaProvider(meta?.provider)!=="youtube")continue;
+      seen.add(id);
+      next.push(id);
+      if(next.length>=limit)break;
+    }
+    return next;
+  }
+
+  function backgroundListenUrl(){
+    const id=String(current?.id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id)||currentMeta?.isLive||activePackageScope==="live")return "";
+    let seconds=0;
+    try{
+      const playerVideoId=String(ytPlayer?.getVideoData?.()?.video_id||"").trim();
+      const position=Number(ytPlayer?.getCurrentTime?.());
+      if(playerVideoId===id&&Number.isFinite(position)&&position>0){
+        seconds=Math.min(86400,Math.floor(position));
+      }
+    }catch{}
+    const url=new URL("/sources/background-listen.html",location.origin);
+    url.searchParams.set("v",id);
+    if(seconds>0)url.searchParams.set("t",String(seconds));
+    const list=feedMetas.some(meta=>String(meta?.id||"")===id)?feedMetas:relatedMetas;
+    const next=backgroundQueueForVideo(id,list,autoplayNext,12);
+    if(next.length)url.searchParams.set("next",next.join(","));
+    url.searchParams.set("back",canonicalVideoHash(id,currentMeta?.title||current?.label||""));
+    if(currentMeta?.title)url.searchParams.set("title",String(currentMeta.title).slice(0,160));
+    return url.href;
+  }
+
   function renderCurrentInfo(){
+    if(backgroundModeBar){
+      backgroundModeBar.hidden=!isIOSSafariBackgroundTab()||
+        !/^[A-Za-z0-9_-]{11}$/.test(String(current?.id||""))||
+        currentMeta?.isLive===true||activePackageScope==="live";
+    }
     const packageAuthoritative=packageYoutubeIdentityAuthoritative(currentMeta||{});
     if(!packageAuthoritative&&currentMeta&&!currentMeta.sourceAvatar&&currentMeta.sourceId){
       const identity=localSourceIdentity(currentMeta.sourceId);
@@ -9872,6 +9940,15 @@ html.viewer-active.one-col body{
   });
   function runPrimaryVideoAction(kind,meta={},anchor=null){
     kind=String(kind||"");
+    if(kind==="background-listen"){
+      if(!isIOSSafariBackgroundTab())return false;
+      const destination=backgroundListenUrl();
+      if(!destination)return false;
+      // Same-tab navigation releases original player; never run two players.
+      try{ytPlayer?.pauseVideo?.()}catch{}
+      location.assign(destination);
+      return true;
+    }
     if(kind==="view-channel"){
       closeRowActionMenu();
       void openChannelInApp(meta);
