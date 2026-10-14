@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#10151f">
+<title>Chạy nền · 1988</title>
+<style>
+:root{color-scheme:dark;--bg:#10141d;--panel:#1b2330;--stroke:#354154;--fg:#f7f9ff;--secondary:#aab9ce;--accent:#afd3ff}
+*{box-sizing:border-box}
+body{font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--fg);background:radial-gradient(ellipse at 40% -20%,#263751,transparent 60%),var(--bg);margin:0}
+main{max-width:840px;margin:0 auto;padding:max(18px,env(safe-area-inset-top)) 16px max(30px,env(safe-area-inset-bottom))}
+h1{font-size:clamp(22px,5vw,30px);line-height:1.2;letter-spacing:-.02em;margin:12px 0 6px}
+h2{font-size:16px;margin:0 0 10px}
+p{margin:0 0 12px}small,.muted{color:var(--secondary)}
+.panel{background:var(--panel);border:1px solid var(--stroke);border-radius:18px;padding:16px;margin:14px 0}
+.eyebrow{color:var(--accent);font-size:12px;letter-spacing:.1em;font-weight:750}
+.player{width:100%;aspect-ratio:16/9;min-height:170px;background:#000;border-radius:12px;overflow:hidden}
+iframe{width:100%;height:100%;display:block;border:0;background:#000}
+.chip{font-size:12px;display:inline-flex;padding:5px 10px;border:1px solid var(--stroke);border-radius:999px;color:var(--secondary)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.button{min-height:43px;display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;background:#25354b;border:1px solid #536680;border-radius:12px;color:var(--fg);text-decoration:none;font:600 14px/20px inherit;cursor:pointer}
+.button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.note{border-left:3px solid var(--accent);padding-left:12px;color:var(--secondary);font-size:13px}
+.steps{padding-left:24px;margin:8px 0}.steps li{margin:9px 0}
+#error{color:#ffd2ce;font-weight:600}
+@media(min-width:700px){.panel{padding:20px}}
+</style>
+</head>
+<body>
+<main>
+<span class="eyebrow">1988 / SAFARI IPHONE / CHẠY NỀN</span>
+<h1>Chạy nền</h1>
+<p class="muted">Tách riêng chế độ nghe nền khỏi trình phát trong trang. Danh sách phát do chính YouTube xử lý khi Safari chuyển sang PiP hệ thống.</p>
+
+<section class="panel">
+  <div id="player" class="player" hidden>
+    <iframe id="frame" title="Video YouTube chế độ chạy nền"
+      loading="eager" allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      allowfullscreen webkitallowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  </div>
+  <p id="error" hidden>Không xác định được video hợp lệ. Vui lòng quay lại và chọn video rồi nhấn Chạy nền.</p>
+  <h2 id="video-title" style="margin-top:14px"></h2>
+  <span class="chip" id="position">Đang xác định vị trí…</span>
+  <span class="chip" id="queue-count">Chưa có bài kế tiếp</span>
+  <div class="actions">
+    <button class="button" type="button" id="back-button">Trở về xem</button>
+    <a class="button" id="watch-original" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/">Mở YouTube gốc</a>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Cách nghe khi khóa màn hình</h2>
+  <ol class="steps">
+    <li><strong>Chạm Play</strong> trong video. Safari sẽ thử mở chế độ toàn màn hình gốc như bản demo đã thử.</li>
+    <li>Vuốt <strong>Home</strong> để iPhone tự đưa video vào <strong>PiP hệ thống</strong> (cần bật Tự động bắt đầu PiP trong Cài đặt).</li>
+    <li><strong>Khóa màn hình</strong>. Khi hết bài, YouTube có thể tự phát bài tiếp theo từ danh sách đã gửi sẵn.</li>
+  </ol>
+  <p class="note">Khóa ngay khi video còn toàn màn hình có thể khiến iPhone tạm dừng và phải nhấn Play ở màn hình khóa. Website không thể tự giả lập Home hay ép PiP của YouTube iframe. Chế độ này cần bạn nhấn Play lại sau khi chuyển từ trình phát trong trang; iOS không bảo đảm tự phát sau điều hướng.</p>
+  <p class="muted" id="return-note">Nếu cần quay lại xem bình thường, nhấn “Trở về xem”.</p>
+</section>
+</main>
+<script>
+(function(){
+'use strict';
+const query=new URLSearchParams(location.search);
+const VALID=/^[A-Za-z0-9_-]{11}$/;
+const id=String(query.get('v')||'').trim();
+const frame=document.getElementById('frame');
+const display=document.getElementById('player');
+const error=document.getElementById('error');
+const valid=VALID.test(id);
+const rawTime=Number(query.get('t')||0);
+const start=Number.isFinite(rawTime)?Math.min(86400,Math.max(0,Math.floor(rawTime))):0;
+const incoming=String(query.get('next')||'').split(',').slice(0,24);
+const seen=new Set([id]);
+const next=[];
+for(const candidate of incoming){
+  const value=String(candidate||'').trim();
+  if(!VALID.test(value)||seen.has(value))continue;
+  seen.add(value);
+  next.push(value);
+  if(next.length>=12)break;
+}
+const providedHash=String(query.get('back')||'');
+const safeHash=/^#\/watch\/[A-Za-z0-9_-]+$/.test(providedHash)&&providedHash.endsWith(id)
+  ?providedHash:'#/watch/'+id;
+const backUrl='/' + safeHash;
+const fromReferrer=(function(){
+  try{
+    const ref=new URL(document.referrer);
+    return ref.origin===location.origin&&ref.pathname==='/';
+  }catch{return false;}
+})();
+const title=String(query.get('title')||'').trim().slice(0,160);
+document.getElementById('video-title').textContent=title||(valid?'Video '+id:'Video không hợp lệ');
+document.getElementById('position').textContent=start>0?'Bắt đầu gần mốc '+Math.floor(start/60)+':'+String(start%60).padStart(2,'0'):'Bắt đầu từ đầu';
+document.getElementById('queue-count').textContent=next.length?next.length+' video tiếp theo đã sẵn sàng':'Không có video tiếp theo';
+document.getElementById('watch-original').href=valid?'https://www.youtube.com/watch?v='+encodeURIComponent(id):'https://www.youtube.com/';
+document.getElementById('back-button').addEventListener('click',function(){
+  // Back to the existing document can restore its paused player and position
+  // from browser history; if Safari discarded the page, use a safe local route.
+  if(fromReferrer&&history.length>1){history.back();return;}
+  location.assign(backUrl);
+});
+if(!valid){
+  display.hidden=true;
+  error.hidden=false;
+  document.getElementById('return-note').textContent='Đường dẫn không đúng: không tải trình phát.';
+  return;
+}
+const params=new URLSearchParams({
+  autoplay:'0',controls:'1',fs:'1',playsinline:'0',rel:'0',loop:'0',
+  origin:location.origin
+});
+if(start>0)params.set('start',String(start));
+if(next.length)params.set('playlist',next.join(','));
+// ONE iframe, official YouTube player. No hidden audio/player, no JS onEnded,
+// no provider proxy, and no periodic timers while Safari is in background.
+frame.src='https://www.youtube-nocookie.com/embed/'+id+'?'+params.toString();
+display.hidden=false;
+})();
+</script>
+</body>
+</html>
