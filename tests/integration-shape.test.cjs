@@ -153,7 +153,9 @@ if(simpleProduction){
   assert.match(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,520}border-radius:var\(--floating-radius\)!important/);
   assert.doesNotMatch(html,/html\.viewer-active\.one-col\.portrait \.media-col > \.stage[\s\S]{0,360}border-radius:var\(--floating-radius\) var\(--floating-radius\) 0 0!important/);
   assert.match(html,/html\.viewer-active\.one-col \.rows[\s\S]{0,180}grid-template-columns:minmax\(0,1fr\)!important/);
-  assert.match(html,/Desktop watch uses the right side as a queue/);
+  assert.match(html,/Watch: VIDEO LEFT at its real ratio; ALL remaining width is the queue/);
+  assert.match(html,/html\.viewer-active\.two-col \.rows[\s\S]{0,120}grid-template-columns:repeat\(var\(--feed-cols\),minmax\(0,1fr\)\)!important/);
+  assert.match(html,/setFeedColumnCount\(Math\.min\(3,chooseCardColumns\(geometry\.feedW,cardGap\)\)\)/);
   assert.match(html,/scrolling must never create a floating player/);
   assert.doesNotMatch(html,/if\(opened&&!isTwoColumn\(\)&&mediaProviderFor\(selectedMeta\)!==["']tiktok["']\)/);
   assert.match(html,/Feed rerender must never move the active media out of the focused viewer/);
