@@ -1,3 +1,9 @@
+## 2026-10-15 — 1988 Chrome Xem nổi: black inset 6px / rounded media clipping 10px
+
+- User screenshot of Chrome Mac OS-level Document PiP showed media too close to frame edges; asked to resemble main Watch media with thin black border and clipped corners. Rule first `README_MAINTENANCE.md §0.L` commit `9313357e3221ecfa210464642a74654f6f209655`.
+- In `index.html` CSS only on Document PiP content: `body{padding:6px;background:#000}` plus `.floating-media{overflow:hidden;border-radius:10px;background:#000}`; HTTPS iframe fills stage, `border:0;display:block`. Initial PiP dimensions include 12px gutter and native titlebar; preserves main media aspect; no video zoom/crop and no resize loop. Code `8315442eecb7de130a90cf8ad141a396dd3e6d91`, final `2aa5cbbc45daa74805758f3432b8ee056418e01d`.
+- Tests `65514b7e6e0361fff1b7807b294a5840d7fb30ad`; Verify `38655470700` SUCCESS, Pages `38655470731` SUCCESS. Initial CI on first code commit failed due old 480×300 / 330×617 test sizes; updated before final successful release. User Chrome Mac E4 visual still pending; E5 measured network bytes not performed. All standard Watch/Safari background and error153/YouTube autoplay fallback behavior unchanged.
+
 ## 2026-10-15 — Xem nổi on Mac: native-only titlebar, aspect-based window, one center Play icon
 
 - User screenshot shows video actually playing via HTTPS YouTube PiP host, but redundant custom title + text Trở lại xem inside browser's own PiP titlebar, another Watch-side button and blocked autoplay. Rule-first `README_MAINTENANCE.md §0.K` `8e7db480291ae5d431790042176da61776b5d4ac`.
