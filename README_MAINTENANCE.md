@@ -28,6 +28,14 @@
 - Freshness is a separate backend contract: first visible daily visit may issue one scoped batch wake for latest/week/hashtags (not LIVE), but `accepted` means requested, not every scope completed. Verify config last_enqueued + refresh_state pending/last_ok + package hash/time/read-only counts. Empty/thin scopes cannot be 'fixed' with UI-side enrichment, source-guessing, additional client crawls or new cron.
 - Preserve YouTube-only transport, Supabase canonical identity, 24h/7d filters and dedupe, on-demand LIVE, selected/blocked source state. Source/read-model test gates precede deploy; Safari/PWA and network delta require actual observation.
 
+## 0.B. YOUTUBE AVATAR ORIGIN — 2026-10-14
+
+- User report: BNC Now video `dxmuRFhd32o` shows a broken circular avatar, while channel name and verification remain correct. Targeted read-only `yt1988_packages` audit: 557/832 ordinary package video occurrences from 95 channel IDs have URLs with `piped-proxy.ducks.party` as the image transport and `host=yt3.googleusercontent.com` as the real upstream. Canonical `yt1988_channel_directory` contains the same proxy URL for BNC Now.
+- **Source of truth unchanged:** package's `sourceId/sourceName/sourceAvatar/title` stay authoritative. Only rewrite the *transport URL* to `https://yt3.googleusercontent.com/<same image path>` (or whitelisted `yt3.ggpht.com`) when URL explicitly provides matching `host=yt3...`. Never borrow another channel's avatar, reassign source identity, or request profile for every card.
+- Browser: `index.html::displayYoutubeAvatarUrl` for card/player/discovery; existing capture-phase image `error` handler substitutes a text-first-letter placeholder for failed image loads, never browser broken-image glyph. `src/media-meta.js` normalizes discovery URL; `supabase/functions/yt1988-refresh/index.ts::normalizeAvatarUrl` normalizes new package output. Existing package rows/database are not mass rewritten.
+- Network: no extra AJAX, image probes, per-card Edge RPC, Live wake, cron, Supabase writes, proxy binary storage, or manual full refresh. A CDN-origin avatar is one ordinary image request, lazy policy preserved. Read-only package counts are evidence, not an invitation to query all sources again.
+- Release gates: `tests/youtube-avatar-origin.test.cjs` in Verify and Pages, exact GitHub deployment, and independently compare deployed `yt1988-refresh` source/version before replacing Edge. Edge source commit alone does not deploy. Browser real BNC/other samples + egress remain E4/E5 unverified until observed.
+
 ## 0. FAST REPAIR — quy trình ưu tiên ít gián đoạn
 
 ### 0.1. Trước khi viết code phải nói được 4 ý

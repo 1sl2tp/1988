@@ -93,6 +93,14 @@ function normalizeAvatarUrl(value:any){
       "yt3.googleusercontent.com"
     ].includes(proxiedHost);
     if(!isYoutubeAvatar)return raw;
+    if(proxiedHost==="yt3.ggpht.com"||proxiedHost==="yt3.googleusercontent.com"){
+      // Store YouTube's CDN URL, never a disposable Piped transport host.
+      url.hostname=proxiedHost;
+      url.port="";
+      url.username="";
+      url.password="";
+      url.searchParams.delete("host");
+    }
 
     url.pathname=url.pathname.replace(/=s(\d+)(?=[-/?]|$)/i,(_m,size)=>{
       const n=Number(size)||0;

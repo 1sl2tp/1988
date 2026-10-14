@@ -5325,14 +5325,14 @@ html.viewer-active.one-col body{
 
         if(oldAvatar instanceof HTMLImageElement){
           const currentSrc=String(oldAvatar.getAttribute("src")||"").trim();
-          if(currentSrc!==avatar)oldAvatar.src=avatar;
+          if(currentSrc!==displayYoutubeAvatarUrl(avatar))oldAvatar.src=displayYoutubeAvatarUrl(avatar);
           return;
         }
 
         const next=document.createElement("img");
         next.className="row-avatar";
         next.alt="";
-        next.src=avatar;
+        next.src=displayYoutubeAvatarUrl(avatar);
         oldAvatar.replaceWith(next);
       });
     }
@@ -5384,13 +5384,13 @@ html.viewer-active.one-col body{
         const oldAvatar=row.querySelector(".row-avatar");
         if(!oldAvatar)return;
         if(oldAvatar instanceof HTMLImageElement){
-          oldAvatar.src=sourceAvatar;
+          oldAvatar.src=displayYoutubeAvatarUrl(sourceAvatar);
           return;
         }
         const next=document.createElement("img");
         next.className="row-avatar";
         next.alt="";
-        next.src=sourceAvatar;
+        next.src=displayYoutubeAvatarUrl(sourceAvatar);
         oldAvatar.replaceWith(next);
       });
     }
@@ -6951,7 +6951,7 @@ html.viewer-active.one-col body{
     if(videoMetaSep)videoMetaSep.hidden=true;
     syncVideoDocumentIdentity({push:false});
 
-    const avatar=String(meta.sourceAvatar||"").trim();
+    const avatar=displayYoutubeAvatarUrl(meta.sourceAvatar||"");
     const existingAvatar=videoAvatarSlot.querySelector(".info-avatar");
     if(avatar){
       if(existingAvatar instanceof HTMLImageElement){
@@ -6961,7 +6961,7 @@ html.viewer-active.one-col body{
         const next=document.createElement("img");
         next.className="info-avatar";
         next.alt="";
-        next.src=avatar;
+        next.src=displayYoutubeAvatarUrl(avatar);
         videoAvatarSlot.replaceChildren(next);
       }
     }else if(source){
@@ -6994,6 +6994,25 @@ html.viewer-active.one-col body{
     );
   }
 
+  // URL transport only: preserve the prepared package's authoritative
+  // channel identity while opening proxy-origin yt3 avatars at YouTube CDN.
+  function displayYoutubeAvatarUrl(raw=""){
+    const value=String(raw||"").trim();
+    if(!value)return "";
+    try{
+      const url=new URL(value);
+      if(url.protocol!=="https:")return value;
+      const upstream=String(url.searchParams.get("host")||"").replace(/^www\./i,"").toLowerCase();
+      if(upstream!=="yt3.googleusercontent.com"&&upstream!=="yt3.ggpht.com")return value;
+      url.hostname=upstream;
+      url.port="";
+      url.username="";
+      url.password="";
+      url.searchParams.delete("host");
+      return url.toString();
+    }catch{return value;}
+  }
+
   function avatarMarkup(meta,eager=false){
     // Prepared YouTube packages are authoritative. Never repair a package
     // avatar/name from client caches, edge snapshots or another channel row.
@@ -7004,11 +7023,11 @@ html.viewer-active.one-col body{
           sourceAvatar:String(meta?.sourceAvatar||"").trim()
         }
       :resolvedSourceIdentity(meta);
-    const avatar=String(identity?.sourceAvatar||"").trim();
-    if(avatar){
-      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
-    }
+    const avatar=displayYoutubeAvatarUrl(identity?.sourceAvatar||"");
     const letter=(identity?.sourceName||meta?.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
+    if(avatar){
+      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" data-avatar-letter="'+escapeHtml(letter)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
+    }
     return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span></span>';
   }
 
@@ -8023,7 +8042,21 @@ html.viewer-active.one-col body{
 
   rowsImageHost?.addEventListener("error",event=>{
     const img=event.target;
-    if(!(img instanceof HTMLImageElement)||!img.closest(".row-thumb"))return;
+    if(!(img instanceof HTMLImageElement))return;
+    // A failed image is not a missing channel. Keep the correct source text
+    // and show a real circular initial instead of a browser broken-image glyph.
+    if(img.matches(".row-avatar,.info-avatar")){
+      const sourceName=img.classList.contains("row-avatar")
+        ?String(img.dataset.avatarLetter||img.closest(".row")?.querySelector(".row-source")?.textContent||"")
+        :String(videoSourceEl?.textContent||"");
+      const letter=sourceName.trim().slice(0,1).toUpperCase()||"Y";
+      const fallback=document.createElement("span");
+      fallback.className=img.className+" placeholder";
+      fallback.textContent=letter;
+      img.replaceWith(fallback);
+      return;
+    }
+    if(!img.closest(".row-thumb"))return;
 
     const card=img.closest(".row[data-video-id]");
     const id=String(card?.dataset?.videoId||"").trim();
@@ -8059,7 +8092,7 @@ html.viewer-active.one-col body{
             :(resolvedSourceIdentity(meta)?.sourceAvatar||meta?.sourceAvatar||"")
         ).trim();
         if(avatar){
-          img.src=avatar;
+          img.src=displayYoutubeAvatarUrl(avatar);
           return;
         }
       }

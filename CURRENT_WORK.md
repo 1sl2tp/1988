@@ -1,3 +1,12 @@
+## 2026-10-14 — YouTube channel avatars proxy-origin repair (SOURCE, PROD PENDING)
+
+- User screenshot showed BNC Now broken avatar (video dxmuRFhd32o), while text and verified marker were correct. Read-only Supabase evidence: its package+canonical directory avatar was a `piped-proxy.ducks.party` URL with `host=yt3.googleusercontent.com`; 557 of 832 ordinary package video occurrences, 95 channels affected by same proxy host. No package recrawl, Edge mutation, or LIVE probe was initiated for this audit.
+- Main frontend UI fixes only the *image transport URL* for explicit yt3 upstream URLs, never a channel ID/name/title; failed card/info images become the correct channel initial without broken icon. Search discovery `src/media-meta.js` and next-refresh producer `yt1988-refresh` share same URL normalization.
+- Existing package and directory DB rows intentionally left untouched. Upstream CDN image reachability and real Safari/PWA behavior need E4 verification. Prepare targeted run-time test and exact CI/Pages. Edge version deployed separately only after confirming live source matches GitHub base (checked: version32 matches source byte-for-byte) and ensuring no other server changes.
+- 0 new per-card HTTP API requests, 0 extra sync/polling, no media bytes copied to DB. Rollback only URL normalization/DOM fallback if regressions.
+
+---
+
 ## 2026-10-14 — Non-LIVE feed progressive RAM-only cards (VERIFY + PAGES PASS; MOBILE E4 PENDING)
 
 - Diagnosed UI root: `index.html::renderSampleContent` was hard-capping *all* non-LIVE cards to 18 even when Supabase package contained more (Ngày 64, Tuần 33; e.g. dynamic scope 273). Previous 18-only view was not proof of missing API sources.

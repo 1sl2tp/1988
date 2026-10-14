@@ -169,6 +169,14 @@
         upstream==='yt3.googleusercontent.com';
 
       if(!youtubeAvatar)return url;
+      if(upstream==='yt3.ggpht.com'||upstream==='yt3.googleusercontent.com'){
+        // A Piped host is a transport proxy, not the channel's avatar origin.
+        parsed.hostname=upstream;
+        parsed.port='';
+        parsed.username='';
+        parsed.password='';
+        parsed.searchParams.delete('host');
+      }
 
       parsed.pathname=parsed.pathname.replace(
         /=s(\d+)(?=-|$)/i,
