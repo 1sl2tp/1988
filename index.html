@@ -7249,6 +7249,7 @@ html.viewer-active.one-col body{
       iframe.setAttribute("allow","autoplay; encrypted-media; picture-in-picture; fullscreen");
       iframe.setAttribute("allowfullscreen","");
       iframe.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
+      iframe.setAttribute("loading","eager");
       media.appendChild(iframe);
       shell.append(toolbar,media);
       doc.body.replaceChildren(shell);
@@ -7272,6 +7273,12 @@ html.viewer-active.one-col body{
     },{once:true});
     // Receive only the message from OUR own HTTPS iframe, not arbitrary
     // embedded/player windows. YouTube API error 153 restores normal Watch.
+    iframe.addEventListener("error",()=>{
+      if(floatingPipWindow!==pipWindow)return;
+      exitFloatingPipWindow({restore:true});
+      if(floatingModeHint)floatingModeHint.textContent=
+        "Không tải được trang phát nổi. Đã trở lại xem bình thường.";
+    });
     pipWindow.addEventListener("message",event=>{
       if(floatingPipWindow!==pipWindow||
         event.origin!==location.origin||
