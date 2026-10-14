@@ -1,3 +1,14 @@
+## 2026-10-14 — Isolated single-video Safari PiP/background playback lab (CI + Pages PASS; DEVICE TEST PENDING)
+
+- User supplied exactly one video ID `Cfmkk9wAXUw` via `https://yt.taphoa.xyz/#/watch/high-quality-bolero-lyrical-music-collection-2026-medley-xot-xa-thoi-by-ha-thanh-xuan-Cfmkk9wAXUw` and explicitly requested a separate WEB DEMO without touching the current player.
+- Added only `sources/pip-background-lab.html` (`1d10773bddba3db556adeb99082928eb44e547e7`). Existing `.github/workflows/pages.yml` copies the entire `sources/` folder into Pages: no changes to production `index.html`, `sw.js`, manifests, source manager, workflows, data, server/provider, packaging, or media gateway.
+- The lab hosts ONE official `youtube-nocookie.com/embed/Cfmkk9wAXUw` iframe with an explicit A/B switch: `playsinline=0` (favor iOS native fullscreen / possible OS auto PiP on Home) vs `playsinline=1` (current app-like inline behavior). Toggle reloads the same one iframe only. Optional iframe Fullscreen API button is clearly an experiment, NOT a guarantee of native PiP. Local-only visibility/pagehide/fullscreen event log and Safari/PWA/browser status. No audio extraction, dual stream, proxy, MediaSession spoofing, polling, telemetry, cache writing or SW registration.
+- Official YouTube embed docs support the iOS `playsinline` distinction, but cross-origin YouTube iframe prevents the parent page from commanding its internal HTMLVideoElement PiP, and OS background/lock behavior must be tested physically. YouTube-specific music/Premium restrictions may apply; no claim of guaranteed lock-screen playback.
+- HTML includes a single iframe; standalone inline JavaScript parsed successfully. Verify 1988 run `38498738136` SUCCESS and Deploy 1988 Player run `38498738003` SUCCESS (including production artifact, deploy and custom-domain HTTPS verification). Intended Pages URL: `https://yt.taphoa.xyz/sources/pip-background-lab.html`. Direct remote HTTP fetch of this exact URL from this environment unavailable; Pages workflow copies `sources/` verbatim.
+- Next observation from iPhone Safari: A press Play => did video auto-enter native fullscreen? home => auto PiP? lock => continuing sound? compare B. E4 device and E5 real network measurement PENDING. Keep this isolated lab out of main app until results are confirmed.
+
+---
+
 ## 2026-10-14 — WATCH FULL WIDTH: one minimum card, proportional 1..N right queue (VERIFY/PAGES PASS; REAL DEVICE PENDING)
 
 - Final user confirmation: "chia sao cho full", one card is minimum, add columns as actual right-side width allows. The previous one-to-three hard limit plus row max-width 560/1136/1712px could leave a dark right gutter and contradicted the desired behavior.
