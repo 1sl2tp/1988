@@ -3,7 +3,7 @@
 - User clarified media should always be flush left, with remaining width split into 1/2/3 next-feed cards as permitted; previously released centered/capped one-column queue contradicted this.
 - Index CSS: removed 1680/1260 centered canvas, left-aligned true-ratio player + channel metadata, removed focused-viewer 1-column override, capped each card width and kept ≤3 columns. `watchColumnGeometry` now leaves at least 320px next-feed for desktop and only a compact 320px metadata width on portrait.
 - Source `fad113c0948daa48485b2daf5f19950dbf374e69` + release `c795a43f63e63961b2b782452c77c8a710dc1baf`, tests `0f5315dc09fca0b7020d8f02ccaf16eb52aa86a1`/`2edb17e49d82b783d7e77ce7856a891f1fe555f6`.
-- First post-patch Verify/Pages runs failed because an existing integration assertion still assumed one-column; updated that test. Verify `38495064930` PASS, Pages `38495064932` requires final readback. No new network/data/backend mutation. Actual browser/PWA screenshots remain pending.
+- First post-patch Verify/Pages runs failed because an existing integration assertion still assumed one-column; updated that test. Verify `38495064930` PASS, Pages `38495064932` SUCCESS including custom-domain HTTPS verification. No new network/data/backend mutation. Actual browser/PWA screenshots remain pending.
 - This is the **current** rule; supersedes earlier same-day centered/one-column watch geometry. Rollback only scoped CSS/syncBoundaries, not media engine.
 
 ## 2026-10-14 — YouTube watch layout desktop min/max
