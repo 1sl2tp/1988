@@ -1,3 +1,8 @@
+## 2026-10-14 — Desktop Chrome OS floating PiP action "Xem nổi" (deployed, device test pending)
+
+- User's two macOS screenshots establish OS-level video PiP floating across Chrome/Safari/other apps, not in-site mini-player and not mobile Home/PiP/lock background mode. Chrome/Edge desktop Document Picture-in-Picture supports `requestWindow()` after a user click; Safari/macOS and iOS lack this API. Implemented desktop feature-detected Xem nổi in existing Watch `index.html`. Rule §0.I `92779334fc44ca77e0b6af6188f2b45b10d1eec0`, project Rule47, global SDD.
+- User click requests OS window; old YT iframe paused/destroyed; one official YouTube iframe with verified video+known start+up-to-12 next IDs (playlist, dedupe, current feed only) opened in PiP. Chrome may require manual Play. Closing X/Trở lại xem restores normal viewer; new card closes floating first; no extra media/backend/proxy/server. Final source `8afe9355b53e9d15b73d463df7cd793a82e2a2f4`, tests `352f666a57720b58f3fd445527c93426028c5293`. Old source workflow failures were caused by prohibited legacy media token in tooltip and corrected, not a production feature failure.
+- **Verify `38520070565` SUCCESS**, **Pages `38520070443` SUCCESS including custom-domain HTTPS**. E4 on-device Chrome Mac PiP floating over other apps and background YouTube autoplay/next-track not yet user-confirmed; E5 measured network bytes pending. No changes default playback, Safari Chạy nền, packages, data/worker/SW/backend.
 ## 2026-10-14 — Research findings: Safari background continuation when Home/Lock
 
 - No new source code or deploy. Research follows user request to automatically continue sound when Safari goes Home or iPhone locks, while normal inline viewing stays default.
