@@ -1,3 +1,11 @@
+## 2026-10-14 — YouTube watch layout desktop min/max
+
+- Scope: `1sl2tp/1988/index.html` watch UI, based on 4 user screenshots. Fixed portrait video making entire left column narrow and next feed huge; separated left media PANEL and actual ratio-preserving centered STAGE.
+- Desktop >=1000px: next queue 340–520px, 34% target; main canvas capped at 1680px landscape/1260px portrait; portrait metadata centered; keep 98px/140px visible info reserve. Mobile <1000px and browse remain untouched.
+- Test commit `c602d829ad02a527dd09d081b23af487af46e7d6`, code commit `807f6097fb21f0c64e46bb13e481def33050f365`. Verify run `38494325989` PASS. Pages run `38494326256` PASS including custom-domain HTTPS check.
+- No Supabase/Render/Cloudflare work, cron/Edge requests, video fetch, feed/package/source changes; E4 actual Safari/PWA + E5 measured network still need real device proof.
+- Rollback isolated watch CSS/geometry code only if needed; preserve progress pagination, current selected video, next autoplay and YouTube one-player engine.
+
 ## 2026-10-11 — YouTube first-open SW update dedupe
 
 - `index.html`: kept native SW `register` and `updateViaCache:none`; removed the extra immediate `registration.update()` on every entry.
