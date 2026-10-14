@@ -1,3 +1,12 @@
+## 2026-10-14 — R&D AUTO "CHẠY NỀN" ON HOME / DIRECT LOCK: OS / CROSS-ORIGIN LIMIT, NO UNRELIABLE PATCH
+
+- User requested further research so minimizing Safari or pressing Lock would automatically keep media playing, with normal inline player default.
+- Compared official YouTube `playsinline`/`playlist` docs, Apple automatic system PiP on Home, WebKit user-activation boundaries and MDN `HTMLVideoElement.requestPictureInPicture()`. The YouTube player is cross-origin and owns its internal `<video>`; the parent Watch cannot directly command native PiP on `visibilitychange`, `pagehide` or hardware Lock, nor manufacture user activation for its iframe. Automatic PiP is OS-controlled, most effective after native fullscreen when leaving for Home, with the iPhone's Start PiP Automatically setting.
+- User-tested: native Safari fullscreen→Home→PiP→Lock continues; video transition in the native playlist demo reported working. Fullscreen→Lock directly previously paused (manual Play on lock screen); inline→Lock had no media controls. **No verified web-only fix for direct-lock autostart.** `playsinline=0` by default would contradict the user's desired normal viewing mode.
+- Research rule `README_MAINTENANCE.md §0.H` commit `42836a09c4a14c4f6e9d1328b90ab1f44c269a53`: retain explicit in-place "Chạy nền" button; **do not** add hidden duplicate player, background JS retries, visibility-driven replacement, MediaSession spoofing or direct YouTube audio extraction/proxy. Potential future first-party HTMLVideoElement PiP requires lawful controllable media, not provided by YouTube embed. Existing Watch code unchanged, no Pages deploy, E4 latest in-page user/device acceptance and E5 bytes still pending.
+
+---
+
 ## 2026-10-14 — FIX RELEASED: "CHẠY NỀN" DOES NOT OPEN DEMO / URL (VERIFY + PAGES PASS, SAFARI DEVICE PENDING)
 
 - User reported actual production UX defect: tapping `Chạy nền` in Watch navigated to the separate demo-like `/sources/background-listen.html`. User wanted to stay within the current `yt.taphoa.xyz/#/watch` viewer. The prior interpretation of "same tab" still left the Watch page; this was corrected.
