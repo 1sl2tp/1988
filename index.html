@@ -96,6 +96,7 @@
   --pip-landscape-w:240px;
   --pip-portrait-h:360px;
   --two-col-media-w:420px;
+  --two-col-player-w:420px;
   --landscape-player-h:420px;
   --landscape-top-safe:56px;
   --landscape-bottom-safe:64px;
@@ -1347,6 +1348,14 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     margin:0;
     padding:0 var(--feed-edge-gap);
   }
+  /* Bound the watch canvas on large monitors; the top navigation stays full width. */
+  html.two-col:not(.media-empty) main{
+    max-width:1680px;
+    margin-inline:auto;
+  }
+  html.two-col:not(.media-empty).portrait main{
+    max-width:1260px;
+  }
 
   /* No selected video on desktop: do not pin an empty YouTube MAIN.
      Feed owns the full width until a real video id is selected. */
@@ -1410,11 +1419,11 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     overflow:hidden;
   }
 
-  /* 2-col landscape:
-     Column width is derived from CURRENT HEIGHT × 16/9 (capped only to preserve the feed). The iframe fills the current-height viewing area, so YouTube
-     itself letterboxes the 16:9 video and puts chrome in the black top/bottom. */
+  /* The media panel can be wider than the actual player. This matters most
+     for portrait clips: center the real-ratio player, never stretch it to
+     consume the full panel or let the queue become an oversized thumbnail. */
   html.two-col.landscape .media-col{
-    width:var(--two-col-media-w);
+    width:100%;
   }
   html.two-col.landscape .stage{
     width:100%;
@@ -1432,10 +1441,10 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     background:#000;
   }
 
-  /* 2-col portrait:
-     Column width is derived from CURRENT HEIGHT × 9/16, so there is no wasted side space. */
+  /* Portrait keeps the same balanced panel as landscape; only its actual
+     player width follows the vertical video aspect ratio. */
   html.two-col.portrait .media-col{
-    width:var(--two-col-media-w);
+    width:100%;
     height:var(--current-full-h);
   }
   html.two-col.portrait .stage{
@@ -1471,6 +1480,8 @@ html.one-col .info{
     );
 }
 html.two-col .info{
+  width:min(100%,max(420px,var(--two-col-player-w)));
+  margin-inline:auto;
   background:
     linear-gradient(
       90deg,
@@ -2394,7 +2405,7 @@ html.one-col.portrait .player.pip{
 /* MAIN 2 columns: same engine, column width chooses SIZE. */
 @media(min-width:1000px){
   html.two-col .stage{
-    width:100%!important;
+    width:min(100%,var(--two-col-player-w))!important;
     height:auto!important;
     aspect-ratio:var(--media-ratio)!important;
     overflow:hidden!important;
@@ -4789,6 +4800,22 @@ html.viewer-active.one-col body{
     return Math.max(minCols,Math.min(maxCols,targetCols));
   }
 
+  // Watch: separate the balanced left PANEL from the real-ratio video width.
+  // Queue stays readable at both ends of the desktop range, without growing
+  // into a second theater panel on ultrawide or portrait layouts.
+  function watchColumnGeometry(viewportW,fullH,mediaRatio,kind){
+    const canvasW=Math.min(viewportW,kind==="portrait"?1260:1680);
+    const contentW=Math.max(1,canvasW-48); // 24px edge each side
+    const gap=16;
+    const feedW=Math.min(520,Math.max(340,Math.round(contentW*.34)));
+    const mediaPanelW=Math.max(1,contentW-gap-feedW);
+    // Keep metadata and all playback actions inside the usable viewport.
+    const infoReserve=kind==="portrait"?140:98;
+    const playerFitH=Math.max(120,fullH-infoReserve);
+    const playerW=Math.max(1,Math.min(mediaPanelW,Math.round(playerFitH*mediaRatio)));
+    return {mediaPanelW,playerW,feedW,contentW};
+  }
+
   function syncBoundaries(){
     const fallbackRatio=
       current?.kind==="portrait"
@@ -4908,27 +4935,11 @@ html.viewer-active.one-col body{
         return;
       }
 
-      // Desktop 2-column order is MEDIA LEFT + FEED RIGHT. Keep the existing
-      // width family; only the visual order changes. Media still fits by the REAL
-      // cropped video height, so no title/chrome safe-zone estimation is needed.
-      const sidebarPct=viewportW>=1900?0.325:(viewportW>=1550?0.275:0.225);
-      const sidebarMax=Math.min(800,contentW*0.40);
-      const desiredFeedW=Math.max(320,Math.min(sidebarMax,contentW*sidebarPct));
-      const widthCap=Math.max(1,contentW-mediaGap-desiredFeedW);
-
-      // Landscape MAIN shares the viewport with title/channel/quick actions.
-      // Previously the video alone consumed fullH, so the info row and the last
-      // action buttons were pushed below the visible bottom edge. Reserve a
-      // compact 98px strip for that bar before deriving video width from height.
-      const landscapeInfoReserve=
-        current?.kind==="landscape"&&hasSelectedMedia ? 98 : 0;
-      const playerFitH=Math.max(220,fullH-landscapeInfoReserve);
-      const heightDrivenW=Math.max(1,Math.round(playerFitH*mediaRatio));
-      const mediaW=Math.min(widthCap,heightDrivenW);
-
-      const feedW=Math.max(1,contentW-mediaGap-mediaW);
-
-      root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
+      // Fixed-range queue and centered true-ratio player within a responsive
+      // media panel. Keep server feed membership and playback state untouched.
+      const geometry=watchColumnGeometry(viewportW,fullH,mediaRatio,current?.kind);
+      root.style.setProperty("--two-col-media-w",geometry.mediaPanelW+"px");
+      root.style.setProperty("--two-col-player-w",geometry.playerW+"px");
       // Desktop watch uses the right side as a queue, not a competing grid.
       setFeedColumnCount(1);
     }
