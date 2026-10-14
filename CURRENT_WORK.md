@@ -1,3 +1,12 @@
+## 2026-10-14 — SAFARI PIP LAB: iPhone user results A PASS via Home, direct Lock requires Play, B FAIL
+
+- **User-tested on actual iPhone Safari** with one video `Cfmkk9wAXUw`, isolated demo `/sources/pip-background-lab.html`: A (`playsinline=0`) user taps Play and Safari opens fullscreen successfully. A **fullscreen → Home → system PiP → lock screen** works. A **fullscreen → lock directly** shows media controls on lock screen but playback pauses until manual Play. B (`playsinline=1`) in-page → lock does NOT show lock-screen media controls.
+- Therefore a tested, working path is A (one Play then Home then Lock), not a solution for fully automatic direct-Lock background play. The main web app stays unchanged. The embed's native <video> lives in YouTube's cross-origin iframe, so the parent page cannot command native PiP when the user locks or goes Home; JavaScript cannot synthesize the Home button. Do NOT add fake audio/yt-dlp/Render proxy, silent loop or battery-draining visibility workarounds without separate authorization and policy/resource review.
+- Next experiment, only if justified: isolated Safari-native-media sample from legitimately controllable source; for the single YouTube iframe, the known native path is already proven. Compare additional OS settings only if user identifies a specific difference; DO NOT claim automatic one-step lock support.
+- **E4 user-reported device test recorded; E5 actual network usage still unmeasured.** CI/Pages PASS from earlier runs 38498738136 / 38498738003. No source changes in this log update.
+
+---
+
 ## 2026-10-14 — Isolated single-video Safari PiP/background playback lab (CI + Pages PASS; DEVICE TEST PENDING)
 
 - User supplied exactly one video ID `Cfmkk9wAXUw` via `https://yt.taphoa.xyz/#/watch/high-quality-bolero-lyrical-music-collection-2026-medley-xot-xa-thoi-by-ha-thanh-xuan-Cfmkk9wAXUw` and explicitly requested a separate WEB DEMO without touching the current player.
