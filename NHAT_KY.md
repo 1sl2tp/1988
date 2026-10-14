@@ -1,3 +1,10 @@
+## 2026-10-14 — iPhone Safari PiP demo hardware result (user-reported)
+
+- Video `Cfmkk9wAXUw`, only isolated `sources/pip-background-lab.html`; no changes to `index.html` or PWA.
+- Test A `playsinline=0`: tapping Play opens native fullscreen. Going Home while fullscreen causes native/system PiP and locking after Home continues successfully. Locking directly from fullscreen leaves lock-screen media controls but pauses audio until user manually presses Play.
+- Test B `playsinline=1`: playing inline then locking gives NO lock-screen media control.
+- Outcome: A via Home is valid on user device; auto-PiP on direct Lock and background audio without Home remain UNSOLVED. Cross-origin YouTube iframe prevents the site from commanding its internal native video PiP. Main site unchanged, no Render/audio extraction/proxy or extra network service. Record observed device behavior separately from CI evidence.
+
 ## 2026-10-14 — Standalone Safari PiP/background playback lab, one YouTube video
 
 - New isolated page only: `sources/pip-background-lab.html`; video ID `Cfmkk9wAXUw` from the user's watch URL; no current web/player changes.
