@@ -1,8 +1,8 @@
-## 2026-10-14 — YouTube channel avatars proxy-origin repair (SOURCE, PROD PENDING)
+## 2026-10-14 — YouTube channel avatars proxy-origin repair (VERIFY/PAGES/EDGE PASS; REAL PWA PENDING)
 
 - User screenshot showed BNC Now broken avatar (video dxmuRFhd32o), while text and verified marker were correct. Read-only Supabase evidence: its package+canonical directory avatar was a `piped-proxy.ducks.party` URL with `host=yt3.googleusercontent.com`; 557 of 832 ordinary package video occurrences, 95 channels affected by same proxy host. No package recrawl, Edge mutation, or LIVE probe was initiated for this audit.
 - Main frontend UI fixes only the *image transport URL* for explicit yt3 upstream URLs, never a channel ID/name/title; failed card/info images become the correct channel initial without broken icon. Search discovery `src/media-meta.js` and next-refresh producer `yt1988-refresh` share same URL normalization.
-- Existing package and directory DB rows intentionally left untouched. Upstream CDN image reachability and real Safari/PWA behavior need E4 verification. Prepare targeted run-time test and exact CI/Pages. Edge version deployed separately only after confirming live source matches GitHub base (checked: version32 matches source byte-for-byte) and ensuring no other server changes.
+- E3 confirmed: commit `48494211a62504f59d60d83f411e35f8d56cd783`, Verify `38493221932` SUCCESS, Pages `38493221925` SUCCESS incl. domain. `yt1988-refresh` Edge v33 ACTIVE with exact GitHub source after v32 baseline comparison. DB history/packages/canonical directory unchanged. E4 actual CDN/avatar visibility on Safari/PWA and E5 live traffic measurement PENDING. No forced crawler refresh.
 - 0 new per-card HTTP API requests, 0 extra sync/polling, no media bytes copied to DB. Rollback only URL normalization/DOM fallback if regressions.
 
 ---
