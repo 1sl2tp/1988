@@ -1,3 +1,9 @@
+## 2026-10-14 — Research findings: Safari background continuation when Home/Lock
+
+- No new source code or deploy. Research follows user request to automatically continue sound when Safari goes Home or iPhone locks, while normal inline viewing stays default.
+- Official findings: YouTube `playsinline=0` enables native fullscreen, not automatic PiP; `playlist` handles successors; Apple OS can auto PiP on Home when enabled; MDN PiP API requires transient gesture and own video element; WebKit cross-origin iframe activation prevents the Watch site from reaching YouTube's internal media. `visibilitychange` and hardware Lock cannot reliably initiate native PiP from parent app.
+- Direct Lock has no tested reliable solution beyond manual lockscreen Play if media controls appear. Working user's path native fullscreen → Home → PiP → Lock is retained. Rule `README_MAINTENANCE.md §0.H` `42836a09c4a14c4f6e9d1328b90ab1f44c269a53`. Do not force native fullscreen in normal mode or add hidden media, yt-dlp/audio proxy, background retry, duplicate player. No backend/API/cache/SW/network writes.
+
 ## 2026-10-14 — Fix production Chạy nền opened a demo-like separate page
 
 - Actual UX feedback: `Chạy nền` opened `/sources/background-listen.html` instead of staying within Watch. Rule §0.G updated FIRST `355abe2e9387ad121e932bb25b35711f771b82ef`. Replaced navigation with native YouTube iframe **in the existing `embedMediaCore`**; no route or tab change. Pauses/destroys old IFrame API player first; one active media iframe only; preserves verified handoff timestamp and ordered next 12 from already-read feed. Provides `Trở lại xem` and restores standard inline API; on video changes removes native first. Guards async stale API events/aspect probes.
