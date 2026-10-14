@@ -11,12 +11,20 @@
 html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;overflow:hidden;font:12px/1.4 Arial,sans-serif}
 #player{position:absolute;inset:0;width:100%;height:100%;background:#000}
 #player iframe{display:block;border:0;width:100%;height:100%}
+/* The browser owns the PiP window resize. Never stretch or clip YouTube. */
+#tap-play{position:absolute;z-index:5;inset:0;display:grid;place-items:center;width:100%;height:100%;border:0;background:rgba(0,0,0,.20);color:#fff;cursor:pointer;touch-action:manipulation}
+#tap-play .play-disc{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:rgba(16,18,24,.88);border:1px solid rgba(255,255,255,.40);box-shadow:0 3px 14px rgba(0,0,0,.30)}
+#tap-play svg{width:26px;height:26px;fill:currentColor;margin-left:4px}
+#tap-play:focus-visible .play-disc{outline:2px solid #fff;outline-offset:3px}
 #error{position:absolute;inset:0;display:grid;place-items:center;padding:18px;text-align:center;background:#111}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <div id="player"></div>
+<button id="tap-play" type="button" hidden aria-label="Phát video trong cửa sổ nổi" title="Phát video">
+  <span class="play-disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.7 20 12 7 20.3V3.7Z"></path></svg></span>
+</button>
 <div id="error" hidden>Không mở được video nổi. Hãy trở lại trang xem.</div>
 <script>
 (function(){
@@ -43,7 +51,15 @@ function notify(state,code=''){
     );
   }catch{}
 }
+const playButton=document.getElementById('tap-play');
+let youtubePlayer=null;
+playButton.addEventListener('click',function(){
+  // A real user activation in this HTTPS host is the safe autoplay fallback.
+  playButton.hidden=true;
+  try{youtubePlayer?.playVideo?.()}catch{playButton.hidden=false}
+});
 function fail(code){
+  playButton.hidden=true;
   document.getElementById('error').hidden=false;
   notify('error',code);
 }
@@ -80,12 +96,22 @@ window.onYouTubeIframeAPIReady=function(){
             frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture; fullscreen');
             frame.setAttribute('allowfullscreen','');
           }catch{}
+          youtubePlayer=event.target;
           notify('ready');
+          // One best-effort attempt; Chrome may reject unmuted autoplay after
+          // a newly-created iframe loads, even though PiP was user-triggered.
+          try{youtubePlayer.playVideo()}catch{}
         },
         onStateChange:function(event){
-          if(event.data===YT.PlayerState.PLAYING)notify('playing');
+          if(event.data===YT.PlayerState.PLAYING){
+            playButton.hidden=true;
+            notify('playing');
+          }
         },
-        onAutoplayBlocked:function(){notify('autoplay-blocked')},
+        onAutoplayBlocked:function(){
+          playButton.hidden=false;
+          notify('autoplay-blocked');
+        },
         onError:function(event){fail(Number(event?.data)||'player-error')}
       }
     });
