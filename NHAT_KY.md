@@ -1,3 +1,10 @@
+## 2026-10-14 — Full-width Watch recommendations 1..N, min 1 (production verified by CI)
+
+- The screenshot showed right-side unused space with 3 columns; user confirmed full use of remaining width is priority, one recommendation card/row is minimum, dynamic columns as wide screen allows.
+- Read project and global rule; wrote canonical `README_MAINTENANCE.md §0.C` and both sheets FIRST. New rule card target390 min300, gap16, dynamic 1..N, no hard 560px max clipping. Desktop video true ratio flush left, remaining grid track 100%; mobile (<1000px) still video above single-card queue; browse unchanged.
+- Code `b205d8d25b27427bfc1e09b13f113c86524ec813`, tests `970141a4be975ae56c4420dd58f5611d67bbebc6` and `940bfda5f5cb90878581315dd9771a1e1e67b3be`, release `fb821205fda225caa6935f723153484ec541f2f3`. Verify run `38497224008` PASS, Pages run `38497223998` PASS including custom domain HTTPS.
+- Source/CI/Pages verified; real after-release screenshot in Safari/PWA (E4), measured network (E5) and user acceptance pending. No backend, package, media ownership, cache changes or new queries. Rollback only UI Watch column selector/CSS and tests.
+
 ## 2026-10-14 — Rule 43: Watch queue 680/1080 deterministic + size caps
 
 - After user screenshots of mobile, wide landscape, narrow portrait and ultrawide portrait, changed ONLY active Watch recommendation geometry: one selector based on real remaining width (<680 one, 680–1079 two, >=1080 three), card 16:9 target360–390 min300/max560 and gap16. Video stays left at true ratio, mobile <1000 below one column, browse still up to four.
