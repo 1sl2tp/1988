@@ -97,9 +97,9 @@ assert(!html.includes('location.assign(destination)'),'Chạy nền must not nav
 assert(!html.includes('"/sources/background-listen.html"'),
   'the production watch mode must not target the prior separate demo page');
 assert(html.includes('playsinline:1,'),'normal YouTube player stays inline');
-assert(html.includes('if(backgroundNativeActive)return null;'),
+assert(html.includes('if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return null;'),
   'late YouTube iframe-api initialization cannot create a second player');
-assert(html.includes('if(backgroundNativeActive||event.target!==ytPlayer)return;'),
+assert(html.includes('if(backgroundNativeActive||floatingPipWindow||floatingPipPending||event.target!==ytPlayer)return;'),
   'late onReady/state change from old player cannot control native media');
 assert(html.includes('if(backgroundNativeActive)exitBackgroundNativeMode({restore:false});'),
   'selecting a new video must remove native player before normal playback');
@@ -206,5 +206,123 @@ assert.equal(context.isIOSSafariBackgroundTab(),false,'Chrome iOS does not get S
 context.navigator.userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Safari/605.1.15';
 context.currentMeta={id:A,title:'Live stream',isLive:true};
 assert.equal(context.backgroundWatchPayload(),null,'LIVE is excluded');
+
+// macOS/Windows Chrome real browser Document PiP: one floating iframe, no fake CSS.
+assert(html.includes('id="floatingModeButton"')&&html.includes('data-info-action="floating-pip"'),
+  'real floating PiP is a distinct opt-in action from iPhone Chạy nền');
+assert(html.includes('documentPictureInPicture.requestWindow({'),
+  'floating PiP must invoke the browser always-on-top window API');
+assert(html.includes('if(floatingPipWindow||floatingPipPending)exitFloatingPipWindow({restore:false});'),
+  'selecting another video closes the old floating iframe first');
+assert(html.includes('if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return null;'),
+  'late YouTube iframe API cannot make a second player');
+assert(!html.includes('window.open('),'never mimic topmost PiP using an ordinary web popup');
+assert(html.includes('autoplay:"1",controls:"1",playsinline:"1"'),
+  'Chrome PiP is an inline iframe with user-initiated autoplay attempt');
+async function verifyDesktopFloating(){
+  const node=(tag)=>({
+    tagName:tag,id:'',src:'',children:[],attrs:{},listeners:{},
+    setAttribute(key,val){this.attrs[key]=val},
+    append(...children){this.children.push(...children)},
+    appendChild(child){this.children.push(child)},
+    replaceChildren(...children){this.children=children},
+    addEventListener(event,callback){this.listeners[event]=callback}
+  });
+  const mainMount=node('div');mainMount.children=[{id:'original-api-iframe'}];
+  let req=0,pauses=0,destroys=0,restores=0;
+  const windows=[];
+  const floatingAPI={async requestWindow(){
+    req++;
+    const w={document:{title:'',head:node('head'),body:node('body'),createElement:node},
+      closed:false,listeners:{},addEventListener(name,fn){this.listeners[name]=fn},
+      close(){if(this.closed)return;this.closed=true;this.listeners.pagehide?.()}};
+    windows.push(w);return w;
+  }};
+  const browser={documentPictureInPicture:floatingAPI};
+  browser.top=browser;
+  const tags={
+    floatingModeLabel:{textContent:''},
+    floatingModeHint:{textContent:''},
+    floatingModeButton:{disabled:false},
+    backgroundModeLabel:{textContent:''},
+    backgroundModeHint:{hidden:true}
+  };
+  const newPlayer=()=>({
+    getVideoData:()=>({video_id:A}),getCurrentTime:()=>101.9,
+    pauseVideo(){pauses++},destroy(){destroys++}
+  });
+  const ff=vm.createContext({
+    navigator:{userAgent:'Mozilla/5.0 (Macintosh; Intel Mac OS X 14) AppleWebKit/537.36 Chrome/130 Safari/537.36',maxTouchPoints:0},
+    window:browser,
+    document:{createElement:node,getElementById:id=>tags[id]||null},
+    location:{origin:'https://yt.taphoa.xyz',hash:'#/watch/'+A},
+    current:{id:A,label:'Bolero'},
+    currentMeta:{id:A,title:'Liên khúc Bolero'},
+    activePackageScope:'latest',feedMetas:videoList,relatedMetas:[],
+    autoplayNext:true,ytPlayer:newPlayer(),ytPlayerReady:true,pendingVideoId:'',
+    embedMediaCore:mainMount,backgroundModeBar:{hidden:true},
+    floatingModeBar:{hidden:true},floatingModeHint:tags.floatingModeHint,
+    normalizedMediaProvider:value=>String(value||'youtube')==='youtube'?'youtube':'retired',
+    root:{classList:{add(){},remove(){}}},URLSearchParams,
+    ensureYoutubePlayer:()=>{restores++;return Promise.resolve(null)}
+  });
+  vm.runInContext(
+    'let backgroundNativeActive=false,backgroundReturnPosition=null;'+
+    'let floatingPipWindow=null,floatingPipPending=false,floatingPipSequence=0,floatingReturnPosition=null;\n'+
+    html.slice(startMode,endMode),ff
+  );
+  assert.equal(ff.supportsFloatingPip(),true,'Chrome Mac has real OS-level document PiP');
+  ff.syncFloatingPipButton();
+  assert.equal(ff.floatingModeBar.hidden,false);
+  assert.equal(tags.floatingModeLabel.textContent,'Xem nổi');
+  const url=new URL(ff.floatingEmbedUrl(ff.backgroundWatchPayload()));
+  assert.equal(url.pathname,'/embed/'+A);
+  assert.equal(url.searchParams.get('start'),'101');
+  assert.equal(url.searchParams.get('playlist'),B+','+C);
+  const opening=ff.enterFloatingPipWindow();
+  assert.equal(req,1,'requestWindow is synchronous with user click');
+  assert.equal(pauses,0,'old iframe plays while waiting for browser permission');
+  await opening;
+  assert.equal(pauses,1);
+  assert.equal(destroys,1);
+  assert.equal(mainMount.children.length,0,'original API iframe unmounted');
+  const w=windows[0];
+  assert.equal(w.document.body.children.length,1);
+  const floatingFrame=w.document.body.children[0].children[1].children[0];
+  assert.equal(floatingFrame.src,url.href,'only one YouTube embed is mounted inside PiP');
+  assert.equal(ff.location.hash,'#/watch/'+A,'main Watch URL is unchanged');
+  assert.equal(tags.floatingModeLabel.textContent,'Trở lại xem');
+  assert.equal(await ff.enterFloatingPipWindow(),false,'no duplicate PiP windows');
+  w.close(); // Browser X / return-to-tab button
+  assert.equal(mainMount.children.length,1);
+  assert.equal(mainMount.children[0].id,'videoFrame','Watch iframe mount is restored on PiP close');
+  assert.equal(restores,1,'normal Watch rebuilt exactly once');
+  assert.equal(vm.runInContext('floatingReturnPosition.seconds',ff),101);
+  assert.equal(tags.floatingModeLabel.textContent,'Xem nổi');
+  ff.ytPlayer=newPlayer();
+  await ff.enterFloatingPipWindow();
+  assert.equal(req,2);
+  assert.equal(ff.exitFloatingPipWindow({restore:false}),true,'card selection can close PiP without old video');
+  assert.equal(restores,1,'no double play when switching to a different card');
+  assert.equal(vm.runInContext('floatingReturnPosition',ff),null);
+  // API denial leaves the original playing and no fake floating window.
+  ff.ytPlayer=newPlayer();
+  browser.documentPictureInPicture={requestWindow(){req++;return Promise.reject(new Error('NotAllowedError'))}};
+  const beforePause=pauses,beforeDestroy=destroys;
+  assert.equal(await ff.enterFloatingPipWindow(),false);
+  assert.equal(pauses,beforePause);assert.equal(destroys,beforeDestroy);
+  assert.match(tags.floatingModeHint.textContent,/chưa cho phép/);
+  // Browser capability gates, preserving Safari/iPhone background mode.
+  delete browser.documentPictureInPicture;
+  assert.equal(ff.supportsFloatingPip(),false);
+  ff.syncFloatingPipButton();
+  assert.equal(ff.floatingModeBar.hidden,true,'unsupported browser must not show fake button');
+  browser.documentPictureInPicture=floatingAPI;
+  ff.navigator.userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 18) Safari/605';
+  assert.equal(ff.supportsFloatingPip(),false,'Chrome-style float not shown on iPhone');
+}
+verifyDesktopFloating().then(()=>console.log('1988 desktop native floating PiP contracts PASS')).catch(error=>{
+  console.error(error);process.exitCode=1;
+});
 
 console.log('1988 desktop search and mobile next autoplay PASS');
