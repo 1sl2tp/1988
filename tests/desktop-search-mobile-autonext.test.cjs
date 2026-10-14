@@ -43,29 +43,42 @@ const cardEnd=html.indexOf('  // Watch: VIDEO LEFT',cardStart);
 assert(cardStart>0&&cardEnd>cardStart,'existing feed card column calculation must exist');
 vm.runInContext(html.slice(cardStart,cardEnd),geometryContext);
 const cards=geometryContext.chooseCardColumns;
-const columnCount=g=>Math.min(3,cards(g.feedW,16));
+const count=geometryContext.chooseWatchQueueColumns;
+for(const [queueWidth,expected] of [[320,1],[560,1],[679,1],[680,2],[1079,2],[1080,3],[1712,3],[3000,3]]){
+  assert.equal(count(queueWidth,16),expected,'queue column threshold '+queueWidth);
+}
 for(const kind of ['landscape','portrait']){
   const ratio=kind==='portrait'?9/16:16/9;
   for(const viewportW of [1000,1200,1440,1920,2560]){
     const fullH=620;
     const g=geometry(viewportW,fullH,ratio,kind);
-    assert.equal(g.mediaPanelW+g.feedW+16,viewportW-48,'no centered/capped canvas or unused outer gutters');
-    assert(g.feedW>=320,'right queue remains usable at desktop breakpoint');
-    assert(g.playerW>0&&g.playerW<=g.mediaPanelW,'real video fits its left panel');
-    assert(g.mediaPanelW-g.playerW<321,'portrait has only bounded metadata width, not a centered wide panel');
-    assert(g.playerW/ratio<=fullH-(kind==='portrait'?140:98)+1,'video height keeps title/action reserve');
-    assert(columnCount(g)>=1&&columnCount(g)<=3,'queue columns are 1-3');
+    assert.equal(g.mediaPanelW+g.feedW+16,viewportW-48,'no centered/capped canvas');
+    assert(g.feedW>=320,'desktop always preserves a usable next-queue');
+    assert(g.playerW>0&&g.playerW<=g.mediaPanelW,'real-ratio video fits left media panel');
+    assert(g.mediaPanelW-g.playerW<321,'portrait metadata panel remains compact');
+    assert(g.playerW/ratio<=fullH-(kind==='portrait'?140:98)+1,'title/actions remain visible');
+    const cols=count(g.feedW,16);
+    assert(cols>=1&&cols<=3,'watch only 1-3 columns');
+    assert((g.feedW-16*(cols-1))/cols>=300,'minimum thumbnail card 300px before cap');
   }
 }
-assert.equal(columnCount(geometry(1000,620,16/9,'landscape')),1,'narrow desktop queue gets one card');
-assert.equal(columnCount(geometry(1920,620,16/9,'landscape')),2,'wide landscape queue gets two cards');
-assert.equal(columnCount(geometry(2560,620,16/9,'landscape')),3,'ultrawide landscape queue gets three cards');
-assert.equal(columnCount(geometry(1000,620,9/16,'portrait')),2,'portrait frees enough space for two cards');
-assert.equal(columnCount(geometry(1440,620,9/16,'portrait')),3,'portrait wide queue can use three cards');
+assert.equal(count(geometry(1000,620,16/9,'landscape').feedW,16),1);
+assert.equal(count(geometry(1920,620,16/9,'landscape').feedW,16),2);
+assert.equal(count(geometry(2560,620,16/9,'landscape').feedW,16),3);
+assert.equal(count(geometry(1000,620,9/16,'portrait').feedW,16),1);
+assert.equal(count(geometry(1200,620,9/16,'portrait').feedW,16),2);
+assert.equal(count(geometry(1440,620,9/16,'portrait').feedW,16),2);
+assert.equal(count(geometry(1920,620,9/16,'portrait').feedW,16),3);
+assert.equal(cards(1700,16),4,'ordinary browse still permits four columns');
 assert(!html.includes('html.two-col:not(.media-empty) main{'),'no centered/max-width watch canvas');
 assert(html.includes('margin-inline:0!important;'),'desktop video anchors to left, not center');
 assert(html.includes('html.two-col .info{\n  width:min(100%,max(320px,var(--two-col-player-w)));\n  margin-inline:0;'),'metadata follows left video');
 assert(html.includes('grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr))!important;'),'viewer active CSS must allow multiple queue columns');
-assert(html.includes('setFeedColumnCount(Math.min(3,chooseCardColumns(geometry.feedW,cardGap)))'),'desktop watch queue uses existing dynamic card sizing');
+assert(html.includes('setFeedColumnCount(chooseWatchQueueColumns(geometry.feedW,cardGap))'),'watch queue uses remaining-width-only thresholds');
 assert(html.includes('grid-template-columns:var(--two-col-media-w) minmax(0,1fr);'),'left media plus remaining feed track');
+assert(html.includes('html.viewer-active.two-col[data-feed-cols="1"] .rows{max-width:560px}'),'single next card is capped to 560px');
+assert(html.includes('html.viewer-active.two-col[data-feed-cols="2"] .rows{max-width:1136px}'),'two next cards are capped to 560px each');
+assert(html.includes('max-width:1712px;'),'three next cards are capped to 560px each');
+assert(html.includes('html.viewer-active.one-col .rows{'),'mobile Watch still renders a single queue below the player');
+
 console.log('1988 desktop search and mobile next autoplay PASS');
