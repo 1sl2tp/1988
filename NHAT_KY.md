@@ -1,3 +1,10 @@
+## 2026-10-14 — New isolated 3-song Safari PiP automatic-next experiment
+
+- User approved next-track testing with working one-video A as baseline. Added one new page only: `sources/pip-playlist-lab.html`, first ID `Cfmkk9wAXUw`, YouTube playlist successor IDs `pXL2jZFF6_k` and `wqjoebF6VfI` found on Hà Thanh Xuân Official. Source `6f6c5a5d9d886b010975e999333c14019822b2a1`.
+- Rule prior to source: `README_MAINTENANCE.md §0.E` `77ccc92783f009c3f8bdeb272ab90c4029337650`, project Rule45, global SDD. Built standalone demo with one iframe, `playsinline=0`, initial autoplay off, native YouTube `playlist` parameter rather than JS onEnded (needed when iOS pauses page scripts). Optional one-video control toggles same iframe; UI offers seek-near-end, 3 device tests and local copyable report.
+- GitHub source re-read/JS parse PASS, no proxy/RPC/edge/API or SW changes. Verify run `38500407757` SUCCESS; Pages run `38500407788` SUCCESS incl. production contracts, source directory copy, deploy, HTTPS custom domain. Exact deep-link URL web fetch unavailable. User Safari E4 transition across fullscreen/PiP/locked and E5 byte measurements **still PENDING**; do not infer from Pages PASS.
+- No changes to main `index.html`, `sw.js`, `sources/pip-background-lab.html`, player/PWA, Supabase, Render, Cloudflare or data. Delete only isolated new page to rollback.
+
 ## 2026-10-14 — iPhone Safari PiP demo hardware result (user-reported)
 
 - Video `Cfmkk9wAXUw`, only isolated `sources/pip-background-lab.html`; no changes to `index.html` or PWA.
