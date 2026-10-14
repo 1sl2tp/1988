@@ -1,3 +1,10 @@
+## 2026-10-14 — Fix production Chạy nền opened a demo-like separate page
+
+- Actual UX feedback: `Chạy nền` opened `/sources/background-listen.html` instead of staying within Watch. Rule §0.G updated FIRST `355abe2e9387ad121e932bb25b35711f771b82ef`. Replaced navigation with native YouTube iframe **in the existing `embedMediaCore`**; no route or tab change. Pauses/destroys old IFrame API player first; one active media iframe only; preserves verified handoff timestamp and ordered next 12 from already-read feed. Provides `Trở lại xem` and restores standard inline API; on video changes removes native first. Guards async stale API events/aspect probes.
+- Source commits `ffba300ee1eb88dcc9339a95e232634baae44991` and final release `f4d8c20a8114dbea35dad77f10b19e4c84a0e345`; tests `fe79f70e6814ab353452a9d49ed4b38427e99fce` corrected lexical VM state `56966bcb448a8d61504970f1a31eb7371c7d888c`. Source and JS parse PASS. Verify `38503352764` PASS; Pages `38503352805` PASS incl. custom-domain HTTPS.
+- Previous initial Deploy `38503112734` failed only because existing tests still asserted the old navigation; tests corrected before release. Production normal inline mode still `playsinline:1`; independent demo pages untouched. E4 Safari PiP/lock and return-from-mode behavior not yet confirmed on user's device, E5 bytes unmeasured. Direct-Lock remains unsolved.
+- Operational Rule46 + global SDD updated; no DB, Edge, cron, media scraper/yt-dlp, extra APIs, SW changes or background workers.
+
 ## 2026-10-14 — Safari iPhone "Chạy nền" optional entry from normal Watch
 
 - Explicitly approved by user after isolated YouTube playlist PiP background success; no auto/direct-Lock promises. Rule-first `README_MAINTENANCE.md §0.F` `fb9e553f55ceb0a1e436f9beb383a96a26b9fede`. Main index change `f8402f75027753844555cefcbac29cbb58393811`; one standalone native background player page `dc4bc00e8dc9b9918f2a41c3916ee11a06e67941`; final regression test `1b6c1b27cc14b538a2eb68049f35199bddd48071`.
