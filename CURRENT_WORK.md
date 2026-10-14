@@ -1,3 +1,15 @@
+## 2026-10-14 — Rule 43 final: one Watch queue threshold selector 680/1080 (VERIFY + PAGES PASS; DEVICE PENDING)
+
+- Last user screenshots show the same viewer must work for narrow mobile, landscape wide player and portrait/narrow player without contradictory per-orientation heuristics. Approved single rule: desktop (>=1000px) true-ratio video LEFT + the ENTIRE remaining width for the right recommendations; <1000px one-column video above + queue below. Desktop queue columns depend ONLY on its width: <680px=1, 680–1079px=2, >=1080px=3. Card image 16:9, equal columns, 16px gap, min300px, max560px, preferred ~360–390px; no fabricated feed videos.
+- Rule FIRST: `README_MAINTENANCE.md §0.C` commit `f2370585d470fcc48552240b13ee28271980695c`; 1988 Google Sheet "README Quy tac" rule43 and global SDD `SPEC-1988-WATCH-COLUMN-MINMAX-20261014` updated to replace the previous ambiguous `chooseCardColumns`-based Watch selector.
+- Source owner `index.html`: new pure `chooseWatchQueueColumns(feedW,gap)` used only in active desktop Watch; full `watchColumnGeometry` is unchanged, so media stays flush left with 24px edge, true aspect/height and portrait metadata rail; `.rows` width caps are now 560px (1 col), 1136px (2 cols), 1712px (3 cols), so each thumbnail never balloons. Unselected browse still uses original 1–4 columns and mobile retains one below viewer.
+- Source code `2e9b6035e3ca3463fe2696fa70e63efffca01bf6`, final deployment `35a99165f8e733215d570056bbefda2c9c2f63a6`. Tests `d78c148d8a301ac8e64a665d21eb110234c5aa90` and `d749856a51add7ef3047bcfd587e2e6fcb0c1f82`: exact 679/680/1079/1080 threshold, desktop 1000/1200/1440/1920/2560, orientation parity, browse 4-column preserved.
+- E1/E3 verified: GitHub Verify run `38496181995` SUCCESS and Deploy 1988 Player run `38496182020` SUCCESS, including frontend contract tests, Deploy and Verify Pages custom domain HTTPS.
+- E4 real Chrome/Safari/iPhone PWA screenshot after this release and E5 actual network/byte delta remain PENDING. By design no backend/Edge/Cron/DB/media-fetch/polling/log changes; no browser resize RPC.
+- Rollback only `chooseWatchQueueColumns`/Watch CSS width caps and new contract tests if regressions; earlier commits `c795a43...` had successful CI but older Watch column-selection heuristic. This top entry supersedes all earlier same-day size rules.
+
+---
+
 ## 2026-10-14 — CORRECTION: YouTube Watch video LEFT + remaining feed 1–3 cards (VERIFY + PAGES PASS; REAL DEVICE PENDING)
 
 - USER CORRECTION based on 2 actual Chrome screenshots: previous `807f609...` fixed a 340–520px one-column queue and centered/capped the whole video canvas. This was WRONG for the intended UI: **VIDEO (true ratio) ALWAYS at the left content edge**, the **remaining available width belongs to recommendations**, automatically distributing into **1/2/3 cards per row** as space permits.
