@@ -7236,6 +7236,8 @@ html.viewer-active.one-col body{
       const doc=pipWindow.document;
       doc.title="1988 · Xem nổi";
       const style=doc.createElement("style");
+      // PiP's native Chrome titlebar is outside this document. The 6px black
+      // gutter and 10px clipped corners apply only to the playing video stage.
       style.textContent=
         "html,body{margin:0;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#000;color:#fff}"+
         "body{padding:6px}"+
