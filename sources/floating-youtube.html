@@ -55,8 +55,10 @@ const playButton=document.getElementById('tap-play');
 let youtubePlayer=null;
 playButton.addEventListener('click',function(){
   // A real user activation in this HTTPS host is the safe autoplay fallback.
+  // Never consume the user's click before the actual YouTube API is ready.
+  if(!youtubePlayer||typeof youtubePlayer.playVideo!=='function')return;
   playButton.hidden=true;
-  try{youtubePlayer?.playVideo?.()}catch{playButton.hidden=false}
+  try{youtubePlayer.playVideo()}catch{playButton.hidden=false}
 });
 function fail(code){
   playButton.hidden=true;
