@@ -7147,9 +7147,13 @@ html.viewer-active.one-col body{
     const raw=Number(current?.detectedRatio)||Number(current?.ratio)||16/9;
     const ratio=Math.max(.4,Math.min(2.4,Number.isFinite(raw)?raw:16/9));
     const width=ratio<.95?330:480;
-    // Reserve only the browser's native PiP titlebar, not another HTML bar.
-    // The browser owns user resizing; CSS must letterbox, never stretch video.
-    const height=Math.max(180,Math.min(700,Math.round(width/ratio)+30));
+    // Include the 6px black stage edge on all four sides plus the native
+    // browser titlebar. This makes the INITIAL inner media near its own ratio.
+    // User-resized PiP remains freeform and YouTube may letterbox normally.
+    const gutter=6;
+    const browserTitlebar=30;
+    const height=Math.max(180,Math.min(700,
+      Math.round((width-2*gutter)/ratio)+browserTitlebar+2*gutter));
     return {width,height};
   }
 
@@ -7233,9 +7237,10 @@ html.viewer-active.one-col body{
       doc.title="1988 · Xem nổi";
       const style=doc.createElement("style");
       style.textContent=
-        "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff}"+
-        ".floating-media{position:relative;width:100%;height:100%;overflow:hidden;background:#000}"+
-        ".floating-media iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}";
+        "html,body{margin:0;width:100%;height:100%;box-sizing:border-box;overflow:hidden;background:#000;color:#fff}"+
+        "body{padding:6px}"+
+        ".floating-media{position:relative;width:100%;height:100%;overflow:hidden;border-radius:10px;background:#000}"+
+        ".floating-media iframe{position:absolute;inset:0;width:100%;height:100%;display:block;border:0;background:#000}";
       doc.head.appendChild(style);
       // Only VIDEO content lives in Document PiP. Chrome already supplies a
       // draggable/resizable native window and the return-to-tab / close icons.
