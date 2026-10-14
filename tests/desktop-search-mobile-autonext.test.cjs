@@ -217,11 +217,28 @@ assert(html.includes('if(floatingPipWindow||floatingPipPending)exitFloatingPipWi
 assert(html.includes('if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return null;'),
   'late YouTube iframe API cannot make a second player');
 assert(!html.includes('window.open('),'never mimic topmost PiP using an ordinary web popup');
-assert(html.includes('autoplay:"1",controls:"1",playsinline:"1"'),
-  'Chrome PiP is an inline iframe with user-initiated autoplay attempt');
+const floatingHostHtml=fs.readFileSync('sources/floating-youtube.html','utf8');
+assert(floatingHostHtml.includes('<meta name="referrer" content="strict-origin-when-cross-origin">'),
+  'HTTPS YouTube wrapper must send real origin Referer to avoid observed error 153');
+assert(floatingHostHtml.includes("host:'https://www.youtube-nocookie.com'"),
+  'only official YouTube IFrame API owns one media stream in HTTPS host');
+assert(floatingHostHtml.includes("script.src='https://www.youtube.com/iframe_api'"),
+  'official iframe API is needed for error 153 callback and recovery');
+assert(floatingHostHtml.includes("onError:function(event){fail("),
+  'wrapper detects YouTube error 153 and notifies parent');
+assert(floatingHostHtml.includes("origin:location.origin"),
+  'wrapper identifies HTTPS origin to YouTube API');
+assert(!/<iframe\\b/i.test(floatingHostHtml),
+  'wrapper creates the sole YouTube player through the API');
+assert(html.includes('const url=new URL("/sources/floating-youtube.html",location.origin)'),
+  'Document PiP must load HTTPS same-origin wrapper, not directly embed YouTube from about:blank');
+assert(html.includes('event.origin!==location.origin'),
+  'error message from wrapper must validate the HTTPS sender origin');
+assert(html.includes('event.source!==iframe.contentWindow'),
+  'ignore forged iframe error messages from other windows');
 async function verifyDesktopFloating(){
   const node=(tag)=>({
-    tagName:tag,id:'',src:'',children:[],attrs:{},listeners:{},
+    tagName:tag,id:'',src:'',children:[],attrs:{},listeners:{},contentWindow:{},
     setAttribute(key,val){this.attrs[key]=val},
     append(...children){this.children.push(...children)},
     appendChild(child){this.children.push(child)},
@@ -276,9 +293,11 @@ async function verifyDesktopFloating(){
   assert.equal(ff.floatingModeBar.hidden,false);
   assert.equal(tags.floatingModeLabel.textContent,'Xem nổi');
   const url=new URL(ff.floatingEmbedUrl(ff.backgroundWatchPayload()));
-  assert.equal(url.pathname,'/embed/'+A);
-  assert.equal(url.searchParams.get('start'),'101');
-  assert.equal(url.searchParams.get('playlist'),B+','+C);
+  assert.equal(url.origin,'https://yt.taphoa.xyz');
+  assert.equal(url.pathname,'/sources/floating-youtube.html');
+  assert.equal(url.searchParams.get('v'),A);
+  assert.equal(url.searchParams.get('t'),'101');
+  assert.equal(url.searchParams.get('next'),B+','+C);
   const opening=ff.enterFloatingPipWindow();
   assert.equal(req,1,'requestWindow is synchronous with user click');
   assert.equal(pauses,0,'old iframe plays while waiting for browser permission');
@@ -292,6 +311,16 @@ async function verifyDesktopFloating(){
   assert.equal(floatingFrame.src,url.href,'only one YouTube embed is mounted inside PiP');
   assert.equal(ff.location.hash,'#/watch/'+A,'main Watch URL is unchanged');
   assert.equal(tags.floatingModeLabel.textContent,'Trở lại xem');
+  w.listeners.message({origin:'https://malicious.example',source:floatingFrame.contentWindow,
+    data:{source:'yt1988-floating-youtube',state:'error',code:'153'}});
+  assert.equal(w.closed,false,'reject forged third-party error even with matching iframe source');
+  w.listeners.message({origin:'https://yt.taphoa.xyz',source:{},
+    data:{source:'yt1988-floating-youtube',state:'error',code:'153'}});
+  assert.equal(w.closed,false,'reject messages from unrelated same-origin windows');
+  w.listeners.message({origin:'https://yt.taphoa.xyz',source:floatingFrame.contentWindow,
+    data:{source:'yt1988-floating-youtube',state:'autoplay-blocked',code:''}});
+  assert.match(tags.floatingModeHint.textContent,/Play/);
+  assert.equal(w.closed,false,'autoplay denial is not a fatal player error');
   assert.equal(await ff.enterFloatingPipWindow(),false,'no duplicate PiP windows');
   w.close(); // Browser X / return-to-tab button
   assert.equal(mainMount.children.length,1);
@@ -305,6 +334,19 @@ async function verifyDesktopFloating(){
   assert.equal(ff.exitFloatingPipWindow({restore:false}),true,'card selection can close PiP without old video');
   assert.equal(restores,1,'no double play when switching to a different card');
   assert.equal(vm.runInContext('floatingReturnPosition',ff),null);
+  // YouTube player failure from the HTTPS host auto-closes floating window
+  // and restores the original Watch instead of leaving a black rectangle.
+  ff.ytPlayer=newPlayer();
+  await ff.enterFloatingPipWindow();
+  assert.equal(req,3);
+  const broken=windows[2];
+  const brokenFrame=broken.document.body.children[0].children[1].children[0];
+  broken.listeners.message({origin:'https://yt.taphoa.xyz',source:brokenFrame.contentWindow,
+    data:{source:'yt1988-floating-youtube',state:'error',code:'153'}});
+  assert.equal(broken.closed,true,'error 153 closes failed Document PiP automatically');
+  assert.equal(mainMount.children[0].id,'videoFrame','main player mount rebuilt after error 153');
+  assert.equal(restores,2,'error restores normal Watch exactly once');
+  assert.match(tags.floatingModeHint.textContent,/153/);
   // API denial leaves the original playing and no fake floating window.
   ff.ytPlayer=newPlayer();
   browser.documentPictureInPicture={requestWindow(){req++;return Promise.reject(new Error('NotAllowedError'))}};
@@ -312,6 +354,43 @@ async function verifyDesktopFloating(){
   assert.equal(await ff.enterFloatingPipWindow(),false);
   assert.equal(pauses,beforePause);assert.equal(destroys,beforeDestroy);
   assert.match(tags.floatingModeHint.textContent,/chưa cho phép/);
+
+  const hostScript=floatingHostHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+  assert(hostScript,'HTTPS wrapper has deterministic inline setup');
+  assert.doesNotThrow(()=>new vm.Script(hostScript),'wrapper JS must be syntactically valid');
+  const messages=[];
+  let playerSpec=null;
+  const hostScriptNode={src:'',referrerPolicy:'',async:false,onerror:null};
+  const hostCtx=vm.createContext({
+    URLSearchParams,
+    location:{origin:'https://yt.taphoa.xyz',search:'?v='+A+'&t=101&next='+B+','+B+','+C},
+    document:{
+      head:{appendChild:x=>{assert.equal(x,hostScriptNode)}},
+      createElement:tag=>{assert.equal(tag,'script');return hostScriptNode},
+      getElementById:id=>id==='error'?{hidden:true}:null
+    },
+    parent:{postMessage:(data,to)=>messages.push({data,to})},
+    window:{},
+    YT:{
+      PlayerState:{PLAYING:1},
+      Player:function(mount,opts){playerSpec=opts;assert.equal(mount,'player')}
+    }
+  });
+  vm.runInContext(hostScript,hostCtx);
+  assert.equal(hostScriptNode.src,'https://www.youtube.com/iframe_api');
+  assert.equal(hostScriptNode.referrerPolicy,'strict-origin-when-cross-origin');
+  hostCtx.window.onYouTubeIframeAPIReady();
+  assert.equal(playerSpec.videoId,A);
+  assert.equal(playerSpec.playerVars.start,101);
+  assert.equal(playerSpec.playerVars.playlist,B+','+C);
+  assert.equal(playerSpec.playerVars.autoplay,1);
+  assert.equal(playerSpec.playerVars.playsinline,1);
+  playerSpec.events.onAutoplayBlocked();
+  assert.equal(messages.at(-1).data.state,'autoplay-blocked');
+  playerSpec.events.onError({data:153});
+  assert.deepEqual({...messages.at(-1).data},
+    {source:'yt1988-floating-youtube',state:'error',code:'153'});
+  assert.equal(messages.at(-1).to,'https://yt.taphoa.xyz','messages restricted to same-origin PiP');
   // Browser capability gates, preserving Safari/iPhone background mode.
   delete browser.documentPictureInPicture;
   assert.equal(ff.supportsFloatingPip(),false);
