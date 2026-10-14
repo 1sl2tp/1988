@@ -1,3 +1,14 @@
+## 2026-10-14 — Desktop watch balanced panel / queue (VERIFY + PAGES PASS; REAL DEVICE PENDING)
+
+- User sent four resize/orientation screenshots: very wide portrait feed ballooned because `syncBoundaries` used a portrait-height-derived *player* width as the entire left CSS grid column, leaving all remaining space for next-feed thumbnails. Scope: FRONTEND watch UI only, not package membership, YouTube playback or backend.
+- `index.html` now splits **watch panel width** (`--two-col-media-w`) and **real-ratio player width** (`--two-col-player-w`). Desktop next queue is 340–520px, 34% target; desktop watch canvas capped at 1680px for landscape or 1260px for portrait, centered, with 24px outer edges + 16px between panel/queue. Portrait player and metadata centered within left panel; reserve 140px for portrait info or 98px for landscape info. The player keeps the real ratio and cannot exceed its panel. Less than 1000px remains one-column.
+- Test added to EXISTING `tests/desktop-search-mobile-autonext.test.cjs` runner: geometry and CSS contract across 1000/1200/1440/1920/2560 widths, landscape and portrait. No new browser API, media preload, cache invalidation, polling, Edge job, database writes or provider changes.
+- Runtime code: `807f6097fb21f0c64e46bb13e481def33050f365`; test commit `c602d829ad02a527dd09d081b23af487af46e7d6`. Verify run `38494325989` SUCCESS; Pages run `38494326256` SUCCESS including `Verify Pages custom domain`.
+- E1 source owner/test and E3 deployed CI/domain PASS. E4 real Safari/Chrome/PWA resize + portrait/landscape playback and E5 actual browser request/byte delta not measured, not claimed. Rollback: revert the scoped index.html watch geometry/CSS update only if visual or player regressions.
+- Preserve existing responsive browse feed, 18-item progressive non-LIVE and full LIVE, mobile next playback, source identity and one-player core.
+
+---
+
 ## 2026-10-14 — YouTube channel avatars proxy-origin repair (VERIFY/PAGES/EDGE PASS; REAL PWA PENDING)
 
 - User screenshot showed BNC Now broken avatar (video dxmuRFhd32o), while text and verified marker were correct. Read-only Supabase evidence: its package+canonical directory avatar was a `piped-proxy.ducks.party` URL with `host=yt3.googleusercontent.com`; 557 of 832 ordinary package video occurrences, 95 channels affected by same proxy host. No package recrawl, Edge mutation, or LIVE probe was initiated for this audit.
