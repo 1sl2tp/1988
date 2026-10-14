@@ -9,6 +9,13 @@
 - **Performance invariants:** CSS layout only; no Supabase, Render, Cloudflare, YouTube edge/probe, background cron, additional image prefetch, search calls, package mutation, per-card RPC or logging. Use the same cached next-video list and single YouTube player with unchanged PiP/autoplay.
 - This **supersedes** the earlier 680/1080 hard thresholds, 3-column cap, and 560px hard card/row limits in prior same-day revisions. The latest rule is also Rule 43 of the project operational Sheet and `SPEC-1988-WATCH-COLUMN-MINMAX-20261014` in the global SDD tab. Record actual source/deploy/test evidence only after CI.
 
+## 0.D. ISOLATED SAFARI PIP / LOCK-SCREEN LAB — 2026-10-14
+
+- A user-supplied video `Cfmkk9wAXUw` may be tested ONLY on `sources/pip-background-lab.html`, copied by the already-existing Pages workflow. Do not patch `index.html`, `sw.js`, PWA scope, scheduler, Supabase, Cloudflare or Render for this test.
+- Single iframe, official YouTube embed, no direct audio scraping, no egress proxy or browser-driven native PiP claim. Compare `playsinline=0` (iOS native fullscreen preference) with `playsinline=1` (inline). A/B switch reloads the same iframe; do not run two streams.
+- iOS may auto transition fullscreen media to PiP on Home only under compatible conditions/permissions. Cross-origin YouTube iframe video cannot be accessed by the parent site's HTMLVideoElement PiP API; page visibility events cannot guarantee background audio. Observe physically on Safari/PWA, report each outcome separately and distinguish CI deployment from device behavior.
+- Release `1d10773bddba3db556adeb99082928eb44e547e7`; Verify `38498738136` and Pages `38498738003` PASS, direct URL remote probe and lock-device E4 still pending. The demo is opt-in and is not linked or used by production watch routes.
+
 # README MAINTENANCE — QUY TẮC BẮT BUỘC DỰ ÁN 1988
 
 > **CURRENT RUNTIME OVERRIDE — 2026-10-05**
