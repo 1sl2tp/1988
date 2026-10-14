@@ -1562,6 +1562,8 @@ html.background-native .embed-media-core > #backgroundNativeFrame{
 .background-mode-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .background-mode-button:hover{background:var(--yt-chip-hover)}
 .background-mode-button:active{background:var(--yt-chip-press)}
+.floating-mode-hint{font:400 12px/17px Roboto,Arial,sans-serif;color:var(--yt-text-secondary)}
+.floating-mode-hint:empty{display:none}
 .info-actions{
   min-width:0;
   flex:0 1 auto;
@@ -2842,6 +2844,13 @@ html.viewer-active.one-col body{
           <span id="backgroundModeLabel">Chạy nền</span>
         </button>
       </div>
+      <div id="floatingModeBar" class="background-mode-bar floating-mode-bar" hidden>
+        <span id="floatingModeHint" class="floating-mode-hint" role="status" aria-live="polite"></span>
+        <button id="floatingModeButton" class="background-mode-button" type="button" data-info-action="floating-pip" aria-label="Xem nổi phía trên các ứng dụng">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="15" rx="2"></rect><rect x="11" y="10" width="10" height="9" rx="1.5"></rect></svg>
+          <span id="floatingModeLabel">Xem nổi</span>
+        </button>
+      </div>
       <span id="videoMetaSep" hidden></span>
       <span id="layoutHint" hidden></span>
     </div>
@@ -2893,6 +2902,8 @@ html.viewer-active.one-col body{
   const videoFactsEl=document.getElementById("videoFacts");
   const videoQuickActions=document.getElementById("videoQuickActions");
   const backgroundModeBar=document.getElementById("backgroundModeBar");
+  const floatingModeBar=document.getElementById("floatingModeBar");
+  const floatingModeHint=document.getElementById("floatingModeHint");
   const videoMetaSep=document.getElementById("videoMetaSep");
   const videoMenu=document.getElementById("videoMenu");
   const layoutHint=document.getElementById("layoutHint");
@@ -3334,6 +3345,10 @@ html.viewer-active.one-col body{
   let youtubeApiPromise=null;
   let backgroundNativeActive=false;
   let backgroundReturnPosition=null;
+  let floatingPipWindow=null;
+  let floatingPipPending=false;
+  let floatingPipSequence=0;
+  let floatingReturnPosition=null;
 
   // Server owns media aspect by video id; YouTube videoContentRect only
   // confirms/corrects the server cache after playback.
@@ -4463,7 +4478,7 @@ html.viewer-active.one-col body{
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
     // Any delayed geometry probes from the old API must not touch the
     // single native fullscreen iframe (or write an aspect correction).
-    if(backgroundNativeActive)return false;
+    if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return false;
     if(
       !player||
       !current?.id||
@@ -4569,12 +4584,12 @@ html.viewer-active.one-col body{
   }
 
   async function ensureYoutubePlayer(){
-    if(backgroundNativeActive)return null;
+    if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return null;
     if(ytPlayer)return ytPlayer;
 
     const YTApi=await loadYoutubeIframeApi();
     // The iframe API can resolve after the user entered native Safari mode.
-    if(backgroundNativeActive)return null;
+    if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return null;
     if(!YTApi?.Player||ytPlayer)return ytPlayer;
 
     ytPlayer=new YTApi.Player("videoFrame",{
@@ -4597,7 +4612,7 @@ html.viewer-active.one-col body{
       },
       events:{
         onReady(event){
-          if(backgroundNativeActive||event.target!==ytPlayer)return;
+          if(backgroundNativeActive||floatingPipWindow||floatingPipPending||event.target!==ytPlayer)return;
           ytPlayerReady=true;
           configurePlayerIframe(event.target);
 
@@ -4606,8 +4621,11 @@ html.viewer-active.one-col body{
           if(!id)return;
 
           try{
-            const restore=backgroundReturnPosition?.id===id?backgroundReturnPosition:null;
+            const restore=backgroundReturnPosition?.id===id
+              ?backgroundReturnPosition
+              :(floatingReturnPosition?.id===id?floatingReturnPosition:null);
             backgroundReturnPosition=null;
+            floatingReturnPosition=null;
             event.target.loadVideoById(restore?.seconds
               ?{videoId:id,startSeconds:restore.seconds}
               :id);
@@ -4615,7 +4633,7 @@ html.viewer-active.one-col body{
           }catch{}
         },
         onStateChange(event){
-          if(backgroundNativeActive||event.target!==ytPlayer)return;
+          if(backgroundNativeActive||floatingPipWindow||floatingPipPending||event.target!==ytPlayer)return;
           if(currentMediaProvider!=="youtube"||currentMediaType!=="embed")return;
           if(event.data===YTApi.PlayerState.PLAYING){
             scheduleCurrentPlayerKind(event.target);
@@ -4641,6 +4659,7 @@ html.viewer-active.one-col body{
     // Switching to another card must remove the native fullscreen/PiP iframe
     // BEFORE starting the standard IFrame API player: never dual-play.
     if(backgroundNativeActive)exitBackgroundNativeMode({restore:false});
+    if(floatingPipWindow||floatingPipPending)exitFloatingPipWindow({restore:false});
     activateYoutubeSurface();
     currentMediaType="embed";
     player.dataset.mediaType="embed";
@@ -7106,6 +7125,7 @@ html.viewer-active.one-col body{
 
   function renderCurrentInfo(){
     syncBackgroundModeButton();
+    syncFloatingPipButton();
     const packageAuthoritative=packageYoutubeIdentityAuthoritative(currentMeta||{});
     if(!packageAuthoritative&&currentMeta&&!currentMeta.sourceAvatar&&currentMeta.sourceId){
       const identity=localSourceIdentity(currentMeta.sourceId);
@@ -10034,6 +10054,12 @@ html.viewer-active.one-col body{
   });
   function runPrimaryVideoAction(kind,meta={},anchor=null){
     kind=String(kind||"");
+    if(kind==="floating-pip"){
+      if(floatingPipWindow)return exitFloatingPipWindow({restore:true});
+      // Invoke directly in the click path to retain user activation.
+      void enterFloatingPipWindow();
+      return true;
+    }
     if(kind==="background-listen"){
       if(!isIOSSafariBackgroundTab())return false;
       if(backgroundNativeActive)return exitBackgroundNativeMode({restore:true});
