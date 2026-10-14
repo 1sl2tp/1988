@@ -314,8 +314,8 @@ async function verifyDesktopFloating(){
   assert.equal(url.searchParams.get('next'),B+','+C);
   const opening=ff.enterFloatingPipWindow();
   assert.equal(req,1,'requestWindow is synchronous with user click');
-  assert.deepEqual({...requestedSizes[0]},{width:480,height:300},
-    '16:9 initial floating window reserves only browser native titlebar');
+  assert.deepEqual({...requestedSizes[0]},{width:480,height:305},
+    '16:9 initial PiP reserves Chrome titlebar and 6px black edge on all sides');
   assert.equal(pauses,0,'old iframe plays while waiting for browser permission');
   await opening;
   assert.equal(pauses,1);
@@ -325,6 +325,17 @@ async function verifyDesktopFloating(){
   assert.equal(w.document.body.children.length,1);
   assert.equal(w.document.body.children[0].className,'floating-media',
     'only one full-size video mount, no duplicate title/return toolbar');
+  const piPStyle=w.document.head.children[0].textContent;
+  assert(piPStyle.includes('body{padding:6px}'),
+    'exact 6px black inset keeps floating media off window edges');
+  assert(piPStyle.includes('border-radius:10px;background:#000'),
+    'round 10px stage corners against pure-black gutter');
+  assert(piPStyle.includes('overflow:hidden;border-radius:10px'),
+    'stage CLIPS the iframe at all four rounded corners');
+  assert(piPStyle.includes('display:block;border:0;background:#000'),
+    'no iframe default border or seam; no crop/zoom applied to video');
+  assert(!piPStyle.includes('object-fit:cover')&&!piPStyle.includes('transform:scale'),
+    'YouTube video keeps its native aspect rather than being cropped');
   assert.equal(w.document.body.children[0].children.length,1);
   const floatingFrame=w.document.body.children[0].children[0];
   assert.equal(floatingFrame.src,url.href,'only one YouTube embed is mounted inside PiP');
@@ -370,7 +381,7 @@ async function verifyDesktopFloating(){
   assert.match(tags.floatingModeHint.textContent,/153/);
   // Native aspect contract: portrait starts tall; landscape starts at 16:9.
   ff.current.detectedRatio=9/16;
-  assert.deepEqual({...ff.floatingPipDimensions()},{width:330,height:617});
+  assert.deepEqual({...ff.floatingPipDimensions()},{width:330,height:607});
   ff.current.detectedRatio=16/9;
   // API denial leaves the original playing and no fake floating window.
   ff.ytPlayer=newPlayer();
