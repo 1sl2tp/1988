@@ -280,7 +280,7 @@ async function verifyDesktopFloating(){
     embedMediaCore:mainMount,backgroundModeBar:{hidden:true},
     floatingModeBar:{hidden:true},floatingModeHint:tags.floatingModeHint,
     normalizedMediaProvider:value=>String(value||'youtube')==='youtube'?'youtube':'retired',
-    root:{classList:{add(){},remove(){}}},URLSearchParams,
+    root:{classList:{add(){},remove(){}}},URLSearchParams,URL,
     ensureYoutubePlayer:()=>{restores++;return Promise.resolve(null)}
   });
   vm.runInContext(
