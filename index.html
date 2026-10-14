@@ -7143,13 +7143,14 @@ html.viewer-active.one-col body{
   }
   function floatingEmbedUrl({id,seconds,next}){
     if(!/^[A-Za-z0-9_-]{11}$/.test(String(id||"")))return "";
-    const params=new URLSearchParams({
-      autoplay:"1",controls:"1",playsinline:"1",fs:"1",rel:"0",loop:"0",
-      origin:location.origin
-    });
-    if(seconds>0)params.set("start",String(Math.min(86400,Math.floor(seconds))));
-    if(next?.length)params.set("playlist",next.join(","));
-    return "https://www.youtube-nocookie.com/embed/"+id+"?"+params.toString();
+    // The Document-PiP owner's URL is about:blank; embedding YouTube there
+    // directly loses the required HTTP Referer (observed YouTube error 153).
+    // Host the actual YouTube API iframe in a real same-origin HTTPS page.
+    const url=new URL("/sources/floating-youtube.html",location.origin);
+    url.searchParams.set("v",id);
+    if(seconds>0)url.searchParams.set("t",String(Math.min(86400,Math.floor(seconds))));
+    if(next?.length)url.searchParams.set("next",next.join(","));
+    return url.href;
   }
 
   function exitFloatingPipWindow({restore=true}={}){
@@ -7269,6 +7270,28 @@ html.viewer-active.one-col body{
     pipWindow.addEventListener("pagehide",()=>{
       if(floatingPipWindow===pipWindow)exitFloatingPipWindow({restore:true});
     },{once:true});
+    // Receive only the message from OUR own HTTPS iframe, not arbitrary
+    // embedded/player windows. YouTube API error 153 restores normal Watch.
+    pipWindow.addEventListener("message",event=>{
+      if(floatingPipWindow!==pipWindow||
+        event.origin!==location.origin||
+        event.source!==iframe.contentWindow||
+        event.data?.source!=="yt1988-floating-youtube")return;
+      if(event.data.state==="error"){
+        const code=String(event.data.code||"");
+        exitFloatingPipWindow({restore:true});
+        if(floatingModeHint)floatingModeHint.textContent=
+          code==="153"
+            ?"YouTube yêu cầu thông tin nguồn trang (lỗi 153). Đã quay lại xem bình thường."
+            :"Video không phát được trong cửa sổ nổi. Đã quay lại xem bình thường.";
+      }else if(event.data.state==="autoplay-blocked"){
+        if(floatingModeHint)floatingModeHint.textContent=
+          "Chrome yêu cầu nhấn Play trong cửa sổ nổi để bắt đầu.";
+      }else if(event.data.state==="playing"){
+        if(floatingModeHint)floatingModeHint.textContent=
+          "Video đang phát trong cửa sổ nổi.";
+      }
+    });
     try{ytPlayer?.pauseVideo?.()}catch{}
     try{ytPlayer?.destroy?.()}catch{}
     ytPlayer=null;
