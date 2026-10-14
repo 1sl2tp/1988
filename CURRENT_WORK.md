@@ -1,3 +1,14 @@
+## 2026-10-14 — THREE-VIDEO SAFARI PIP PLAYLIST DEMO (SOURCE / VERIFY / PAGES PASS; IPHONE NEXT-TRACK PENDING)
+
+- User explicitly approved making separate 2–3-video auto-next demo after single-video A proved Safari fullscreen → Home → OS PiP → lock plays audio. No changes to main `yt.taphoa.xyz/`, original single-video `/sources/pip-background-lab.html`, YouTube source packages, iframe owner or player rules.
+- RULE FIRST: `README_MAINTENANCE.md §0.E` commit `77ccc92783f009c3f8bdeb272ab90c4029337650`; project operational Sheet Rule45 and global SDD `SPEC-1988-PIP-PLAYLIST-AUTONEXT-20261014` describe experiment and exact test cases.
+- Added ONLY `sources/pip-playlist-lab.html` commit `6f6c5a5d9d886b010975e999333c14019822b2a1`. Single YouTube-nocookie iframe with first user-supplied `Cfmkk9wAXUw`, then official-channel `pXL2jZFF6_k`, `wqjoebF6VfI` via official `playlist` parameter (successors only, in order). Native fullscreen `playsinline=0`, autoplay off, loop off. A 1-video baseline toggle reloads same iframe, not dual player. Local-only page visibility log and three test result selectors/copy. No JS ENDED, timers, APIs, raw audio/proxy, backend, workers, SW or browser automatic media policy workaround.
+- From re-read of committed source: one iframe, exactly three unique video IDs, native fullscreen+successor playlist supported, JavaScript syntax PASS; no local media or non-YouTube API network. Verify 1988 workflow `38500407757` SUCCESS; Pages deployment `38500407788` SUCCESS including build copy of full `sources/` folder, Deploy and HTTPS custom-domain gate. Intended URL: `https://yt.taphoa.xyz/sources/pip-playlist-lab.html`. External page retrieval via web was unavailable, so the CI release evidence does not claim separately confirmed exact-path HTTP200.
+- **E4 real iPhone tests PENDING:** seek first medley ~20–30s from end, verify automatic move to video2 (1) while fullscreen, (2) Safari Home→PiP, (3) PiP then lock screen. Do not claim guaranteed 2→3 / background transition yet; native PiP can be dismissed on video switch and embedded autoplay may be restricted. E5 actual network byte delta unmeasured.
+- If any regression affects production, rollback only `sources/pip-playlist-lab.html`. Known successful single-video A and production app untouched.
+
+---
+
 ## 2026-10-14 — SAFARI PIP LAB: iPhone user results A PASS via Home, direct Lock requires Play, B FAIL
 
 - **User-tested on actual iPhone Safari** with one video `Cfmkk9wAXUw`, isolated demo `/sources/pip-background-lab.html`: A (`playsinline=0`) user taps Play and Safari opens fullscreen successfully. A **fullscreen → Home → system PiP → lock screen** works. A **fullscreen → lock directly** shows media controls on lock screen but playback pauses until manual Play. B (`playsinline=1`) in-page → lock does NOT show lock-screen media controls.
