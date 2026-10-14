@@ -1,3 +1,16 @@
+## 2026-10-14 — WATCH FULL WIDTH: one minimum card, proportional 1..N right queue (VERIFY/PAGES PASS; REAL DEVICE PENDING)
+
+- Final user confirmation: "chia sao cho full", one card is minimum, add columns as actual right-side width allows. The previous one-to-three hard limit plus row max-width 560/1136/1712px could leave a dark right gutter and contradicted the desired behavior.
+- Updated canonical rule FIRST: `README_MAINTENANCE.md §0.C` commit `e88e3cf9c4e96c3e923be9a5ac7ad5875bc2a868`; project Google Sheet Rule43 + global SDD `SPEC-1988-WATCH-COLUMN-MINMAX-20261014` aligned.
+- Single formula `chooseWatchQueueColumns(feedW,gap)`: `max(1,min(floor((feedW+gap)/(300+gap)),round((feedW+gap)/(390+gap))))`. Gap 16px, card min 300 and preferred ~390; 560 is **not** a hard card/row width cutoff when it causes unused space. 1..N columns if appropriate, including 4/5+ at wide sizes, every row full-width and card widths equal. Ratio 16:9 on thumbnails.
+- CSS `html.viewer-active.two-col .rows` now `width:100%; max-width:none; justify-self:stretch; box-sizing:border-box`, no legacy row cap. `setFeedColumnCount` accepts >4 columns for Watch; general browse `chooseCardColumns` still only permits <=4. For 5+ metadata inherits compact 4-column styling. Left player position, portrait metadata rail, 24px edges, 16px inter-panel gap, player true ratio, mobile <1000px one-column and auto-next unchanged.
+- Examples from pure function: feedW 320→1, 600→1, 616→2, 999→3, 1400→3, 1536→4, 2200→5, 3500→9. A single card may exceed soft 560 only when 2 cards would be below minimum 300. This is deliberate for full-width, not a thumbnail crop or orientation special case.
+- Code `b205d8d25b27427bfc1e09b13f113c86524ec813`, tests `970141a4be975ae56c4420dd58f5611d67bbebc6` and `940bfda5f5cb90878581315dd9771a1e1e67b3be`; final production release `fb821205fda225caa6935f723153484ec541f2f3`. Verify `38497224008` SUCCESS; Deploy 1988 Player `38497223998` SUCCESS including contract tests, Pages deploy and HTTPS custom domain. Old pre-test code commit failing CI is NOT the release.
+- Changed UI geometry/tests only; NO Supabase/Edge/Cloudflare/Render/provider call, new prerender/preload, log/write/crawl, cache invalidation or playback engine change. E4 screenshot Chrome/Safari/iPhone PWA after deployment + E5 real request/byte delta remain NOT measured; user visual acceptance pending.
+- Rollback isolated Watch queue layout/selector if actual device shows an issue. This rule supersedes all prior same-date hard threshold, fixed three-column and max560 row-size notes.
+
+---
+
 ## 2026-10-14 — Rule 43 final: one Watch queue threshold selector 680/1080 (VERIFY + PAGES PASS; DEVICE PENDING)
 
 - Last user screenshots show the same viewer must work for narrow mobile, landscape wide player and portrait/narrow player without contradictory per-orientation heuristics. Approved single rule: desktop (>=1000px) true-ratio video LEFT + the ENTIRE remaining width for the right recommendations; <1000px one-column video above + queue below. Desktop queue columns depend ONLY on its width: <680px=1, 680–1079px=2, >=1080px=3. Card image 16:9, equal columns, 16px gap, min300px, max560px, preferred ~360–390px; no fabricated feed videos.
