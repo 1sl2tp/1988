@@ -7123,6 +7123,165 @@ html.viewer-active.one-col body{
     return true;
   }
 
+  // Desktop Document Picture-in-Picture is a real browser-owned always-on-top
+  // window, unlike the legacy in-page scrolling mini player.
+  function supportsFloatingPip(){
+    const ua=String(navigator.userAgent||"");
+    return !/iPhone|iPad|iPod|Android/i.test(ua)&&window.top===window&&
+      typeof window.documentPictureInPicture?.requestWindow==="function";
+  }
+  function syncFloatingPipButton(){
+    if(!floatingModeBar)return;
+    const id=String(current?.id||"").trim();
+    floatingModeBar.hidden=!supportsFloatingPip()||
+      !/^[A-Za-z0-9_-]{11}$/.test(id)||
+      currentMeta?.isLive===true||activePackageScope==="live";
+    const label=document.getElementById("floatingModeLabel");
+    if(label)label.textContent=floatingPipWindow?"Trở lại xem":(floatingPipPending?"Đang mở…":"Xem nổi");
+    const button=document.getElementById("floatingModeButton");
+    if(button)button.disabled=floatingPipPending;
+  }
+  function floatingEmbedUrl({id,seconds,next}){
+    if(!/^[A-Za-z0-9_-]{11}$/.test(String(id||"")))return "";
+    const params=new URLSearchParams({
+      autoplay:"1",controls:"1",playsinline:"1",fs:"1",rel:"0",loop:"0",
+      origin:location.origin
+    });
+    if(seconds>0)params.set("start",String(Math.min(86400,Math.floor(seconds))));
+    if(next?.length)params.set("playlist",next.join(","));
+    return "https://www.youtube-nocookie.com/embed/"+id+"?"+params.toString();
+  }
+
+  function exitFloatingPipWindow({restore=true}={}){
+    if(!floatingPipWindow&&!floatingPipPending)return false;
+    floatingPipSequence++;
+    const pipWindow=floatingPipWindow;
+    const hadWindow=!!pipWindow;
+    floatingPipWindow=null;
+    floatingPipPending=false;
+    if(pipWindow)try{pipWindow.close()}catch{}
+    if(hadWindow){
+      // The floating iframe is removed on close before any new normal player.
+      embedMediaCore?.replaceChildren();
+      const mount=document.createElement("div");
+      mount.id="videoFrame";
+      embedMediaCore?.appendChild(mount);
+      ytPlayer=null;
+      ytPlayerReady=false;
+      pendingVideoId="";
+    }
+    if(hadWindow&&restore&&
+      floatingReturnPosition?.id===String(current?.id||"")){
+      pendingVideoId=current.id;
+      void ensureYoutubePlayer();
+    }else{
+      floatingReturnPosition=null;
+    }
+    if(floatingModeHint)floatingModeHint.textContent="";
+    syncFloatingPipButton();
+    return true;
+  }
+
+  async function enterFloatingPipWindow(){
+    if(!supportsFloatingPip()||floatingPipPending||floatingPipWindow||
+      backgroundNativeActive||!embedMediaCore)return false;
+    const payload=backgroundWatchPayload();
+    if(!payload)return false;
+    const src=floatingEmbedUrl(payload);
+    if(!src)return false;
+    floatingPipPending=true;
+    const token=++floatingPipSequence;
+    if(floatingModeHint)floatingModeHint.textContent="";
+    syncFloatingPipButton();
+    // MUST be first awaited call in the user tap: browser transient activation.
+    let pipWindow;
+    try{
+      pipWindow=await window.documentPictureInPicture.requestWindow({
+        width:448,height:292
+      });
+    }catch{
+      if(token===floatingPipSequence){
+        floatingPipPending=false;
+        if(floatingModeHint)floatingModeHint.textContent=
+          "Trình duyệt chưa cho phép mở cửa sổ nổi.";
+        syncFloatingPipButton();
+      }
+      return false;
+    }
+    if(token!==floatingPipSequence||!floatingPipPending||
+      String(current?.id||"")!==payload.id){
+      try{pipWindow.close()}catch{}
+      return false;
+    }
+
+    let iframe;
+    try{
+      const doc=pipWindow.document;
+      doc.title="1988 · Xem nổi";
+      const style=doc.createElement("style");
+      style.textContent=
+        "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;color:#fff;font:12px Arial,sans-serif}"+
+        ".floating-shell{height:100%;display:flex;flex-direction:column}"+
+        ".floating-toolbar{height:32px;flex:0 0 32px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;background:#15171c;gap:8px}"+
+        ".floating-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}"+
+        ".floating-close{border:0;border-radius:6px;background:#333c48;color:#fff;cursor:pointer;padding:4px 9px;font:12px Arial,sans-serif}"+
+        ".floating-media{position:relative;flex:1;min-height:0;background:#000}"+
+        ".floating-media iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}";
+      doc.head.appendChild(style);
+      const shell=doc.createElement("div");
+      shell.className="floating-shell";
+      const toolbar=doc.createElement("div");
+      toolbar.className="floating-toolbar";
+      const title=doc.createElement("span");
+      title.className="floating-title";
+      title.textContent=String(currentMeta?.title||current?.label||"1988").slice(0,90);
+      const close=doc.createElement("button");
+      close.className="floating-close";
+      close.type="button";
+      close.textContent="Trở lại xem";
+      close.addEventListener("click",()=>pipWindow.close());
+      toolbar.append(title,close);
+      const media=doc.createElement("div");
+      media.className="floating-media";
+      iframe=doc.createElement("iframe");
+      iframe.title="1988 · Video nổi YouTube";
+      iframe.setAttribute("allow","autoplay; encrypted-media; picture-in-picture; fullscreen");
+      iframe.setAttribute("allowfullscreen","");
+      iframe.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
+      media.appendChild(iframe);
+      shell.append(toolbar,media);
+      doc.body.replaceChildren(shell);
+    }catch{
+      try{pipWindow.close()}catch{}
+      if(token===floatingPipSequence){
+        floatingPipPending=false;
+        if(floatingModeHint)floatingModeHint.textContent="Không khởi tạo được cửa sổ nổi.";
+        syncFloatingPipButton();
+      }
+      return false;
+    }
+
+    // One stream at a time: never set the floating iframe src before the
+    // original YouTube player has been paused, destroyed and unmounted.
+    floatingReturnPosition={id:payload.id,seconds:payload.seconds};
+    floatingPipWindow=pipWindow;
+    floatingPipPending=false;
+    pipWindow.addEventListener("pagehide",()=>{
+      if(floatingPipWindow===pipWindow)exitFloatingPipWindow({restore:true});
+    },{once:true});
+    try{ytPlayer?.pauseVideo?.()}catch{}
+    try{ytPlayer?.destroy?.()}catch{}
+    ytPlayer=null;
+    ytPlayerReady=false;
+    pendingVideoId="";
+    embedMediaCore.replaceChildren();
+    iframe.src=src;
+    if(floatingModeHint)floatingModeHint.textContent=
+      "Video đang nổi. Nếu chưa phát, nhấn Play trong cửa sổ nổi.";
+    syncFloatingPipButton();
+    return true;
+  }
+
   function renderCurrentInfo(){
     syncBackgroundModeButton();
     syncFloatingPipButton();
