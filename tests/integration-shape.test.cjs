@@ -157,8 +157,10 @@ if(simpleProduction){
   assert.match(html,/html\.viewer-active\.two-col \.rows[\s\S]{0,120}grid-template-columns:repeat\(var\(--feed-cols\),minmax\(0,1fr\)\)!important/);
   assert.match(html,/function chooseWatchQueueColumns\(feedW,gap=16\)/);
   assert.match(html,/setFeedColumnCount\(chooseWatchQueueColumns\(geometry\.feedW,cardGap\)\)/);
-  assert.match(html,/html\.viewer-active\.two-col\[data-feed-cols="1"\] \.rows\{max-width:560px\}/);
-  assert.match(html,/html\.viewer-active\.two-col\[data-feed-cols="2"\] \.rows\{max-width:1136px\}/);
+  assert.match(html,/html\.viewer-active\.two-col \.rows\{[\s\S]{0,110}width:100%;[\s\S]{0,60}max-width:none;/);
+  assert.match(html,/const cols=Math\.max\(1,Math\.round\(Number\(value\)\|\|1\)\);/);
+  assert.match(html,/root\.dataset\.feedDensity=cols>=4\?"compact":"regular"/);
+  assert.doesNotMatch(html,/max-width:1712px;|max-width:1136px;/);
   assert.match(html,/scrolling must never create a floating player/);
   assert.doesNotMatch(html,/if\(opened&&!isTwoColumn\(\)&&mediaProviderFor\(selectedMeta\)!==["']tiktok["']\)/);
   assert.match(html,/Feed rerender must never move the active media out of the focused viewer/);
