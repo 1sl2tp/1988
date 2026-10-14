@@ -88,70 +88,123 @@ assert(html.includes('root.dataset.feedDensity=cols>=4?"compact":"regular";'),'5
 assert(html.includes('html.viewer-active.one-col .rows{'),'mobile queue remains under player');
 
 
-// Background listening: isolated Safari opt-in preserves the normal player,
-// passes its timestamp and a finite, deduplicated preloaded feed to ONE iframe.
-const bgHtml=fs.readFileSync('sources/background-listen.html','utf8');
-assert.equal((bgHtml.match(/<iframe\b/g)||[]).length,1,'one native background iframe only');
-assert(bgHtml.includes("autoplay:'0',controls:'1',fs:'1',playsinline:'0'"),
-  'background iframe must use tested Safari fullscreen mode without forced autoplay');
-assert(bgHtml.includes("params.set('start',String(start))"),'selected video timestamp carried via embed start');
-assert(bgHtml.includes("params.set('playlist',next.join(','))"),'YouTube owns background next-video transitions');
-assert(bgHtml.includes("frame.src='https://www.youtube-nocookie.com/embed/'+id"),
-  'only official YouTube iframe, never proxy or alternate media');
-assert(!/fetch\(|setInterval\(|serviceWorker\.register|\/audio\?id=/.test(bgHtml),
-  'no backend, scheduled activity or scraped audio in background page');
-const script=bgHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1];
-assert(script,'background page has inline script');
-assert.doesNotThrow(()=>new vm.Script(script),'background HTML JavaScript syntax valid');
+// IN-PLACE Safari 'Chạy nền': never route away to a demo-like webpage.
 assert(html.includes('id="backgroundModeButton"')&&html.includes('data-info-action="background-listen"'),
-  'visible Safari watch action wired as normal video info action');
-assert(html.includes('location.assign(destination)'),
-  'native background uses SAME tab to release the original iframe');
-assert(html.includes('playsinline:1,'),'default web remains in YouTube inline mode');
-const bgStart=html.indexOf('  function isIOSSafariBackgroundTab(){');
-const bgEnd=html.indexOf('  function renderCurrentInfo(){',bgStart);
-assert(bgStart>0&&bgEnd>bgStart,'single source for Safari/queue/background handoff');
+  'Safari-only native background button in video metadata');
+assert(html.includes('id="backgroundModeLabel"')&&html.includes('id="backgroundModeHint"'),
+  'the mode has an in-place return action and PiP user instructions');
+assert(!html.includes('location.assign(destination)'),'Chạy nền must not navigate to another page');
+assert(!html.includes('"/sources/background-listen.html"'),
+  'the production watch mode must not target the prior separate demo page');
+assert(html.includes('playsinline:1,'),'normal YouTube player stays inline');
+assert(html.includes('if(backgroundNativeActive)return null;'),
+  'late YouTube iframe-api initialization cannot create a second player');
+assert(html.includes('if(backgroundNativeActive||event.target!==ytPlayer)return;'),
+  'late onReady/state change from old player cannot control native media');
+assert(html.includes('if(backgroundNativeActive)exitBackgroundNativeMode({restore:false});'),
+  'selecting a new video must remove native player before normal playback');
+assert(html.includes('html.background-native .embed-media-core > #backgroundNativeFrame'),
+  'native Safari mode removes iframe rail cropping');
+const startMode=html.indexOf('  function isIOSSafariBackgroundTab(){');
+const endMode=html.indexOf('  function renderCurrentInfo(){',startMode);
+assert(startMode>0&&endMode>startMode,'one Safari background mode owner');
 const A='Cfmkk9wAXUw',B='pXL2jZFF6_k',C='wqjoebF6VfI',D='abcdefghiJK',E='abcdefghijL';
-const videoList=[{id:A,provider:'youtube'},{id:B,provider:'youtube'},
+const videoList=[
+  {id:A,provider:'youtube'},{id:B,provider:'youtube'},
   {id:B,provider:'youtube'},{id:D,isLive:true},{id:E,provider:'retired'},
-  {id:'bad_id',provider:'youtube'},{id:C,provider:'youtube'}];
-const bgContext=vm.createContext({
+  {id:'bad_id',provider:'youtube'},{id:C,provider:'youtube'}
+];
+let pauseCount=0,destroyCount=0,rebuildCount=0;
+const mediaMount={
+  children:[{id:'originalYTFrame'}],
+  replaceChildren(...items){this.children=items.slice()},
+  appendChild(node){this.children.push(node)}
+};
+const rootClasses=new Set(),labels={
+  backgroundModeLabel:{textContent:''},
+  backgroundModeHint:{hidden:true}
+};
+const mockYT=()=>({
+  getVideoData:()=>({video_id:A}),getCurrentTime:()=>192.9,
+  pauseVideo:()=>{pauseCount++},destroy:()=>{destroyCount++}
+});
+const context=vm.createContext({
   navigator:{userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Safari/605.1.15',standalone:false,maxTouchPoints:5},
   window:{matchMedia:()=>({matches:false})},feedMetas:videoList,relatedMetas:[],
   autoplayNext:true,current:{id:A,label:'Bolero'},
-  currentMeta:{id:A,title:'Liên khúc Bolero'},activePackageScope:'latest',
-  ytPlayer:{getVideoData:()=>({video_id:A}),getCurrentTime:()=>192.9},
+  currentMeta:{id:A,title:'Bolero'},activePackageScope:'latest',
+  ytPlayer:mockYT(),ytPlayerReady:true,pendingVideoId:'',
+  embedMediaCore:mediaMount,backgroundModeBar:{hidden:true},
+  root:{classList:{add:name=>rootClasses.add(name),remove:name=>rootClasses.delete(name)}},
+  document:{
+    getElementById:id=>labels[id]||null,
+    createElement:tag=>({
+      tagName:tag,id:'',src:'',attrs:{},setAttribute(k,v){this.attrs[k]=v}
+    })
+  },
   normalizedMediaProvider:value=>String(value||'youtube')==='youtube'?'youtube':'retired',
-  location:{origin:'https://yt.taphoa.xyz'},
-  canonicalVideoHash:id=>'#/watch/'+id,URL
+  location:{origin:'https://yt.taphoa.xyz',hash:'#/watch/'+A},
+  URLSearchParams,ensureYoutubePlayer:()=>{rebuildCount++;return Promise.resolve(null)}
 });
-vm.runInContext(html.slice(bgStart,bgEnd),bgContext);
-assert.equal(bgContext.isIOSSafariBackgroundTab(),true,'Safari tab eligibility');
-assert.deepEqual(Array.from(bgContext.backgroundQueueForVideo(A,videoList,true,12)),[B,C],
-  'in-order next IDs; no duplicates, live, invalid, retired source');
-assert.deepEqual(Array.from(bgContext.backgroundQueueForVideo(A,videoList,false,12)),[],
-  'autoplay switch OFF must not send background queue');
-assert.deepEqual(Array.from(bgContext.backgroundQueueForVideo(A,videoList,true,1)),[B],
-  'finite queue limit respected');
-assert.deepEqual(Array.from(bgContext.backgroundQueueForVideo(C,videoList,true,12)),[],
-  'last-video position yields no successors');
-const u=new URL(bgContext.backgroundListenUrl());
-assert.equal(u.origin,'https://yt.taphoa.xyz');
-assert.equal(u.pathname,'/sources/background-listen.html');
-assert.equal(u.searchParams.get('v'),A);
-assert.equal(u.searchParams.get('t'),'192','preserve original video playback seconds');
-assert.equal(u.searchParams.get('next'),B+','+C);
-assert.equal(u.searchParams.get('back'),'#/watch/'+A);
-bgContext.ytPlayer={getVideoData:()=>({video_id:B}),getCurrentTime:()=>192.9};
-assert.equal(new URL(bgContext.backgroundListenUrl()).searchParams.has('t'),false,
-  'never transfer a stale time from a DIFFERENT playing video');
-bgContext.autoplayNext=false;
-assert.equal(new URL(bgContext.backgroundListenUrl()).searchParams.has('next'),false,
-  'saved off switch must suppress the background playlist');
-bgContext.navigator.standalone=true;
-assert.equal(bgContext.isIOSSafariBackgroundTab(),false,'native Safari mode not promised for standalone PWA');
-bgContext.navigator.standalone=false;
-bgContext.navigator.userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) CriOS Safari/604.1';
-assert.equal(bgContext.isIOSSafariBackgroundTab(),false,'do not present Safari-only flow to Chrome iOS');
+vm.runInContext('let backgroundNativeActive=false; let backgroundReturnPosition=null;\n'+html.slice(startMode,endMode),context);
+assert.equal(context.isIOSSafariBackgroundTab(),true,'Safari tab supports opt-in');
+assert.deepEqual(Array.from(context.backgroundQueueForVideo(A,videoList,true,12)),[B,C],
+  'ordered, de-duplicated, no LIVE/non-YouTube/bad IDs');
+assert.deepEqual(Array.from(context.backgroundQueueForVideo(A,videoList,false,12)),[],
+  'auto-next OFF: no playlist');
+assert.deepEqual(Array.from(context.backgroundQueueForVideo(A,videoList,true,1)),[B],
+  'queue cap');
+assert.deepEqual(Array.from(context.backgroundQueueForVideo(C,videoList,true,12)),[],
+  'no next from last video');
+const payload=context.backgroundWatchPayload();
+assert.equal(payload.id,A);
+assert.equal(payload.seconds,192);
+assert.deepEqual(Array.from(payload.next),[B,C]);
+const u=new URL(context.nativeBackgroundEmbedUrl(payload));
+assert.equal(u.origin,'https://www.youtube-nocookie.com');
+assert.equal(u.pathname,'/embed/'+A);
+assert.equal(u.searchParams.get('start'),'192');
+assert.equal(u.searchParams.get('playlist'),B+','+C);
+assert.equal(u.searchParams.get('playsinline'),'0');
+assert.equal(u.searchParams.get('autoplay'),'0');
+assert.equal(context.enterBackgroundNativeMode(),true,'Safari mode enters in-place');
+assert.equal(pauseCount,1);
+assert.equal(destroyCount,1);
+assert.equal(mediaMount.children.length,1,'one active native iframe, normal player removed');
+assert.equal(mediaMount.children[0].id,'backgroundNativeFrame');
+assert.equal(mediaMount.children[0].src,u.href);
+assert.equal(context.ytPlayer,null);
+assert(rootClasses.has('background-native'));
+assert.equal(labels.backgroundModeLabel.textContent,'Trở lại xem');
+assert.equal(labels.backgroundModeHint.hidden,false);
+assert.equal(context.location.hash,'#/watch/'+A,'watch route remains unchanged');
+assert.equal(context.enterBackgroundNativeMode(),true,'second click while active must not load another iframe');
+assert.equal(destroyCount,1,'no redundant media destruction');
+assert.equal(context.exitBackgroundNativeMode({restore:true}),true);
+assert.equal(mediaMount.children.length,1);
+assert.equal(mediaMount.children[0].id,'videoFrame','restore original normal player mount');
+assert(!rootClasses.has('background-native'));
+assert.equal(labels.backgroundModeLabel.textContent,'Chạy nền');
+assert.equal(rebuildCount,1,'return creates only one API player');
+assert.equal(context.backgroundReturnPosition.id,A);
+assert.equal(context.backgroundReturnPosition.seconds,192);
+assert.equal(context.enterBackgroundNativeMode(),true);
+assert.equal(context.exitBackgroundNativeMode({restore:false}),true,
+  'switching to another video exits native mode with no auto-reload');
+assert.equal(rebuildCount,1,'new selected video owner will recreate regular player');
+assert.equal(context.backgroundReturnPosition,null);
+context.ytPlayer={getVideoData:()=>({video_id:B}),getCurrentTime:()=>300};
+assert.equal(context.backgroundWatchPayload().seconds,0,'never reuse time of another video');
+context.autoplayNext=false;
+assert.deepEqual(Array.from(context.backgroundWatchPayload().next),[],
+  'off toggle respected in native playlist');
+context.navigator.standalone=true;
+assert.equal(context.isIOSSafariBackgroundTab(),false,'PWA does not promise system PiP');
+context.navigator.standalone=false;
+context.navigator.userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) CriOS Safari/604.1';
+assert.equal(context.isIOSSafariBackgroundTab(),false,'Chrome iOS does not get Safari-specific mode');
+context.navigator.userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Safari/605.1.15';
+context.currentMeta={id:A,title:'Live stream',isLive:true};
+assert.equal(context.backgroundWatchPayload(),null,'LIVE is excluded');
 
 console.log('1988 desktop search and mobile next autoplay PASS');
