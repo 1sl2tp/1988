@@ -1,3 +1,10 @@
+## 2026-10-14 — Safari iPhone "Chạy nền" optional entry from normal Watch
+
+- Explicitly approved by user after isolated YouTube playlist PiP background success; no auto/direct-Lock promises. Rule-first `README_MAINTENANCE.md §0.F` `fb9e553f55ceb0a1e436f9beb383a96a26b9fede`. Main index change `f8402f75027753844555cefcbac29cbb58393811`; one standalone native background player page `dc4bc00e8dc9b9918f2a41c3916ee11a06e67941`; final regression test `1b6c1b27cc14b538a2eb68049f35199bddd48071`.
+- Safari tab-only non-LIVE Watch action, selected video+YT-confirmed timestamp+up-to-12 next verified IDs from existing feed, saved autoplay-off respected; same-tab navigation pauses original iframe. New page `playsinline=0`, `autoplay=0`, one official iframe `start` and `playlist`; user Play → Home → system PiP → Lock. Prior default `playsinline=1` and existing JS-on-ENDED Watch intact. PWA/desktop and previous independent demos unchanged.
+- JS syntax parse PASS and one-iframe static checks; Verify `38502074258` PASS, Verify production source `38501953654` PASS, Pages `38501953628` PASS including production contracts/HTTPS custom domain. Google project Rule46 and global SDD updated. Direct new URL inaccessible via web fetch; real on-device iPhone handoff, timestamp, PiP/lock and E5 measured byte deltas PENDING. Do not claim direct-lock fixed.
+- No Supabase/Cloudflare/Render/db/polling/edge/log/cache/service worker/proxy modifications. Rollback only optional button, helper, separate page.
+
 ## 2026-10-14 — User confirms three-video Safari PiP/background playlist works
 
 - User tried isolated `sources/pip-playlist-lab.html` with official YouTube iframe playlist and reported **"Có hoạt động tốt nhé"**. Treat as **E4 USER-REPORTED overall success** for transition behavior via native fullscreen → Home → PiP → lock on their iPhone, not proof of every separately unreported test case, other devices, or 2→3 transition details.
