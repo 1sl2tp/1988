@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10131b">
+  <meta name="robots" content="noindex,nofollow">
+  <title>iPhone PiP & nghe nền — Demo riêng · 1988</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0d1018;--panel:#171b26;--ink:#f4f6fb;--muted:#a3aec0;--line:#2d3646;--accent:#86b8ff;--accentText:#0c1b36;--radius:18px}
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(ellipse at 40% -20%,#23324d 0,transparent 60%),var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{width:min(880px,100%);margin:0 auto;padding:max(20px,env(safe-area-inset-top)) 16px max(36px,env(safe-area-inset-bottom))}
+    .eyebrow{letter-spacing:.13em;font-size:11px;font-weight:800;text-transform:uppercase;color:var(--accent)}
+    h1{font-size:clamp(23px,5vw,32px);letter-spacing:-.03em;line-height:1.2;margin:8px 0 10px}
+    h2{font-size:16px;line-height:1.35;margin:0 0 10px}
+    p{margin:0 0 12px}
+    .lead{color:var(--muted);max-width:750px;margin-bottom:22px}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+    .tag{display:inline-flex;border:1px solid var(--line);border-radius:999px;color:var(--muted);padding:4px 10px;font-size:12px;vertical-align:middle}
+    .video-shell{background:#000;border-radius:12px;overflow:hidden;width:100%;aspect-ratio:16/9;min-height:200px}
+    iframe{display:block;width:100%;height:100%;border:0;background:#000}
+    .video-label{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}
+    .video-label h2{margin:0;font-size:14px}
+    .hint{font-size:13px;color:var(--muted)}
+    .controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+    button{min-height:48px;border-radius:12px;border:1px solid #516079;background:#202a3a;color:var(--ink);font:600 14px/1.3 inherit;cursor:pointer;padding:10px 12px;text-align:center}
+    button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:var(--accentText)}
+    button:focus-visible,a:focus-visible{outline:2px solid #cce2ff;outline-offset:3px}
+    .actions{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;margin-top:12px}
+    .outline{background:transparent;border-color:var(--line)}
+    .support{display:grid;gap:8px;margin-top:12px}
+    .support div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+    .support strong{font-weight:600;text-align:right;font-size:13px}
+    ol{margin:8px 0 0;padding-left:21px}li{padding-left:4px;margin:7px 0}
+    a{color:#b8d7ff}
+    .notice{border-left:3px solid var(--accent);padding-left:12px;font-size:13px;color:var(--muted);margin-top:12px}
+    .event-log{white-space:pre-wrap;overflow-wrap:anywhere;min-height:66px;max-height:190px;overflow:auto;background:#0c111b;border:1px solid var(--line);padding:11px;border-radius:10px;font:12px/1.55 ui-monospace,Menlo,monospace;color:#cfdeed}
+    .tiny{font-size:12px;color:var(--muted);margin-top:12px}
+    footer{color:var(--muted);font-size:12px;margin-top:18px}
+    @media(min-width:720px){.panel{padding:20px}.actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:340px){.controls{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<main>
+  <span class="eyebrow">1988 · Thử nghiệm độc lập · Một video</span>
+  <h1>PiP tự động và nghe khi khóa màn hình</h1>
+  <p class="lead">Thử cùng một video YouTube bằng hai cách phát trên Safari iPhone. Demo này không sửa trình phát chính và không lấy, sao chép hay proxy âm thanh/video.</p>
+  <section class="panel" aria-labelledby="video-heading">
+    <div class="video-label">
+      <h2 id="video-heading">Bolero · Hà Thanh Xuân <span class="tag">Cfmkk9wAXUw</span></h2>
+      <span class="tag" id="mode-label">Ưu tiên toàn màn hình</span>
+    </div>
+    <div class="video-shell">
+      <iframe id="video-frame" title="Video duy nhất thử nghiệm PiP Safari" loading="eager"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowfullscreen webkitallowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    </div>
+    <p class="hint" style="margin-top:12px">Chỉ có <strong>một</strong> iframe. Đổi chế độ sẽ tải lại đúng video này (không chạy hai nguồn đồng thời).</p>
+    <div class="controls" role="group" aria-label="Chọn chế độ thử phát">
+      <button id="prefer-native" type="button" aria-pressed="true">A · Ưu tiên PiP iPhone</button>
+      <button id="prefer-inline" type="button" aria-pressed="false">B · Phát trong trang</button>
+    </div>
+    <div class="actions">
+      <button type="button" class="outline" id="try-fullscreen">Thử mở fullscreen từ web</button>
+      <button type="button" class="outline" id="reset-video">Tải lại video thử</button>
+    </div>
+    <div class="notice" id="mode-explanation" aria-live="polite">A sử dụng YouTube <code>playsinline=0</code>: chạm Play ngay trong khung, iPhone có thể mở trình phát toàn màn hình gốc. Sau đó thử vuốt về Home hoặc khóa màn hình khi đang phát.</div>
+  </section>
+  <section class="panel">
+    <h2>Cách kiểm tra đúng mục tiêu</h2>
+    <ol>
+      <li>Trên iPhone: <strong>Cài đặt → Cài đặt chung → Hình trong hình → Tự động bắt đầu PiP</strong>.</li>
+      <li>Mở trang demo này trong <strong>Safari</strong>, chọn A, rồi chạm nút Play <strong>bên trong video</strong>.</li>
+      <li>Nếu iOS đưa lên trình phát toàn màn hình, <strong>vuốt về Home</strong> để kiểm tra iOS có tự chuyển PiP mà không cần bấm nút PiP không.</li>
+      <li>Khóa màn hình khi video đang phát, thử nghe tiếng. Quay lại trang để xem nhật ký ẩn/hiện.</li>
+      <li>Chọn B và làm lại để so sánh với kiểu iframe đang dùng trên web chính.</li>
+    </ol>
+    <p class="notice">Safari/iOS/YouTube quyết định có cho tự vào PiP hoặc phát khi khóa máy hay không. Web không có quyền ép một video <em>bên trong iframe YouTube</em> sang PiP ở thời điểm bạn nhấn Home/khóa màn hình. Nút fullscreen chỉ là thử nghiệm API cho iframe, không đảm bảo mở trình phát video native.</p>
+  </section>
+  <section class="panel">
+    <h2>Trạng thái trình duyệt</h2>
+    <div class="support" aria-live="polite">
+      <div><span>Đang chạy trong</span><strong id="client-status">Đang kiểm tra…</strong></div>
+      <div><span>Chế độ trang</span><strong id="display-status">Đang kiểm tra…</strong></div>
+      <div><span>Trang hiện tại</span><strong id="visibility-status">Đang kiểm tra…</strong></div>
+      <div><span>Fullscreen API của trang</span><strong id="fullscreen-status">Đang kiểm tra…</strong></div>
+      <div><span>PiP nội dung YouTube nhúng</span><strong>Không thể gọi trực tiếp từ trang mẹ</strong></div>
+    </div>
+    <h2 style="margin-top:18px">Nhật ký cục bộ</h2>
+    <div id="event-log" class="event-log" aria-live="polite">Chưa có sự kiện.</div>
+    <p class="tiny">Nhật ký chỉ tồn tại trong trang hiện tại, không gửi lên Supabase, Render, Cloudflare hay lưu vào cơ sở dữ liệu. Khi iPhone khóa, JavaScript có thể bị tạm dừng và không quan sát được trạng thái âm thanh thực tế.</p>
+  </section>
+  <footer>Demo riêng <strong>/sources/pip-background-lab.html</strong> · YouTube iframe chính thức · Không tự phát nền giả · <a href="https://www.youtube.com/watch?v=Cfmkk9wAXUw" target="_blank" rel="noopener noreferrer">Mở video gốc trên YouTube</a>.</footer>
+</main>
+<script>
+(function(){
+  'use strict';
+  const VIDEO_ID='Cfmkk9wAXUw';
+  const iframe=document.getElementById('video-frame');
+  const logEl=document.getElementById('event-log');
+  const nativeButton=document.getElementById('prefer-native');
+  const inlineButton=document.getElementById('prefer-inline');
+  const modeLabel=document.getElementById('mode-label');
+  const explanation=document.getElementById('mode-explanation');
+  const logs=[];
+  let mode='native';
+
+  function log(message){
+    const when=new Date().toLocaleTimeString('vi-VN',{hour12:false});
+    logs.unshift(when+' · '+message);
+    if(logs.length>18)logs.pop();
+    logEl.textContent=logs.join('\n');
+  }
+  function embedUrl(){
+    const args=new URLSearchParams({
+      autoplay:'0',controls:'1',fs:'1',rel:'0',
+      playsinline:mode==='native'?'0':'1',origin:location.origin
+    });
+    return 'https://www.youtube-nocookie.com/embed/'+VIDEO_ID+'?'+args.toString();
+  }
+  function renderMode(){
+    nativeButton.setAttribute('aria-pressed',String(mode==='native'));
+    inlineButton.setAttribute('aria-pressed',String(mode==='inline'));
+    modeLabel.textContent=mode==='native'?'Ưu tiên toàn màn hình':'Phát nội tuyến';
+    explanation.innerHTML=mode==='native'
+      ?'A dùng YouTube <code>playsinline=0</code>: chạm Play trong khung để thử mở trình phát toàn màn hình gốc trên iPhone. Sau đó thử vuốt về Home hoặc khóa màn hình.'
+      :'B dùng YouTube <code>playsinline=1</code>, tương tự iframe web chính. Xem video trong trang rồi thử Home/khóa màn hình để so sánh.';
+    iframe.src=embedUrl();
+    log('Tải đúng một iframe — '+(mode==='native'?'A fullscreen ưu tiên':'B inline'));
+  }
+  function setMode(next){
+    if(next===mode)return;
+    mode=next;
+    renderMode();
+  }
+  function clientName(){
+    const ua=navigator.userAgent||'';
+    const ios=/iPhone|iPad|iPod/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+    const safari=/Safari/.test(ua)&&!/CriOS|FxiOS|EdgiOS/.test(ua);
+    if(ios)return safari?'Safari · iOS/iPadOS':'Trình duyệt iOS khác';
+    return /Android/.test(ua)?'Android':'Máy tính / khác';
+  }
+  function checkState(){
+    document.getElementById('client-status').textContent=clientName();
+    const standalone=(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;
+    document.getElementById('display-status').textContent=standalone?'PWA màn hình chính':'Tab trình duyệt';
+    document.getElementById('visibility-status').textContent=document.visibilityState;
+    document.getElementById('fullscreen-status').textContent=typeof iframe.requestFullscreen==='function'?'Có API cho iframe (không chắc PiP)':'Không khả dụng';
+  }
+  nativeButton.addEventListener('click',function(){setMode('native')});
+  inlineButton.addEventListener('click',function(){setMode('inline')});
+  document.getElementById('reset-video').addEventListener('click',renderMode);
+  document.getElementById('try-fullscreen').addEventListener('click',function(){
+    if(typeof iframe.requestFullscreen!=='function'){
+      log('Fullscreen API không hỗ trợ iframe trên trình duyệt này');
+      return;
+    }
+    try{
+      const result=iframe.requestFullscreen();
+      Promise.resolve(result).then(function(){log('Đã yêu cầu fullscreen của iframe (không phải PiP)')}).catch(function(error){
+        log('Fullscreen bị từ chối: '+String(error&&error.name||error));
+      });
+    }catch(error){log('Fullscreen lỗi: '+String(error&&error.name||error))}
+  });
+  iframe.addEventListener('load',function(){log('Iframe hoàn tất tải trang; chưa xác nhận video phát')});
+  document.addEventListener('visibilitychange',function(){
+    checkState();
+    log('Trang chuyển sang '+document.visibilityState+' (không đo được trạng thái audio trong iframe)');
+  });
+  document.addEventListener('fullscreenchange',function(){checkState();log('Fullscreen document thay đổi')});
+  window.addEventListener('pageshow',function(){checkState();log('Trang được hiển thị / quay lại Safari')});
+  window.addEventListener('pagehide',function(){log('Trang bị rời đi / đưa xuống nền')});
+  window.addEventListener('online',function(){log('Kết nối mạng trở lại')});
+  window.addEventListener('offline',function(){log('Không có kết nối mạng')});
+  checkState();
+  renderMode();
+})();
+</script>
+</body>
+</html>
