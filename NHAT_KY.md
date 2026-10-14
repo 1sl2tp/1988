@@ -1,3 +1,11 @@
+## 2026-10-14 — Rule 43: Watch queue 680/1080 deterministic + size caps
+
+- After user screenshots of mobile, wide landscape, narrow portrait and ultrawide portrait, changed ONLY active Watch recommendation geometry: one selector based on real remaining width (<680 one, 680–1079 two, >=1080 three), card 16:9 target360–390 min300/max560 and gap16. Video stays left at true ratio, mobile <1000 below one column, browse still up to four.
+- Wrote canonical rule first: `README_MAINTENANCE.md §0.C` `f2370585d470fcc48552240b13ee28271980695c` + project Rule43 and global SDD.
+- Code `2e9b6035e3ca3463fe2696fa70e63efffca01bf6`; release `35a99165f8e733215d570056bbefda2c9c2f63a6`. Tests `d78c148d8a301ac8e64a665d21eb110234c5aa90` & `d749856a51add7ef3047bcfd587e2e6fcb0c1f82`.
+- Verify `38496181995` SUCCESS; Pages `38496182020` SUCCESS incl. HTTPS custom domain. Only frontend, no Supabase/Cloudflare/Render, no new calls/jobs/cache invalidation. E4 actual devices/E5 network measurements pending.
+- Rollback targeted Watch width-selector and 1/2/3 cap; existing data, playback, feed and sources remain unchanged.
+
 ## 2026-10-14 — Correction after screenshots: Watch LEFT + recommendations 1–3 columns
 
 - User clarified media should always be flush left, with remaining width split into 1/2/3 next-feed cards as permitted; previously released centered/capped one-column queue contradicted this.
