@@ -91,16 +91,16 @@ assert(html.includes('html.viewer-active.one-col .rows{'),'mobile queue remains 
 // Background listening: isolated Safari opt-in preserves the normal player,
 // passes its timestamp and a finite, deduplicated preloaded feed to ONE iframe.
 const bgHtml=fs.readFileSync('sources/background-listen.html','utf8');
-assert.equal((bgHtml.match(/<iframe\\b/g)||[]).length,1,'one native background iframe only');
+assert.equal((bgHtml.match(/<iframe\b/g)||[]).length,1,'one native background iframe only');
 assert(bgHtml.includes("autoplay:'0',controls:'1',fs:'1',playsinline:'0'"),
   'background iframe must use tested Safari fullscreen mode without forced autoplay');
 assert(bgHtml.includes("params.set('start',String(start))"),'selected video timestamp carried via embed start');
 assert(bgHtml.includes("params.set('playlist',next.join(','))"),'YouTube owns background next-video transitions');
 assert(bgHtml.includes("frame.src='https://www.youtube-nocookie.com/embed/'+id"),
   'only official YouTube iframe, never proxy or alternate media');
-assert(!/fetch\\(|setInterval\\(|serviceWorker\\.register|\\/audio\\?id=/.test(bgHtml),
+assert(!/fetch\(|setInterval\(|serviceWorker\.register|\/audio\?id=/.test(bgHtml),
   'no backend, scheduled activity or scraped audio in background page');
-const script=bgHtml.match(/<script>([\\s\\S]*?)<\\/script>/)?.[1];
+const script=bgHtml.match(/<script>([\s\S]*?)<\/script>/)?.[1];
 assert(script,'background page has inline script');
 assert.doesNotThrow(()=>new vm.Script(script),'background HTML JavaScript syntax valid');
 assert(html.includes('id="backgroundModeButton"')&&html.includes('data-info-action="background-listen"'),
