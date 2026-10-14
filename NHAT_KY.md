@@ -1,3 +1,10 @@
+## 2026-10-15 — Xem nổi on Mac: native-only titlebar, aspect-based window, one center Play icon
+
+- User screenshot shows video actually playing via HTTPS YouTube PiP host, but redundant custom title + text Trở lại xem inside browser's own PiP titlebar, another Watch-side button and blocked autoplay. Rule-first `README_MAINTENANCE.md §0.K` `8e7db480291ae5d431790042176da61776b5d4ac`.
+- Source `index.html` `f83dc2d586c62b5a22f25ee4b54cb116f1979512`: PiP HTML only a 100%-sized media iframe, no extra toolbar or return button, Watch floating bar hides while PiP active. Request initial dimensions based on verified current ratio (landscape 480×300, portrait 330×617 approx); browser native titlebar controls remain and popup can be resized, YouTube image ratio not stretched.
+- `sources/floating-youtube.html` `34e20c745d815822bfacc86c5a8bb741d33a08be` → release `c26dcf9e87702c5384a7e8a148fd661546ddd140`: official YT autoplay attempt once on Ready; when Chrome blocks, show one centered circular play icon and retry only on real user click; hide when PLAYING. No repeated timer/auto-unmute, media extraction or duplicate players. Keep same-origin HTTPS Referer host and error153 return-to-Watch fallback.
+- Tests `666f62a18aa9c3852cf16934d57ca8bc6240d140` Verify `38653666923` PASS; final Verify `38653761328` PASS. Final Pages `38653761322` pending at time of this entry. Physical Mac user test E4 needed, network E5 still pending; no change to Safari iPhone Chạy nền, default YouTube player or packages.
+
 ## 2026-10-14 — Fix Chrome Document PiP YouTube error153 from screenshot
 
 - User screenshot verified real Document PiP floating topmost Mac window BUT YouTube displayed "Lỗi cấu hình trình phát video", code 153; normal Watch iframe was blank. This is user-observed E4 failure. Official YouTube docs identify missing HTTP Referer or client identity. `about:blank` Document PiP context may not emit proper Referer to YouTube.
