@@ -1,3 +1,9 @@
+## 2026-10-14 — User confirms three-video Safari PiP/background playlist works
+
+- User tried isolated `sources/pip-playlist-lab.html` with official YouTube iframe playlist and reported **"Có hoạt động tốt nhé"**. Treat as **E4 USER-REPORTED overall success** for transition behavior via native fullscreen → Home → PiP → lock on their iPhone, not proof of every separately unreported test case, other devices, or 2→3 transition details.
+- Prior source `6f6c5a5d9d886b010975e999333c14019822b2a1`; existing CI Verify `38500407757` and Pages `38500407788` SUCCESS. E5 measured bandwidth/requests remains pending. Project Rule45 and global SDD status updated.
+- **Documentation only**: production Watch, source packages, PWA/SW, audio proxy, Supabase, Render and Cloudflare untouched; working one-video A demo preserved. Do not roll into main until user explicitly approves integration.
+
 ## 2026-10-14 — New isolated 3-song Safari PiP automatic-next experiment
 
 - User approved next-track testing with working one-video A as baseline. Added one new page only: `sources/pip-playlist-lab.html`, first ID `Cfmkk9wAXUw`, YouTube playlist successor IDs `pXL2jZFF6_k` and `wqjoebF6VfI` found on Hà Thanh Xuân Official. Source `6f6c5a5d9d886b010975e999333c14019822b2a1`.
