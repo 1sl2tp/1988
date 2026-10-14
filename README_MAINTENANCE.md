@@ -16,6 +16,14 @@
 - iOS may auto transition fullscreen media to PiP on Home only under compatible conditions/permissions. Cross-origin YouTube iframe video cannot be accessed by the parent site's HTMLVideoElement PiP API; page visibility events cannot guarantee background audio. Observe physically on Safari/PWA, report each outcome separately and distinguish CI deployment from device behavior.
 - Release `1d10773bddba3db556adeb99082928eb44e547e7`; Verify `38498738136` and Pages `38498738003` PASS, direct URL remote probe and lock-device E4 still pending. The demo is opt-in and is not linked or used by production watch routes.
 
+## 0.E. ISOLATED NATIVE YOUTUBE 3-VIDEO QUEUE / LOCK TEST — 2026-10-14
+
+- **Purpose:** user confirmed `sources/pip-background-lab.html` single-video A (`playsinline=0`) successfully plays via Safari fullscreen → Home → OS PiP → lock; still unknown whether video 2 starts when video 1 ends during PiP/lock. Test this WITHOUT modifying the working A page or any production `index.html`, service worker, PWA, API, package, playback, or backend.
+- **Isolated new page only:** `sources/pip-playlist-lab.html` on GitHub Pages (existing `cp -R sources _site/`). One iframe, first ID `Cfmkk9wAXUw` from user; official channel successors `pXL2jZFF6_k` and `wqjoebF6VfI` verified against public YouTube listings. YouTube official `/embed/VIDEO_ID?playlist=NEXT_ID_1,NEXT_ID_2&playsinline=0&autoplay=0&controls=1`; **first video is in the path, not duplicated in playlist**, no `loop`, no frontend `ENDED` handler or forced background timer.
+- **Test cases:** (1) player native fullscreen (seek to ~20s before end) and observe automatic next video while visible; (2) fullscreen → Home → system PiP and wait over track boundary; (3) fullscreen → Home → OS PiP → lock just before boundary and check if YouTube continues video 2 without interaction. Retain the known one-video demo as a separate baseline. User device reports, not static CI, decide whether background auto-next really works; the PiP window may exit on video change.
+- **Keep guardrails:** one iframe, no extra preplay video players, proxy, audio extraction, yt-dlp, YouTube Data API, backend, polling, timed auto-seek, injected MediaSession, SW changes or unnecessary logs. No guarantee that YouTube will allow third-party embedded next-video continuation in background; preserve original demo and working production.
+- **Release gate:** validate HTML script syntax, one iframe, exactly 3 distinct sourced IDs, playlist includes only 2 successors, `playsinline=0` and autoplay initially off. Verify existing CI and GitHub Pages custom-domain deploy. Record distinct results E1/E3 and E4 actual locked iPhone separately. Roll back only this new demo file if needed.
+
 # README MAINTENANCE — QUY TẮC BẮT BUỘC DỰ ÁN 1988
 
 > **CURRENT RUNTIME OVERRIDE — 2026-10-05**
