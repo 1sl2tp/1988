@@ -1,3 +1,9 @@
+## 2026-10-15 — XEM NỔI: CHE YOU TUBE TOP/BOTTOM NHƯ MAIN RAIL (CODE + CI + PAGES PASS, DEVICE E4 PENDING)
+
+- User screenshot sau bản viền 6px: thông tin YouTube vẫn lộ trong cửa sổ nổi. Nguyên nhân host HTTPS `#player` chiếm 100% media, thiếu source crop Rail 65px ngang / 59px dọc đang có ở MAIN.
+- Host `sources/floating-youtube.html` thêm một viewport nền đen `overflow:hidden`, đặt trực tiếp `#player` ở -65/-59px với height +2 lần offset (YT.Player thay chính element mount). Main `floatingEmbedUrl` truyền `shape` + phiên bản URL. Không đổi document PiP gutter 6px / round 10px, playback, API, titlebar, iPhone Safari, dữ liệu hoặc SW.
+- Source host `9d303cd`, MAIN `b3ea981a`, test `7b7a3e92`; Verify `38755049426` SUCCESS, Pages `38754884544` SUCCESS. Quy tắc `README_MAINTENANCE.md §0.M`; phải có ảnh Chrome Mac thực nghiệm mới xác nhận E4.
+
 ## 2026-10-15 — CHROME XEM NỔI: 6PX BLACK EDGE + 10PX CLIPPED CORNERS (RELEASED; MAC USER E4 PENDING)
 
 - User provided screenshots comparing desktop Chrome floating Document PiP to main media, explicitly requested black edge and clipped/rounded video corners. Keep Chrome-native PiP titlebar and system return/close controls; no extra toolbar or changed playback policy.
