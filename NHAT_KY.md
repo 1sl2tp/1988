@@ -1,3 +1,9 @@
+## 2026-10-15 — Sửa Xem nổi che thông tin YouTube bằng Rail đen như media chính
+
+- Ảnh người dùng: Document PiP ngoài Chrome vẫn lộ title/channel/YouTube chrome dù trước đó có nền/viền đen. Owner `sources/floating-youtube.html` đang để YT iframe phủ đúng 100%, không thực hiện crop Rail như `index.html` MAIN.
+- Sửa một lớp trên host: thêm viewport nền #000 cắt nguồn iframe với offset TOP/BOTTOM 65px ngang / 59px dọc; link từ MAIN gửi `shape`, giữ nguyên PiP 6px gutter, 10px rounded stage và một IFrame API player/HTTPS Referer, không thêm mạng/backend/media stream.
+- Source commits: host `9d303cdcf360c837f5eef56de39fc4c1ff0097e1`, main `b3ea981a6c044c7624be300230509ba5daa2fe17`. Test `7b7a3e922145af3f14177398e89088d207c4380f`; Verify `38755049426` SUCCESS; Pages `38754884544` SUCCESS. Thêm `README_MAINTENANCE.md §0.M`; Mac Chrome PiP E4 chưa có ảnh cập nhật, chưa tuyên bố hoàn tất trên thiết bị thật.
+
 ## 2026-10-15 — 1988 Chrome Xem nổi: black inset 6px / rounded media clipping 10px
 
 - User screenshot of Chrome Mac OS-level Document PiP showed media too close to frame edges; asked to resemble main Watch media with thin black border and clipped corners. Rule first `README_MAINTENANCE.md §0.L` commit `9313357e3221ecfa210464642a74654f6f209655`.
