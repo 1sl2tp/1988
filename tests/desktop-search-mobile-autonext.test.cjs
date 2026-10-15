@@ -393,10 +393,12 @@ async function verifyDesktopFloating(){
   assert.equal(restores,2,'error restores normal Watch exactly once');
   assert.match(tags.floatingModeHint.textContent,/153/);
   // Native aspect contract: portrait starts tall; landscape starts at 16:9.
+  ff.current.kind='portrait';
   ff.current.detectedRatio=9/16;
   assert.deepEqual({...ff.floatingPipDimensions()},{width:330,height:607});
   assert.equal(new URL(ff.floatingEmbedUrl(ff.backgroundWatchPayload())).searchParams.get('shape'),'portrait',
     'portrait requests compact 59px Rail mask without a second player');
+  ff.current.kind='landscape';
   ff.current.detectedRatio=16/9;
   // API denial leaves the original playing and no fake floating window.
   ff.ytPlayer=newPlayer();
