@@ -246,6 +246,17 @@ assert(floatingHostHtml.includes('id="tap-play"')&&floatingHostHtml.includes('ar
   'one compact manual Play fallback inside the HTTPS player host');
 assert(floatingHostHtml.includes("onAutoplayBlocked:function(){"),
   'show Play fallback only when browser blocks autoplay');
+assert(floatingHostHtml.includes('<div id="media-viewport"><div id="player"></div></div>'),
+  'host must crop source iframe through one black media viewport, not draw over the video');
+assert(floatingHostHtml.includes('top:calc(0px - var(--rail-black))!important')&&
+  floatingHostHtml.includes('height:calc(100% + var(--rail-black) + var(--rail-black))!important'),
+  'floating YouTube source must use the same upper/lower Rail offset as MAIN');
+assert(html.includes('--rail-black-landscape:65px')&&html.includes('--rail-black-portrait:59px'),
+  'MAIN still owns the trusted Rail dimensions');
+assert(floatingHostHtml.includes("qs.get('shape')==='portrait'?'59px':'65px'"),
+  'floating Rail must use 59px portrait and 65px landscape, same as MAIN');
+assert(!floatingHostHtml.includes('#player iframe{'),
+  'YT.Player replaces the #player node with an iframe, so a child selector is ineffective');
 assert(floatingHostHtml.includes('playButton.addEventListener(\'click\''),
   'only one direct click to retry YouTube play with user activation');
 async function verifyDesktopFloating(){
@@ -312,6 +323,8 @@ async function verifyDesktopFloating(){
   assert.equal(url.searchParams.get('v'),A);
   assert.equal(url.searchParams.get('t'),'101');
   assert.equal(url.searchParams.get('next'),B+','+C);
+  assert.equal(url.searchParams.get('shape'),'landscape','landscape floating rail uses 65px');
+  assert.equal(url.searchParams.get('rail'),'20261015','host markup cache must refresh');
   const opening=ff.enterFloatingPipWindow();
   assert.equal(req,1,'requestWindow is synchronous with user click');
   assert.deepEqual({...requestedSizes[0]},{width:480,height:305},
@@ -382,6 +395,8 @@ async function verifyDesktopFloating(){
   // Native aspect contract: portrait starts tall; landscape starts at 16:9.
   ff.current.detectedRatio=9/16;
   assert.deepEqual({...ff.floatingPipDimensions()},{width:330,height:607});
+  assert.equal(new URL(ff.floatingEmbedUrl(ff.backgroundWatchPayload())).searchParams.get('shape'),'portrait',
+    'portrait requests compact 59px Rail mask without a second player');
   ff.current.detectedRatio=16/9;
   // API denial leaves the original playing and no fake floating window.
   ff.ytPlayer=newPlayer();
