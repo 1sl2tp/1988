@@ -9,9 +9,22 @@
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;overflow:hidden;font:12px/1.4 Arial,sans-serif}
-#player{position:absolute;inset:0;width:100%;height:100%;background:#000}
-#player iframe{display:block;border:0;width:100%;height:100%}
-/* The browser owns the PiP window resize. Never stretch or clip YouTube. */
+/* Match MAIN's Rail: black viewport clips YouTube's source frame top/bottom.
+   The IFrame API replaces #player with ONE YouTube iframe (it is not a child).
+   Landscape hides 65px each edge; portrait uses 59px as MAIN does. */
+:root{--rail-black:65px}
+#media-viewport{position:absolute;inset:0;overflow:hidden;background:#000}
+#player{
+  position:absolute!important;
+  left:0!important;right:auto!important;
+  top:calc(0px - var(--rail-black))!important;bottom:auto!important;
+  width:100%!important;
+  height:calc(100% + var(--rail-black) + var(--rail-black))!important;
+  max-width:none!important;max-height:none!important;
+  display:block;border:0!important;background:#000
+}
+/* Browser owns PiP resize; no transforms, zoom or cropping native video pixels.
+   Only the YouTube source frame's own top/bottom chrome is outside viewport. */
 #tap-play{position:absolute;z-index:5;inset:0;display:grid;place-items:center;width:100%;height:100%;border:0;background:rgba(0,0,0,.20);color:#fff;cursor:pointer;touch-action:manipulation}
 #tap-play .play-disc{display:grid;place-items:center;width:64px;height:64px;border-radius:50%;background:rgba(16,18,24,.88);border:1px solid rgba(255,255,255,.40);box-shadow:0 3px 14px rgba(0,0,0,.30)}
 #tap-play svg{width:26px;height:26px;fill:currentColor;margin-left:4px}
@@ -21,7 +34,7 @@ html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;overflow:hi
 </style>
 </head>
 <body>
-<div id="player"></div>
+<div id="media-viewport"><div id="player"></div></div>
 <button id="tap-play" type="button" hidden aria-label="Phát video trong cửa sổ nổi" title="Phát video">
   <span class="play-disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.7 20 12 7 20.3V3.7Z"></path></svg></span>
 </button>
@@ -30,6 +43,10 @@ html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;overflow:hi
 (function(){
 'use strict';
 const qs=new URLSearchParams(location.search);
+// Match the existing MAIN rail crop by the selected video's real orientation.
+document.documentElement?.style?.setProperty(
+  '--rail-black',qs.get('shape')==='portrait'?'59px':'65px'
+);
 const valid=/^[A-Za-z0-9_-]{11}$/;
 const videoId=String(qs.get('v')||'').trim();
 let start=Number(qs.get('t')||0);
