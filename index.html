@@ -7164,6 +7164,10 @@ html.viewer-active.one-col body{
     // Host the actual YouTube API iframe in a real same-origin HTTPS page.
     const url=new URL("/sources/floating-youtube.html",location.origin);
     url.searchParams.set("v",id);
+    // Floating host uses MAIN's Rail black mask: 65px landscape, 59px portrait.
+    // The shape affects CSS only, never changes the player/video/API identity.
+    url.searchParams.set("shape",current?.kind==="portrait"?"portrait":"landscape");
+    url.searchParams.set("rail","20261015");
     if(seconds>0)url.searchParams.set("t",String(Math.min(86400,Math.floor(seconds))));
     if(next?.length)url.searchParams.set("next",next.join(","));
     return url.href;
