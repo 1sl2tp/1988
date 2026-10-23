@@ -30,7 +30,7 @@ test('YouTube system and exact English category labels render naturally in Vietn
   assert.equal(labels.hash_b,'Giải trí');
   assert.equal(labels.hash_m,'Nhạc');
   assert.equal(labels.hash_c,'Công nghệ');
-  assert.deepEqual(rows.map(x=>x.key).slice(0,3),['live','latest','week']);
+  assert.deepEqual(Array.from(rows.slice(0,3),x=>x.key),['live','latest','week']);
 });
 test('every configured category gets an accessible pictogram or safe fallback',()=>{
   const tags=['Live','Ngày','Tuần','Teen','Kid','Review','SHOWS','Showbiz','Nhạc','Phim','Hài','Sinh tồn','Khám phá','Công nghệ','Thể thao','Tự tạo'];
@@ -42,7 +42,7 @@ test('every configured category gets an accessible pictogram or safe fallback',(
   assert.equal(c.sourceTabIcon('Tự tạo'),'▦');
   assert.match(html,/class="source-chip-icon" aria-hidden="true"/);
   assert.match(html,/class="source-chip-text"/);
-  assert.match(html,/aria-label="\'+escapeHtml\(label\)/);
+  assert(html.includes('aria-label="'+ "'" + '+escapeHtml(label)'),"category labels are accessible");
   assert(!html.includes('translateVideoTitlesOnClient'),'original YouTube video titles remain authoritative');
 });
 test('backend visit refresh requests queue behind busy lease and retain the two-scope budget',()=>{
