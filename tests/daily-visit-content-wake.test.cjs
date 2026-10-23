@@ -16,7 +16,7 @@ assert.match(live,/refreshUnifiedLiveInBackground\(/);
 assert.doesNotMatch(body,/refreshUnifiedLiveInBackground|runYoutubeLiveCycle|youtube\/live-scan/);
 assert.match(body,/status:"accepted"/);
 assert.match(body,/result\?\.reason==="refresh_already_running"/);
-assert.match(body,/status==="accepted"/);
+assert.match(body,/acceptedVisitSignature===signature/);
 function create({hidden=false,online=true,reply={ok:true,scopes:[{scope:'latest'}]}}={}){
   let now=Date.parse('2026-10-11T18:00:00.000Z'); // 01:00 on the 12th in Vietnam
   class Clock extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
