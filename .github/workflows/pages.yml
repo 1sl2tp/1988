@@ -42,6 +42,7 @@ jobs:
         run: |
           node --test tests/feed-refresh.test.cjs
           node --test tests/daily-visit-content-wake.test.cjs
+          node --test tests/visit-source-refresh-vietnamese-labels.test.cjs
           node --test tests/youtube-live-demand-contract.test.cjs
           node tests/source-state-contract.test.cjs
           node tests/search-resource-contract.test.cjs
