@@ -610,6 +610,10 @@ html.one-col .player.inline-overlay:not(.pip){
   -webkit-tap-highlight-color:transparent;
   transition:background-color .15s cubic-bezier(.05,0,0,1);
 }
+.source-chip-icon{display:inline-flex;align-items:center;justify-content:center;
+  width:17px;min-width:17px;height:20px;margin-right:6px;font-size:14px;
+  line-height:1;font-family:system-ui,"Apple Color Emoji","Segoe UI Emoji",sans-serif}
+.source-chip-text{display:inline-block;line-height:20px}
 .source-name-chips .source-chip:first-child{margin-left:4px}
 .source-chip:last-of-type{margin-right:0}
 .source-name-chips .source-chip:last-child{margin-right:0}
@@ -8044,6 +8048,49 @@ html.viewer-active.one-col body{
     }
   }
 
+  // Display-only Vietnamese category aliases. Keep the raw server source
+  // ID/label unchanged for feeds, searching, Admin and refresh scheduling.
+  function friendlySourceTabLabel(raw="",key=""){
+    if(key==="live")return "Trực tiếp";
+    if(key==="latest")return "Ngày";
+    if(key==="week")return "Tuần";
+    const original=String(raw||"").replace(/\s+/g," ").trim();
+    const folded=original.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+    const names={
+      teen:"Tuổi trẻ",kid:"Thiếu nhi",kids:"Thiếu nhi",
+      review:"Đánh giá",reviews:"Đánh giá",
+      shows:"Chương trình",show:"Chương trình",
+      showbiz:"Giải trí",entertainment:"Giải trí",
+      music:"Nhạc",movies:"Phim",movie:"Phim",
+      comedy:"Hài",news:"Tin tức",technology:"Công nghệ",
+      tech:"Công nghệ",sports:"Thể thao",sport:"Thể thao",
+      survival:"Sinh tồn",discovery:"Khám phá",explore:"Khám phá",
+      gaming:"Trò chơi",games:"Trò chơi"
+    };
+    return names[folded]||original;
+  }
+  function sourceTabIcon(label="",key=""){
+    if(key==="live")return "🔴";
+    if(key==="latest")return "🗓️";
+    if(key==="week")return "📅";
+    const name=String(label||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+    if(/nhac|music/.test(name))return "🎵";
+    if(/phim|movie/.test(name))return "🎬";
+    if(/hai|comedy/.test(name))return "😄";
+    if(/teen|tuoi tre/.test(name))return "👥";
+    if(/kid|thieu nhi/.test(name))return "🧸";
+    if(/review|danh gia/.test(name))return "⭐";
+    if(/sinh ton|survival/.test(name))return "🏕️";
+    if(/kham pha|discovery|explore/.test(name))return "🧭";
+    if(/showbiz|giai tri/.test(name))return "✨";
+    if(/shows|chuong trinh/.test(name))return "📺";
+    if(/cong nghe|tech/.test(name))return "💻";
+    if(/the thao|sport/.test(name))return "⚽";
+    if(/tin tuc|news/.test(name))return "📰";
+    if(/game|tro choi/.test(name))return "🎮";
+    return "▦";
+  }
+
   function existingSourceTabNames(remote={}){
     const labels=
       remote?.sourceLabels && typeof remote.sourceLabels==="object" && !Array.isArray(remote.sourceLabels)
@@ -8051,9 +8098,9 @@ html.viewer-active.one-col body{
         : {};
 
     const system=[
-      {key:"live",label:String(labels.live||"Live").trim()||"Live"},
-      {key:"latest",label:String(labels.latest||"Ngày").trim()||"Ngày"},
-      {key:"week",label:String(labels.week||"Tuần").trim()||"Tuần"}
+      {key:"live",label:friendlySourceTabLabel(labels.live||"Live","live")},
+      {key:"latest",label:friendlySourceTabLabel(labels.latest||"Ngày","latest")},
+      {key:"week",label:friendlySourceTabLabel(labels.week||"Tuần","week")}
     ];
 
     const custom=(Array.isArray(remote?.hashtags)?remote.hashtags:[])
@@ -8080,7 +8127,7 @@ html.viewer-active.one-col body{
 
     const seen=new Set();
     return [...system,...custom]
-      .map(row=>({key:row.key,label:row.label}))
+      .map(row=>({key:row.key,label:friendlySourceTabLabel(row.label,row.key)}))
       .filter(row=>{
         const key=row.label.toLocaleLowerCase("vi-VN");
         if(seen.has(key))return false;
@@ -8136,11 +8183,13 @@ html.viewer-active.one-col body{
       activePackageScope=remembered;
       try{localStorage.setItem(ACTIVE_SCOPE_KEY,remembered)}catch{}
     }
-    sourceNameChips.innerHTML=list.map(row=>
-      '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
-        escapeHtml(row.label)+
-      '</button>'
-    ).join("");
+    sourceNameChips.innerHTML=list.map(row=>{
+      const label=friendlySourceTabLabel(row.label,row.key);
+      return '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'" aria-label="'+escapeHtml(label)+'">'+
+        '<span class="source-chip-icon" aria-hidden="true">'+escapeHtml(sourceTabIcon(label,row.key))+'</span>'+
+        '<span class="source-chip-text">'+escapeHtml(label)+'</span>'+
+      '</button>';
+    }).join("");
     sourceScroll?.scrollTo?.({left:0,behavior:"auto"});
     requestAnimationFrame(()=>{
       updateHeaderSearchRoom();
