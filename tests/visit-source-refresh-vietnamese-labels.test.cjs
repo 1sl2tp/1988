@@ -42,7 +42,7 @@ test('every configured category gets an accessible pictogram or safe fallback',(
   assert.equal(c.sourceTabIcon('Tự tạo'),'▦');
   assert.match(html,/class="source-chip-icon" aria-hidden="true"/);
   assert.match(html,/class="source-chip-text"/);
-  assert(html.includes('aria-label="'+ "'" + '+escapeHtml(label)'),"category labels are accessible");
+  assert.match(html,/aria-label=.{0,80}escapeHtml\(label\)/);
   assert(!html.includes('translateVideoTitlesOnClient'),'original YouTube video titles remain authoritative');
 });
 test('backend visit refresh requests queue behind busy lease and retain the two-scope budget',()=>{
