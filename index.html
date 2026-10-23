@@ -5898,7 +5898,11 @@ html.viewer-active.one-col body{
     // server's tab list is known. Ordinary later tab clicks retain on-demand.
     setTimeout(()=>{
       if(startupDailyWakePending&&scope===STARTUP_SCOPE)return;
-      void checkPackagesOnDemand([scope]);
+      // Once the opening's batch is accepted, tab clicks only read the
+      // compact package manifest; they never queue a second upstream crawl.
+      void checkPackagesOnDemand([scope],{
+        wake:!acceptedVisitSignature&&!dailyContentWakePending
+      });
     },0);
     return feedMetas;
   }
@@ -6103,7 +6107,7 @@ html.viewer-active.one-col body{
     return dailyContentWakePending;
   }
 
-  async function checkPackagesOnDemand(scopes=[]){
+  async function checkPackagesOnDemand(scopes=[],{wake=true}={}){
     if(document.hidden)return false;
     const wanted=[...new Set(
       ((Array.isArray(scopes)&&scopes.length)?scopes:[activePackageScope])
@@ -6113,7 +6117,7 @@ html.viewer-active.one-col body{
     if(!wanted.length)return false;
     if(packageDemandPending)return packageDemandPending;
     const now=Date.now();
-    if(now-lastPackageDemandAt<PACKAGE_DEMAND_MIN_GAP_MS)return false;
+    if(now-lastPackageDemandAt<(wake?PACKAGE_DEMAND_MIN_GAP_MS:3000))return false;
     lastPackageDemandAt=now;
 
     packageDemandPending=(async()=>{
@@ -6123,7 +6127,7 @@ html.viewer-active.one-col body{
       // cheap, but only wake the package builder at the same cadence as the
       // server's intended scope freshness. Explicit LIVE/source actions use
       // their dedicated wake paths and are not blocked by this cache.
-      if(due.length){
+      if(wake&&due.length){
         const woke=await requestPreparedRefresh(due);
         if(woke)markPackageWake(due,Date.now());
       }
@@ -6151,7 +6155,9 @@ html.viewer-active.one-col body{
       scheduleLiveBackgroundRefresh();
       return true;
     }
-    void checkPackagesOnDemand([activePackageScope]);
+    void checkPackagesOnDemand([activePackageScope],{
+      wake:!acceptedVisitSignature&&!dailyContentWakePending
+    });
     return true;
   }
 
