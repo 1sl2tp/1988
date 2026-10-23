@@ -2428,10 +2428,26 @@ Deno.serve(async(req:Request)=>{
   }
 
   if(!await claimLease(rest,authHeaders)){
-    // Browser checks must never create duplicate work. Internal follow-ups are
-    // persisted to pending_scopes before they are invoked, so re-queueing here
-    // would make the same scope perpetually schedule itself while another run
-    // owns the lease.
+    // A visible visit can arrive while another scope owns the lease. The
+    // existing deduplicated pending queue must retain that visit's due scopes;
+    // otherwise a once-per-opening wake silently loses the entire refresh.
+    // Internal follow-ups never requeue here, to avoid self-scheduling loops.
+    if(clientCheck&&body?.daily_open===true){
+      const queued=await fetch(rest+"/rpc/yt1988_queue_refresh",{
+        method:"POST",headers:authHeaders,
+        body:JSON.stringify({p_profile_key:PROFILE,p_scopes:scopes})
+      }).then(response=>response.ok).catch(()=>false);
+      if(queued){
+        // Acknowledge accepted work, not completed package freshness.
+        await fetch(
+          rest+"/yt1988_refresh_config?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&scope=in.("+scopes.map(encodeURIComponent).join(",")+")",
+          {method:"PATCH",headers:{...authHeaders,"prefer":"return=minimal"},
+           body:JSON.stringify({last_enqueued_at:new Date().toISOString()})}
+        ).catch(()=>{});
+        return json({ok:true,queued:true,reason:"refresh_queued",scopes});
+      }
+    }
     return json({
       ok:true,
       skipped:true,
