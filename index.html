@@ -5966,7 +5966,7 @@ html.viewer-active.one-col body{
   const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
   const LIVE_ACTIVE_CHECK_MS=60_000;
   const PACKAGE_WAKE_CACHE_KEY="1988-package-wake-at-v1";
-  // One bounded wake PER OPEN BROWSER TAB SESSION, not once per Vietnam day.
+  // One bounded wake PER DOCUMENT OPEN/RELOAD, not once per Vietnam day.
   // The server processes up to two due source scopes at a time; this marker
   // means accepted/checked, never that all packages have finished updating.
   const DAILY_CONTENT_WAKE_KEY="1988-visit-content-request-v2";
@@ -6052,14 +6052,10 @@ html.viewer-active.one-col body{
     const scopes=dailyContentScopes(rows);
     if(!scopes.includes("latest")||!scopes.includes("week"))return false;
     const signature=scopes.slice().sort().join("|");
+    // Each newly loaded document is a new opening, including page reloads
+    // and PWA cold starts. In-memory acknowledgement blocks repeat callbacks
+    // during this one opening without suppressing the next one.
     if(acceptedVisitSignature===signature)return true;
-    try{
-      const previous=JSON.parse(sessionStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"null");
-      if(previous?.signature===signature&&previous?.status==="accepted"){
-        acceptedVisitSignature=signature;
-        return true;
-      }
-    }catch{}
     if(dailyContentWakePending)return dailyContentWakePending;
     // Failed, offline, or lease-busy visits may retry on a later foreground
     // visit, but never spin/retry/poll in the background.
