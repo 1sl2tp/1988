@@ -5962,10 +5962,11 @@ html.viewer-active.one-col body{
   const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
   const LIVE_ACTIVE_CHECK_MS=60_000;
   const PACKAGE_WAKE_CACHE_KEY="1988-package-wake-at-v1";
-  // One visitor-triggered refresh request per Vietnam calendar day for normal
-  // feed tabs. This is an ACCEPTED REQUEST marker, not proof every server job
-  // finished. The existing server lease/queue owns refresh completion.
-  const DAILY_CONTENT_WAKE_KEY="1988-daily-content-request-v1";
+  // One bounded wake PER OPEN BROWSER TAB SESSION, not once per Vietnam day.
+  // The server processes up to two due source scopes at a time; this marker
+  // means accepted/checked, never that all packages have finished updating.
+  const DAILY_CONTENT_WAKE_KEY="1988-visit-content-request-v2";
+  let acceptedVisitSignature="";
   let startupDailyWakePending=true;
   let dailyContentRows=[];
   let dailyContentWakePending=null;
@@ -6046,11 +6047,12 @@ html.viewer-active.one-col body{
     if(document.hidden||navigator.onLine===false)return false;
     const scopes=dailyContentScopes(rows);
     if(!scopes.includes("latest")||!scopes.includes("week"))return false;
-    const day=dailyVietnamKey();
     const signature=scopes.slice().sort().join("|");
+    if(acceptedVisitSignature===signature)return true;
     try{
-      const previous=JSON.parse(localStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"null");
-      if(previous?.day===day&&previous?.signature===signature&&previous?.status==="accepted"){
+      const previous=JSON.parse(sessionStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"null");
+      if(previous?.signature===signature&&previous?.status==="accepted"){
+        acceptedVisitSignature=signature;
         return true;
       }
     }catch{}
@@ -6073,13 +6075,17 @@ html.viewer-active.one-col body{
         // A busy lease did NOT queue these scopes, so do not mark accepted.
         if(result?.reason==="refresh_already_running")return false;
         if(result?.skipped===true&&result?.reason!=="not_due")return false;
+        // Server may return "refresh_queued" because another source is
+        // running. This is durable queue acknowledgement, not completion.
+        acceptedVisitSignature=signature;
         try{
-          localStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
-            day,signature,status:"accepted",at:Date.now()
+          sessionStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
+            signature,status:"accepted",at:Date.now(),
+            queued:result?.reason==="refresh_queued"
           }));
         }catch{}
-        // Hash-only read for the currently visible normal tab. Do not send
-        // another POST immediately after the daily batch or fetch unopened tabs.
+        // Check the visible package once after the session's single batch
+        // request. Do not issue another POST or fetch unopened tab payloads.
         if(!document.hidden&&activePackageScope!=="live"){
           void loadPackageManifest().then(()=>{
             if(!document.hidden&&activePackageScope!=="live"){
@@ -8312,8 +8318,8 @@ html.viewer-active.one-col body{
       await showPackageScope(activePackageScope);
     }
 
-    // Restore old packages, not every fresh network payload. A single visible
-    // visitor opens one daily server-side refresh batch for all normal tabs.
+    // Restore old packages first. One visible opening requests one bounded
+    // server-owned refresh batch for all enabled normal scopes.
     // Server handles lease and bounded pending scopes, with no LIVE discovery.
     prefetchPackages([activePackageScope]);
     dailyContentRows=rows;
