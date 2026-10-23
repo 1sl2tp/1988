@@ -23,7 +23,9 @@ function create({hidden=false,online=true,reply={ok:true,scopes:[{scope:'latest'
   const items=new Map(),requests=[],checks=[];
   const box={
     Intl,Date:Clock,JSON,Map,Set,Number,Promise,RegExp,
-    localStorage:{getItem:key=>items.get(key)||null,setItem:(key,value)=>items.set(key,value)},
+    localStorage:{getItem:key=>items.get('local:'+key)||null,setItem:(key,value)=>items.set('local:'+key,value)},
+    sessionStorage:{getItem:key=>items.get(key)||null,setItem:(key,value)=>items.set(key,value)},
+    acceptedVisitSignature:"",
     DAILY_CONTENT_WAKE_KEY:'daily-test',PACKAGE_REFRESH_URL:'https://test.invalid/refresh',
     dailyContentWakePending:null,lastDailyContentWakeAttemptAt:0,
     activePackageScope:'latest',document:{hidden},navigator:{onLine:online},
@@ -35,7 +37,7 @@ function create({hidden=false,online=true,reply={ok:true,scopes:[{scope:'latest'
   return {box,items,requests,checks,setNow:n=>{now=n},today:()=>box.dailyVietnamKey()};
 }
 const rows=[{key:'live',label:'Live'},{key:'latest',label:'Ngày'},{key:'week',label:'Tuần'},{key:'hash_001',label:'Music'},{key:'hash_002',label:'News'},{key:'hash_001',label:'duplicate'}];
-test('first visible visit sends one batched normal-scope wake, excludes LIVE and remembers requested day',async()=>{
+test('each opening sends one batched normal-scope wake, excludes LIVE and remembers the tab session',async()=>{
   const s=create();
   assert.equal(s.today(),'2026-10-12');
   assert.deepEqual(Array.from(s.box.dailyContentScopes(rows)),['latest','week','hash_001','hash_002']);
@@ -43,18 +45,24 @@ test('first visible visit sends one batched normal-scope wake, excludes LIVE and
   assert.equal(s.requests.length,1);
   assert.deepEqual(s.requests[0],{scopes:['latest','week','hash_001','hash_002'],client_check:true,daily_open:true});
   assert.equal(await s.box.wakeDailyContentOnVisibleVisit(rows),true);
-  assert.equal(s.requests.length,1,'same calendar day cannot schedule a second batch');
+  assert.equal(s.requests.length,1,'one opening cannot schedule the same batch twice');
   assert.equal(JSON.parse(s.items.get('daily-test')).status,'accepted');
   assert.equal(s.box.dailyContentScopes([{key:'live'}]).length,0);
 });
-test('new Vietnamese day retries, even on same open browser',async()=>{
+test('calendar rollover does not repeat an accepted batch in the same opening',async()=>{
   const s=create();await s.box.wakeDailyContentOnVisibleVisit(rows);
   s.setNow(Date.parse('2026-10-12T18:01:00.000Z'));
   assert.equal(s.today(),'2026-10-13');
   await s.box.wakeDailyContentOnVisibleVisit(rows);
-  assert.equal(s.requests.length,2);
+  assert.equal(s.requests.length,1);
 });
-test('failure, busy lease, or invisible/offline never mark day complete',async()=>{
+test('a different tab session can request fresh scopes on the same Vietnam day',async()=>{
+  const first=create();await first.box.wakeDailyContentOnVisibleVisit(rows);
+  const second=create();await second.box.wakeDailyContentOnVisibleVisit(rows);
+  assert.equal(first.requests.length,1);
+  assert.equal(second.requests.length,1);
+});
+test('failure, busy lease, or invisible/offline never marks this opening complete',async()=>{
   const hidden=create({hidden:true});assert.equal(await hidden.box.wakeDailyContentOnVisibleVisit(rows),false);assert.equal(hidden.requests.length,0);
   const offline=create({online:false});assert.equal(await offline.box.wakeDailyContentOnVisibleVisit(rows),false);assert.equal(offline.requests.length,0);
   const busy=create({reply:{ok:true,skipped:true,reason:'refresh_already_running'}});
@@ -62,6 +70,14 @@ test('failure, busy lease, or invisible/offline never mark day complete',async()
   assert.equal(busy.items.has('daily-test'),false);
   const failed=create({reply:{ok:false}});assert.equal(await failed.box.wakeDailyContentOnVisibleVisit(rows),false);
   assert.equal(failed.items.has('daily-test'),false);
+});
+test('server durably queues scopes behind a busy lease and marks opening accepted',async()=>{
+  const s=create({reply:{ok:true,queued:true,reason:'refresh_queued',scopes:['latest','week']}});
+  assert.equal(await s.box.wakeDailyContentOnVisibleVisit(rows),true);
+  assert.equal(s.requests.length,1);
+  assert.equal(JSON.parse(s.items.get('daily-test')).queued,true);
+  await s.box.wakeDailyContentOnVisibleVisit(rows);
+  assert.equal(s.requests.length,1);
 });
 test('server already checked due scopes means client records accepted, not all-packages-done',async()=>{
   const s=create({reply:{ok:true,skipped:true,reason:'not_due'}});
