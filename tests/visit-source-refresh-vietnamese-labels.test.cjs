@@ -45,6 +45,15 @@ test('every configured category gets an accessible pictogram or safe fallback',(
   assert.match(html,/aria-label=.{0,80}escapeHtml\(label\)/);
   assert(!html.includes('translateVideoTitlesOnClient'),'original YouTube video titles remain authoritative');
 });
+test('switching categories after one accepted visit does not issue duplicate refresh POSTs',()=>{
+  const start=html.indexOf('  async function showPackageScope(');
+  const end=html.indexOf('  let packageSyncRunning=',start);
+  const scope=html.slice(start,end);
+  assert.match(scope,/wake:!acceptedVisitSignature&&!dailyContentWakePending/);
+  assert.match(html,/async function checkPackagesOnDemand\(scopes=\[\],\{wake=true\}=\{\}\)/);
+  assert.match(html,/if\(wake&&due\.length\)/);
+  assert.match(html,/const result=await showPackageScope/);
+});
 test('backend visit refresh requests queue behind busy lease and retain the two-scope budget',()=>{
   const worker=fs.readFileSync('supabase/functions/yt1988-refresh/index.ts','utf8');
   assert.match(worker,/const MAX_SCOPES_PER_RUN=2/);
