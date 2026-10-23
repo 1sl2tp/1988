@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const html=fs.readFileSync('index.html','utf8');
-const start=html.indexOf('  function friendlySourceTabLabel(');
+const start=html.indexOf('  function parseSourceOrder(');
 const end=html.indexOf('  function syncPlatformButtons()',start);
 assert(start>0&&end>start);
 const c={Map,Set,String,Array,Number};
