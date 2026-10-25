@@ -673,7 +673,7 @@ async function enrichLiveRowsFromChannelDirectory(
       return !current&&!known &&
         (!Number.isFinite(checked)||now-checked>6*60*60*1000) &&
         now-Number(liveAvatarAttemptCache.get(sid)||0)>30*60*1000;
-    }).map((row:any)=>channelId(row))].slice(0,LIVE_MISSING_AVATAR_LOOKUPS_PER_RUN);
+    }).map((row:any)=>channelId(row)))].slice(0,LIVE_MISSING_AVATAR_LOOKUPS_PER_RUN);
     const repairs:any[]=[];
     await mapLimit(missing,2,async(sid:string)=>{
       liveAvatarAttemptCache.set(sid,now);
