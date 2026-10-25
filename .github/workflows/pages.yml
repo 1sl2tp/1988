@@ -44,6 +44,7 @@ jobs:
           node --test tests/daily-visit-content-wake.test.cjs
           node --test tests/visit-source-refresh-vietnamese-labels.test.cjs
           node --test tests/yt252_titles_thumbnails_live.test.cjs
+          node --test tests/yt253_rule_vi_titles_avatars.test.cjs
           node --test tests/youtube-live-demand-contract.test.cjs
           node tests/source-state-contract.test.cjs
           node tests/search-resource-contract.test.cjs
