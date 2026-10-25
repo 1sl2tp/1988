@@ -18,8 +18,8 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v51-edge-authoritative-live";
-const NON_LIVE_PIPELINE_VERSION="non-live-v20";
+const LIVE_PIPELINE_VERSION="live-v51-edge-authoritative-live-vi-only";
+const NON_LIVE_PIPELINE_VERSION="non-live-v20-vi-only";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
 const LIVE_EDGE_FRESH_MS=3*60*1000;
@@ -3804,8 +3804,12 @@ Deno.serve(async(req:Request)=>{
         ))return false;
         if(scope!=="live"&&titleLooksBroken(r))return false;
         if(scope==="live"&&liveKeywordBlocked(r,liveKeywords))return false;
-        // Do not filter by language. 1988 keeps the original language and only
-        // applies source/title/content policy.
+        // RULE CHUNG 1988: the DEFAULT Vietnamese feed must not ship an
+        // untranslated English display title to Safari. The publisher's
+        // verified Vietnamese localization is accepted when present.
+        const localizedVi=clean(r?.titleVi||r?._displayTitleVi||
+          r?.localizations?.vi?.title||"",300);
+        if(titleLooksEnglishOnly(r)&&!localizedVi)return false;
         return true;
       });
 
