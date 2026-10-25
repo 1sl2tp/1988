@@ -9062,7 +9062,7 @@ html.viewer-active.one-col body{
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
       syncFeedMoreSentinel(rows,hasMore);
-      setTimeout(localizeVisibleEnglishTitles,0);
+      if(typeof setTimeout==='function'&&typeof localizeVisibleEnglishTitles==='function')setTimeout(localizeVisibleEnglishTitles,0);
       return;
     }
 
@@ -9079,7 +9079,7 @@ html.viewer-active.one-col body{
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
       syncFeedMoreSentinel(rows,hasMore);
-      setTimeout(localizeVisibleEnglishTitles,0);
+      if(typeof setTimeout==='function'&&typeof localizeVisibleEnglishTitles==='function')setTimeout(localizeVisibleEnglishTitles,0);
       return;
     }
 
@@ -9103,7 +9103,7 @@ html.viewer-active.one-col body{
     primeVisibleLivePreviews();
     observeFeedMasonryRows();
     syncFeedMoreSentinel(rows,hasMore);
-      setTimeout(localizeVisibleEnglishTitles,0);
+      if(typeof setTimeout==='function'&&typeof localizeVisibleEnglishTitles==='function')setTimeout(localizeVisibleEnglishTitles,0);
   }
 
   function normalizedSearchQuery(value){
