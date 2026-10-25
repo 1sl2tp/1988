@@ -6067,7 +6067,9 @@ html.viewer-active.one-col body{
   async function wakeDailyContentOnVisibleVisit(rows=[]){
     if(document.hidden||navigator.onLine===false)return false;
     const scopes=dailyContentScopes(rows);
-    if(!scopes.includes("latest")||!scopes.includes("week"))return false;
+    // Do not block every source when a default scope is temporarily absent
+    // from the server roster. Refresh exactly the enabled non-LIVE scopes.
+    if(!scopes.length)return false;
     const signature=scopes.slice().sort().join("|");
     // Each newly loaded document is a new opening, including page reloads
     // and PWA cold starts. In-memory acknowledgement blocks repeat callbacks
@@ -8134,14 +8136,27 @@ html.viewer-active.one-col body{
       custom.sort((a,b)=>a.position-b.position||a.index-b.index);
     }
 
-    const seen=new Set();
+    // Source identity is its canonical scope ID, not the translated label.
+    // Two different scopes may both be called "Thiếu nhi": dropping one
+    // would hide the tab AND exclude it from the next visit-refresh batch.
+    const seenKeys=new Set();
+    const usedLabels=new Set();
     return [...system,...custom]
       .map(row=>({key:row.key,label:friendlySourceTabLabel(row.label,row.key)}))
       .filter(row=>{
-        const key=row.label.toLocaleLowerCase("vi-VN");
-        if(seen.has(key))return false;
-        seen.add(key);
+        if(seenKeys.has(row.key))return false;
+        seenKeys.add(row.key);
         return true;
+      })
+      .map(row=>{
+        const base=row.label;
+        let label=base;
+        let suffix=2;
+        while(usedLabels.has(label.toLocaleLowerCase("vi-VN"))){
+          label=base+" "+suffix++;
+        }
+        usedLabels.add(label.toLocaleLowerCase("vi-VN"));
+        return {...row,label};
       });
   }
 

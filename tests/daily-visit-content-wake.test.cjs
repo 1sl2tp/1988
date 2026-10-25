@@ -93,3 +93,13 @@ test('a changed server tab roster can request newly enabled hashtags once',async
   assert.equal(s.requests.length,2);
   assert.equal(s.requests[1].scopes.includes('hash_003'),true);
 });
+
+test('missing default week tab does not suppress refresh of the remaining selected sources',async()=>{
+  const s=create();
+  const partial=[{key:'latest',label:'Ngày'},{key:'hash_one',label:'Thiếu nhi'},{key:'live',label:'Trực tiếp'}];
+  assert.equal(await s.box.wakeDailyContentOnVisibleVisit(partial),true);
+  assert.equal(s.requests.length,1);
+  assert.deepEqual(s.requests[0].scopes,['latest','hash_one']);
+  assert.equal(await s.box.wakeDailyContentOnVisibleVisit(partial),true);
+  assert.equal(s.requests.length,1,'one logical visit means only one POST');
+});

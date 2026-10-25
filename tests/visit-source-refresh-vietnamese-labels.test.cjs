@@ -58,3 +58,20 @@ test('backend visit refresh requests queue behind busy lease and retain the two-
   assert.match(worker,/if\(scopes.length>MAX_SCOPES_PER_RUN\)/);
   assert.match(worker,/triggerFollowupRefresh\(rest,authHeaders,pending\)/);
 });
+
+test('different channel scopes with the same Vietnamese label remain visible and refreshable',()=>{
+  const rows=c.existingSourceTabNames({
+    hashtags:[
+      {id:'hash_one',label:'Kid'},
+      {id:'hash_two',label:'Kids'},
+      {id:'hash_three',label:'Kid'},
+      {id:'hash_one',label:'Duplicate ID should not duplicate a tab'},
+      {id:'hash_off',label:'Kid',enabled:false}
+    ]
+  });
+  const custom=rows.filter(row=>row.key.startsWith('hash_'));
+  assert.deepEqual(Array.from(custom,row=>row.key),['hash_one','hash_two','hash_three']);
+  assert.deepEqual(Array.from(custom,row=>row.label),['Thiếu nhi','Thiếu nhi 2','Thiếu nhi 3']);
+  assert.equal(new Set(rows.map(row=>row.key)).size,rows.length);
+  assert.equal(new Set(rows.map(row=>row.label)).size,rows.length);
+});
