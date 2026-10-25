@@ -8188,7 +8188,6 @@ html.viewer-active.one-col body{
     sourceNameChips.innerHTML=list.map(row=>{
       const label=friendlySourceTabLabel(row.label,row.key);
       return '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'" aria-label="'+escapeHtml(label)+'">'+
-        '<span class="source-chip-icon" aria-hidden="true">'+escapeHtml(sourceTabIcon(label,row.key))+'</span>'+
         '<span class="source-chip-text">'+escapeHtml(label)+'</span>'+
       '</button>';
     }).join("");
