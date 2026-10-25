@@ -41,6 +41,6 @@ test('LIVE feed owner is canonical package, not browser Cloudflare snapshot',()=
 test('LIVE discovery is demand-only; server wakes canonical package build',()=>{
  assert.match(html,/runYoutubeLiveCycle\(\{force,paint:false\}\)/);
  assert.match(html,/syncPreparedPackages\(\["live"\]\)/);
- assert.match(html,/requestPreparedRefresh\(\["live"\]\)/);
+ assert.match(html,/refreshUnifiedLiveInBackground\(\{/);
  assert.doesNotMatch(html,/syncVerifiedLiveSnapshot\(/);
 });
