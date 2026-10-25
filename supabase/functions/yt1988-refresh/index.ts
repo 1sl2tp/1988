@@ -632,7 +632,12 @@ function applyLiveDirectoryIdentity(row:any,directory:any){
   };
 }
 
-async function enrichLiveRowsFromChannelDirectory(rest:string,headers:any,rows:any[]){
+// Canonical avatar enrichment is server-only; no browser/card-by-card fanout.
+const LIVE_MISSING_AVATAR_LOOKUPS_PER_RUN=4;
+const liveAvatarAttemptCache=new Map<string,number>();
+async function enrichLiveRowsFromChannelDirectory(
+  rest:string,headers:any,rows:any[],supabaseUrl="",serviceKey=""
+){
   const list=Array.isArray(rows)?rows:[];
   const ids=[...new Set(list.map((row:any)=>channelId(row)).filter(Boolean))];
   if(!ids.length)return list;
@@ -643,7 +648,7 @@ async function enrichLiveRowsFromChannelDirectory(rest:string,headers:any,rows:a
     const res=await fetch(
       rest+"/yt1988_channel_directory?profile_key=eq."+encodeURIComponent(PROFILE)+
       "&channel_id=in.("+batch.map(encodeURIComponent).join(",")+")"+
-      "&select=channel_id,name,thumbnail_url",
+      "&select=channel_id,name,thumbnail_url,profile_checked_at",
       {headers}
     ).catch(()=>null);
     if(!res||!res.ok)continue;
@@ -654,6 +659,52 @@ async function enrichLiveRowsFromChannelDirectory(rest:string,headers:any,rows:a
     }
   }
 
+  // Only missing CDN avatar URLs get a targeted channel-metadata read.
+  // Never proxy/download avatar image bytes through Supabase.
+  if(supabaseUrl&&serviceKey){
+    const now=Date.now();
+    const missing=[...new Set(list.filter((row:any)=>{
+      const sid=channelId(row);
+      if(!/^UC[A-Za-z0-9_-]+$/.test(sid))return false;
+      const current=normalizeAvatarUrl(row?._sourceThumbnailUrl||row?.sourceAvatar||"");
+      const dir=directory.get(sid)||{};
+      const known=normalizeAvatarUrl(dir?.thumbnail_url||"");
+      const checked=Date.parse(String(dir?.profile_checked_at||""));
+      return !current&&!known &&
+        (!Number.isFinite(checked)||now-checked>6*60*60*1000) &&
+        now-Number(liveAvatarAttemptCache.get(sid)||0)>30*60*1000;
+    }).map((row:any)=>channelId(row))].slice(0,LIVE_MISSING_AVATAR_LOOKUPS_PER_RUN);
+    const repairs:any[]=[];
+    await mapLimit(missing,2,async(sid:string)=>{
+      liveAvatarAttemptCache.set(sid,now);
+      try{
+        const result=await fetchJson(
+          supabaseUrl+"/functions/v1/yt1988?action=channel&id="+encodeURIComponent(sid)+"&profile=1",
+          {"apikey":serviceKey,"authorization":"Bearer "+serviceKey},5000
+        );
+        const profile=result?.data||{};
+        const avatar=normalizeAvatarUrl(
+          profile?.avatarUrl||profile?.thumbnailUrl||profile?.avatar||""
+        );
+        const name=validChannelDisplayName(profile?.name||profile?.title||"");
+        if(!avatar)return null;
+        const prior=directory.get(sid)||{};
+        directory.set(sid,{...prior,channel_id:sid,
+          name:name||prior.name||"",thumbnail_url:avatar});
+        repairs.push({channel_id:sid,name:name||prior.name||"",
+          thumbnail_url:avatar,source:"live-missing-avatar",
+          profile_checked_at:new Date(now).toISOString()});
+      }catch(error){console.warn("live avatar metadata unavailable",sid,String(error))}
+      return null;
+    });
+    if(repairs.length){
+      const write=await fetch(rest+"/rpc/yt1988_upsert_channel_directory",{
+        method:"POST",headers,
+        body:JSON.stringify({p_profile_key:PROFILE,p_channels:repairs})
+      }).catch(()=>null);
+      if(!write?.ok)console.warn("live avatar directory update deferred");
+    }
+  }
   return list.map((row:any)=>{
     const sid=channelId(row);
     return applyLiveDirectoryIdentity(row,directory.get(sid));
@@ -3046,7 +3097,8 @@ Deno.serve(async(req:Request)=>{
       verifiedLiveRowsCache=await enrichLiveRowsFromChannelDirectory(
         rest,
         authHeaders,
-        verifiedLiveRowsCache
+        verifiedLiveRowsCache,
+        supabaseUrl,serviceKey
       );
       verifiedLiveRowsCache=await enrichLiveRowsExactTitles(
         supabaseUrl,
