@@ -1717,6 +1717,57 @@ html.two-col.landscape .info-menu{
   .info-actions{display:none}
   .info-menu{width:36px;height:36px;flex-basis:36px}
 }
+/* The selected channel, quick actions, menu and Xem nổi share one compact
+   toolbar at every desktop width. At narrow widths the overflow actions stay
+   available from the menu rather than being clipped out of the viewport. */
+.info-toolbar{flex-wrap:nowrap;position:relative}
+.info-channel{flex:1 1 0;min-width:0}
+.info-toolbar .floating-mode-bar{
+  flex:0 0 auto;
+  display:inline-flex;
+  min-width:max-content;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:0;
+  margin:0;
+}
+.info-toolbar .floating-mode-bar .background-mode-button{
+  flex:0 0 auto;
+  white-space:nowrap;
+  min-height:36px;
+  padding:0 10px;
+  gap:6px;
+}
+.info-toolbar .floating-mode-hint:not(:empty){
+  position:absolute;
+  z-index:4;
+  top:100%;
+  right:0;
+  max-width:min(290px,100%);
+  padding:5px 8px;
+  border-radius:8px;
+  background:var(--yt-surface);
+  white-space:normal;
+}
+@container media-card (max-width:700px){
+  .info-toolbar{gap:6px}
+  .info-actions{gap:4px}
+  .info-action{min-width:32px;width:32px;padding:0;justify-content:center}
+  .info-action > span{display:none}
+  .info-menu{width:34px;flex:0 0 34px;height:34px}
+}
+@container media-card (max-width:520px){
+  .info-actions{display:none!important}
+}
+@container media-card (max-width:440px){
+  .info-toolbar{gap:5px}
+  .info-channel{grid-template-columns:32px minmax(0,1fr);column-gap:7px}
+  .info-avatar{width:32px;height:32px}
+  .info-toolbar .floating-mode-bar .background-mode-button{
+    min-height:34px;padding:0 8px;font-size:12px
+  }
+  .info-menu{width:32px;height:32px;flex:0 0 32px}
+}
 .rows{
   position:relative;
   padding:20px var(--feed-edge-gap) 0;
@@ -2851,19 +2902,19 @@ html.viewer-active.one-col body{
         <button class="info-menu" id="videoMenu" aria-label="Thao tác khác" >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>
         </button>
+        <div id="floatingModeBar" class="background-mode-bar floating-mode-bar" hidden>
+          <span id="floatingModeHint" class="floating-mode-hint" role="status" aria-live="polite"></span>
+          <button id="floatingModeButton" class="background-mode-button" type="button" data-info-action="floating-pip" aria-label="Xem nổi phía trên các ứng dụng" title="Chrome/Edge: cửa sổ video nổi trên ứng dụng khác, kéo thả và thay đổi kích thước">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="15" rx="2"></rect><rect x="11" y="10" width="10" height="9" rx="1.5"></rect></svg>
+            <span id="floatingModeLabel">Xem nổi</span>
+          </button>
+        </div>
       </div>
       <div id="backgroundModeBar" class="background-mode-bar" hidden>
         <span id="backgroundModeHint" class="background-mode-hint" hidden>Nhấn Play → Home → PiP → khóa</span>
         <button id="backgroundModeButton" class="background-mode-button" type="button" data-info-action="background-listen" aria-label="Chạy nền trên Safari iPhone">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-4a8 8 0 0 1 16 0v4"></path><rect x="2.5" y="13" width="4" height="7" rx="1.5"></rect><rect x="17.5" y="13" width="4" height="7" rx="1.5"></rect></svg>
           <span id="backgroundModeLabel">Chạy nền</span>
-        </button>
-      </div>
-      <div id="floatingModeBar" class="background-mode-bar floating-mode-bar" hidden>
-        <span id="floatingModeHint" class="floating-mode-hint" role="status" aria-live="polite"></span>
-        <button id="floatingModeButton" class="background-mode-button" type="button" data-info-action="floating-pip" aria-label="Xem nổi phía trên các ứng dụng" title="Chrome/Edge: cửa sổ video nổi trên ứng dụng khác, kéo thả và thay đổi kích thước">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="15" rx="2"></rect><rect x="11" y="10" width="10" height="9" rx="1.5"></rect></svg>
-          <span id="floatingModeLabel">Xem nổi</span>
         </button>
       </div>
       <span id="videoMetaSep" hidden></span>
@@ -7271,7 +7322,7 @@ html.viewer-active.one-col body{
     return {width,height};
   }
 
-  function floatingEmbedUrl({id,seconds,next}){
+  function floatingEmbedUrl({id,seconds}){
     if(!/^[A-Za-z0-9_-]{11}$/.test(String(id||"")))return "";
     // The Document-PiP owner's URL is about:blank; embedding YouTube there
     // directly loses the required HTTP Referer (observed YouTube error 153).
@@ -7283,7 +7334,8 @@ html.viewer-active.one-col body{
     url.searchParams.set("shape",current?.kind==="portrait"?"portrait":"landscape");
     url.searchParams.set("rail","20261015");
     if(seconds>0)url.searchParams.set("t",String(Math.min(86400,Math.floor(seconds))));
-    if(next?.length)url.searchParams.set("next",next.join(","));
+    // Document-PiP must play the CURRENT exact video only. Never send a
+    // candidate queue: YouTube may start the playlist at a different item.
     return url.href;
   }
 
@@ -7405,6 +7457,14 @@ html.viewer-active.one-col body{
         event.origin!==location.origin||
         event.source!==iframe.contentWindow||
         event.data?.source!=="yt1988-floating-youtube")return;
+      if(event.data.videoId&&event.data.videoId!==payload.id){
+        // The floating page is not showing the selected main video. Fail
+        // closed rather than accepting another recommendation as current.
+        exitFloatingPipWindow({restore:true});
+        if(floatingModeHint)floatingModeHint.textContent=
+          "Video nổi không khớp video đang xem. Đã quay lại trình phát chính.";
+        return;
+      }
       if(event.data.state==="error"){
         const code=String(event.data.code||"");
         exitFloatingPipWindow({restore:true});

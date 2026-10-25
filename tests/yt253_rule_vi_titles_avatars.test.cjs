@@ -151,3 +151,43 @@ test('YT-09: shared logo directory restores from cache, uses manifest hash, and 
  assert.equal(await vm.runInContext('refreshSharedChannelLogoLibrary()',ctx),true);
  assert.equal(fetches,1,'no refetch of unchanged revision');
 });
+
+test('Document PiP uses the selected video only; it cannot choose a next-item playlist',()=>{
+ const page=fs.readFileSync('sources/floating-youtube.html','utf8');
+ assert.match(ui,/function floatingEmbedUrl\(\{id,seconds\}\)/);
+ const begin=ui.indexOf('  function floatingEmbedUrl(');
+ const end=ui.indexOf('  function exitFloatingPipWindow(',begin);
+ assert(begin>0&&end>begin);
+ const segment=ui.slice(begin,end);
+ assert.doesNotMatch(segment,/searchParams\.set\("next"/);
+ assert.match(segment,/searchParams\.set\("v",id\)/);
+ const ctx={URL,location:{origin:'https://yt.taphoa.xyz'},current:{kind:'landscape'}};
+ vm.createContext(ctx);
+ vm.runInContext(segment,ctx);
+ const result=vm.runInContext('floatingEmbedUrl({id:"ABCDEFGHIJK",seconds:30,next:["ZZZZZZZZZZZ"]})',ctx);
+ const url=new URL(result);
+ assert.equal(url.searchParams.get('v'),'ABCDEFGHIJK');
+ assert.equal(url.searchParams.get('t'),'30');
+ assert.equal(url.searchParams.has('next'),false);
+ assert.doesNotMatch(page,/playlist:next\.join/);
+ assert.doesNotMatch(page,/qs\.get\('next'\)/);
+ assert.match(page,/actual!==videoId/);
+ assert.match(page,/fail\('video-id-mismatch'\)/);
+ assert.match(page,/videoId,state:String\(state\)/);
+ assert.match(ui,/event\.data\.videoId&&event\.data\.videoId!==payload\.id/);
+});
+
+test('floating PiP button shares the channel action toolbar on responsive layouts',()=>{
+ const begin=ui.indexOf('<div class="info-toolbar">');
+ const end=ui.indexOf('<div id="backgroundModeBar"',begin);
+ const toolbar=ui.slice(begin,end);
+ assert.match(toolbar,/id="videoQuickActions"/);
+ assert.match(toolbar,/id="videoMenu"/);
+ assert.match(toolbar,/id="floatingModeBar"/);
+ assert.match(toolbar,/id="floatingModeButton"/);
+ assert.equal((ui.match(/id="floatingModeBar"/g)||[]).length,1);
+ assert.match(ui,/\.info-toolbar \.floating-mode-bar\{/);
+ assert.match(ui,/\.info-toolbar\{flex-wrap:nowrap;position:relative\}/);
+ assert.match(ui,/@container media-card \(max-width:520px\)\{\s*\.info-actions\{display:none!important\}/);
+ assert.match(ui,/\.background-mode-bar\[hidden\]\{display:none!important\}/);
+});

@@ -51,19 +51,10 @@ const valid=/^[A-Za-z0-9_-]{11}$/;
 const videoId=String(qs.get('v')||'').trim();
 let start=Number(qs.get('t')||0);
 start=Number.isFinite(start)?Math.max(0,Math.min(86400,Math.floor(start))):0;
-const candidates=String(qs.get('next')||'').split(',').slice(0,24);
-const seen=new Set([videoId]),next=[];
-for(const item of candidates){
-  const id=String(item||'').trim();
-  if(!valid.test(id)||seen.has(id))continue;
-  seen.add(id);
-  next.push(id);
-  if(next.length===12)break;
-}
 function notify(state,code=''){
   try{
     parent.postMessage(
-      {source:'yt1988-floating-youtube',state:String(state),code:String(code).slice(0,24)},
+      {source:'yt1988-floating-youtube',videoId,state:String(state),code:String(code).slice(0,24)},
       location.origin
     );
   }catch{}
@@ -105,7 +96,7 @@ window.onYouTubeIframeAPIReady=function(){
         enablejsapi:1,
         origin:location.origin,
         start,
-        ...(next.length?{playlist:next.join(',')}:{})
+        // One selected video only: no playlist and no automatic next video.
       },
       events:{
         onReady:function(event){
@@ -123,6 +114,12 @@ window.onYouTubeIframeAPIReady=function(){
         },
         onStateChange:function(event){
           if(event.data===YT.PlayerState.PLAYING){
+            const actual=String(event.target?.getVideoData?.()?.video_id||"");
+            if(actual!==videoId){
+              try{event.target.pauseVideo()}catch{}
+              fail('video-id-mismatch');
+              return;
+            }
             playButton.hidden=true;
             notify('playing');
           }
