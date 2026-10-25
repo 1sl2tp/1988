@@ -322,7 +322,7 @@ async function verifyDesktopFloating(){
   assert.equal(url.pathname,'/sources/floating-youtube.html');
   assert.equal(url.searchParams.get('v'),A);
   assert.equal(url.searchParams.get('t'),'101');
-  assert.equal(url.searchParams.get('next'),B+','+C);
+  assert.equal(url.searchParams.get('next'),null,'PiP must never hand off the selected video to a queue');
   assert.equal(url.searchParams.get('shape'),'landscape','landscape floating rail uses 65px');
   assert.equal(url.searchParams.get('rail'),'20261015','host markup cache must refresh');
   const opening=ff.enterFloatingPipWindow();
@@ -439,11 +439,12 @@ async function verifyDesktopFloating(){
   hostCtx.window.onYouTubeIframeAPIReady();
   assert.equal(playerSpec.videoId,A);
   assert.equal(playerSpec.playerVars.start,101);
-  assert.equal(playerSpec.playerVars.playlist,B+','+C);
+  assert.equal(playerSpec.playerVars.playlist,undefined,'floating host ignores stale queue parameters');
   assert.equal(playerSpec.playerVars.autoplay,1);
   assert.equal(playerSpec.playerVars.playsinline,1);
   const hostPlayer={
     getIframe(){return {setAttribute(){}}},
+    getVideoData(){return {video_id:A}},
     playVideo(){playerPlayCalls++}
   };
   playerSpec.events.onReady({target:hostPlayer});
@@ -456,11 +457,12 @@ async function verifyDesktopFloating(){
   fallbackPlay.callbacks.click();
   assert.equal(playerPlayCalls,2,
     'clicking PiP overlay uses user gesture to retry play without timers');
-  playerSpec.events.onStateChange({data:1});
+  playerSpec.events.onStateChange({data:1,target:hostPlayer});
+  assert.equal(messages.at(-1).data.videoId,A,'host carries exact selected-video identity');
   assert.equal(fallbackPlay.hidden,true,'hide manual Play overlay once video plays');
   playerSpec.events.onError({data:153});
   assert.deepEqual({...messages.at(-1).data},
-    {source:'yt1988-floating-youtube',state:'error',code:'153'});
+    {source:'yt1988-floating-youtube',videoId:A,state:'error',code:'153'});
   assert.equal(messages.at(-1).to,'https://yt.taphoa.xyz','messages restricted to same-origin PiP');
   // Browser capability gates, preserving Safari/iPhone background mode.
   delete browser.documentPictureInPicture;
