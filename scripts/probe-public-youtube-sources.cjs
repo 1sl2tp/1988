@@ -56,6 +56,20 @@ async function run(){
         }catch(e){status[scope.key].error=String(e.message||e).slice(0,110);}
       }));
     }
+    try{
+      const liveResponse=await fetch('https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev/youtube/live-now',{method:'GET',cache:'no-store'});
+      if(!liveResponse.ok)throw new Error('HTTP_'+liveResponse.status);
+      const edge=await liveResponse.json();
+      const checked=Number(edge?.checkedAt)||0;
+      console.log('LIVE_DISCOVERY',JSON.stringify({
+        edgeReachable:edge?.ok===true,
+        selected:Number(edge?.selected)||0,
+        checked:Number(edge?.checked)||0,
+        discovered:Number(edge?.discovered)||0,
+        live:Number(edge?.live)||0,
+        lastCheckedHours:checked>0?Math.round((Date.now()-checked)/3600000*10)/10:null
+      }));
+    }catch(error){console.log('LIVE_DISCOVERY_UNAVAILABLE',String(error?.message||error).slice(0,120));}
     const entries=Object.entries(status).map(([key,value])=>({key,...value}));
     console.log('SOURCE_ROWS',JSON.stringify(entries));
     const missing=entries.filter(x=>!x.published||x.exists===false||x.packageCount===0||x.error);
