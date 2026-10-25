@@ -1725,6 +1725,13 @@ html.two-col.landscape .info-menu{
   column-gap:var(--card-gap-x);
   row-gap:var(--card-gap-y);
 }
+.live-verified-wait{
+  grid-column:1 / -1;
+  padding:28px 16px;
+  text-align:center;
+  color:var(--yt-text-secondary,#aaa);
+  font:500 14px/1.6 Roboto,Arial,sans-serif;
+}
 .feed-head{display:none}
 .feed-head-title{
   min-width:0;
@@ -9020,7 +9027,10 @@ html.viewer-active.one-col body{
 
     rememberRenderedThumbs(rows);
     rememberRenderedAvatars(rows);
-    rows.innerHTML=feedHeaderMarkup()+rendered.map(cardMarkup).join("");
+    rows.innerHTML=feedHeaderMarkup()+rendered.map(cardMarkup).join("")+
+      (isLivePackage&&!rendered.length
+        ?'<p class="live-verified-wait" role="status">Đang xác minh kênh trực tiếp. Chưa có video được xác nhận gần đây.</p>'
+        :"");
     rows.dataset.renderSignature=signature;
     rows.dataset.renderOwner=owner;
     rows.dataset.renderedCount=String(rendered.length);
