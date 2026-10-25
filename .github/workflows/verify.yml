@@ -32,6 +32,11 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Audit live configured YouTube source packages (read-only)
+        continue-on-error: true
+        timeout-minutes: 3
+        run: node scripts/probe-public-youtube-sources.cjs
+
       - name: Test production contracts
         run: |
           node --test tests/feed-refresh.test.cjs
