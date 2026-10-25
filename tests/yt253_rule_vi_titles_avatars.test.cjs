@@ -14,7 +14,7 @@ test('server excludes untranslated English titles from every default package',()
    .replace(/[\u0300-\u036f]/g,'').replace(/[đĐ]/g,'d').toLowerCase()
    .replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
  const clean=(x,max=1000)=>String(x??'').replace(/\s+/g,' ').trim().slice(0,max);
- const classify=vm.runInNewContext(server.slice(begin,end)+'\ntitleLooksEnglishOnly;',{
+ const classify=vm.runInNewContext((server.slice(begin,end)+'\ntitleLooksEnglishOnly;').replace(/:any\b/g,''),{
    Set,normalizeText,clean
  });
  for(const title of [
