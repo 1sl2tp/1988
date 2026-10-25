@@ -5885,13 +5885,11 @@ html.viewer-active.one-col body{
     if(scope==="live"){
       // 1988 rule: UI reads only the prepared LIVE package. Cloudflare may
       // discover LIVE channels, but its snapshot is never a browser feed.
-      feedMetas=currentYoutubeLiveMetas(baseMetas);
+      // Rule chung / SƠ ĐỒ 1988: the server package is the ONLY feed owner.
+      feedMetas=Array.isArray(baseMetas)?baseMetas:[];
       renderSampleContent();
 
       if(hydrateLive){
-        // A fresh verified edge snapshot can immediately recover a stalled
-        // LIVE package without performing another YouTube scan.
-        void syncVerifiedLiveSnapshot({paint:true});
         void refreshUnifiedLiveInBackground({
           force:true,
           reason:"tab-open",
@@ -5923,9 +5921,8 @@ html.viewer-active.one-col body{
   function paintSyncedPackage(scope,metas){
     if(feedMode!=="package"||activePackageScope!==scope)return;
     const base=Array.isArray(metas)?metas:[];
-    // LIVE can use a fresher exact-owner-verified snapshot while the package
-    // stalls. Non-LIVE scopes remain authoritative prepared server packages.
-    feedMetas=scope==="live"?currentYoutubeLiveMetas(base):startupVisibleMetas(scope,base);
+    // All scopes including LIVE render only the canonical prepared package.
+    feedMetas=startupVisibleMetas(scope,base);
     renderSampleContent();
   }
 
@@ -6658,46 +6655,9 @@ html.viewer-active.one-col body{
     return true;
   }
 
-  const LIVE_SNAPSHOT_MAX_AGE_MS=45*60_000;
-  let youtubeEdgeVerifiedAt=0;
   function currentYoutubeLiveMetas(fallback=[]){
-    // Prefer freshly verified "is live now" + exact-channel-owner evidence.
-    if(youtubeEdgeLiveReady&&Date.now()-youtubeEdgeVerifiedAt<LIVE_SNAPSHOT_MAX_AGE_MS)
-      return youtubeEdgeLiveMetas.slice();
-    // A stale package is NOT evidence that its historical videos are live.
-    const updated=Date.parse(String(packageManifest?.live?.updatedAt||""));
-    return Number.isFinite(updated)&&Date.now()-updated<LIVE_SNAPSHOT_MAX_AGE_MS
-      ?(Array.isArray(fallback)?fallback:[]):[];
-  }
-
-  // YT-252: bounded, read-only fallback from Cloudflare's already verified
-  // snapshot while the Supabase package worker catches up. A previously
-  // unknown/unverified channel cannot become LIVE simply by appearing here.
-  async function syncVerifiedLiveSnapshot({paint=true}={}){
-    if(!liveDemandActive("youtube"))return false;
-    try{
-      const snapshot=await fetchYoutubeLiveSnapshot();
-      if(!liveDemandActive("youtube"))return false;
-      const checked=Number(snapshot?.checkedAt)||0;
-      if(snapshot?.ok!==true||checked<=0||Date.now()-checked>LIVE_SNAPSHOT_MAX_AGE_MS){
-        youtubeEdgeLiveReady=false;
-        youtubeEdgeLiveMetas=[];
-        if(paint)paintUnifiedLiveFromEdge("youtube");
-        return false;
-      }
-      youtubeEdgeLiveMetas=(Array.isArray(snapshot.items)?snapshot.items:[])
-        .filter(item=>item?.verifiedLive===true&&item?.verifiedOwner===true)
-        .map(normalizeYoutubeEdgeLiveItem)
-        .filter(meta=>meta&&!youtubeLiveSourceBlocked(meta.sourceId));
-      youtubeEdgeVerifiedAt=checked;
-      youtubeEdgeLiveReady=true;
-      if(paint)paintUnifiedLiveFromEdge("youtube");
-      return true;
-    }catch(error){
-      console.warn("verified_live_snapshot_unavailable",String(error?.message||error));
-      if(paint)paintUnifiedLiveFromEdge("youtube");
-      return false;
-    }
+    // Not a read model: retained for harmless legacy compatibility only.
+    return Array.isArray(fallback)?fallback:[];
   }
 
   async function fetchYoutubeLiveSnapshot({signal=null}={}){
@@ -6754,7 +6714,6 @@ html.viewer-active.one-col body{
       if(provider==="youtube"){
         await loadPackageManifest();
         await syncPreparedPackages(["live"]);
-        await syncVerifiedLiveSnapshot({paint:true});
       }
 
       // Discovery is demand-only: no open LIVE tab means no scan. A visible
@@ -6809,8 +6768,6 @@ html.viewer-active.one-col body{
       if(provider==="youtube"){
         const scanned=await runYoutubeLiveCycle({force,paint:false});
         if(!liveDemandActive("youtube"))return false;
-        // The completed scan is more current than the last packaged snapshot.
-        await syncVerifiedLiveSnapshot({paint:false});
 
         // The edge Worker owns the LIVE package wake when its verified snapshot
         // changes. Browser only performs one catch-up wake on explicit tab-open;
@@ -6845,8 +6802,7 @@ html.viewer-active.one-col body{
     if(!liveDemandActive(provider))return false;
 
     if(provider==="youtube"){
-      feedMetas=currentYoutubeLiveMetas(packageCache.get("live")||[]);
-      renderSampleContent();
+      paintSyncedPackage("live",packageCache.get("live")||[]);
       return true;
     }
 
