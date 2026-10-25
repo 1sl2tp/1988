@@ -16,7 +16,7 @@ test('video card keeps its thumbnail while selected, even with legacy inline-pla
 });
 
 test('reported English titles gain Vietnamese display names; original title is kept',()=>{
-  const start=html.indexOf('  const knownVietnameseTitles=[');
+  const start=html.indexOf('  const sessionVietnameseTitleCache=new Map();');
   const end=html.indexOf('  function cardMarkup(',start);
   assert(start>=0&&end>start);
   const videoDisplayTitle=vm.runInNewContext(html.slice(start,end)+'\nvideoDisplayTitle;');
