@@ -46,3 +46,34 @@ test('missing channel avatars repair only at backend metadata/DB owner',()=>{
  assert.match(ui,/class="row-avatar placeholder"/);
  assert.doesNotMatch(ui,/fetch\([^\n]*yt1988_upsert_channel_directory/);
 });
+
+test('stale package English titles are labeled as awaiting real Vietnamese localization',()=>{
+ const start=ui.indexOf('  function untranslatedEnglishFeedTitle(');
+ const end=ui.indexOf('  function cardMarkup(',start);
+ assert(start>=0&&end>start);
+ const ctx={Set,feedMode:'package'};
+ vm.createContext(ctx);
+ vm.runInContext(ui.slice(start,end),ctx);
+ const english=[
+   'HIRED A TUTOR FOR 100K AN HOUR, BUT THE PARENT SLASHED THE PAY IN HALF | DRAMA',
+   'October 20th - When Men Are the Weaker Sex | Two Brothers Part 1178 | Funny Situations by Gãy Media',
+   'CRUSHING ON TAKEN FLOWER | The Cunning Village Boy - Part 2 | Funny Gãy TV'
+ ];
+ for(const title of english){
+   assert.equal(ctx.videoDisplayTitle({title}),'Đang cập nhật tiêu đề tiếng Việt');
+   assert.equal(ctx.videoDisplayTitle({title,titleVi:'Tiêu đề tiếng Việt đã xác minh'}),'Tiêu đề tiếng Việt đã xác minh');
+ }
+ assert.equal(ctx.videoDisplayTitle({title:'BÀ NỘI NGHÈO KHÔNG CÓ TIỀN CHO CHÁU'}),'BÀ NỘI NGHÈO KHÔNG CÓ TIỀN CHO CHÁU');
+ assert.equal(ctx.videoDisplayTitle({title:'Tin tuc Viet Nam hom nay'}),'Tin tuc Viet Nam hom nay');
+ ctx.feedMode='search';
+ assert.equal(ctx.videoDisplayTitle({title:english[0]}),english[0],'user-initiated search retains original title');
+});
+
+test('missing prepared avatar uses only same-channel ID and bounded visible profile fallback',()=>{
+ assert.match(ui,/const exact=authoritative&&\/\^UC\[A-Za-z0-9_-\]\+\$\/\.test\(sourceId\)/);
+ assert.match(ui,/sourceAvatar:String\(meta\?\.sourceAvatar\|\|exact\?\.sourceAvatar\|\|""\)/);
+ assert.match(ui,/const FEED_AVATAR_REPAIRS_PER_OPEN=2/);
+ assert.match(ui,/feedAvatarRepairAttempted\.has\(sourceId\)/);
+ assert.match(ui,/hydrateYoutubeDiscoveredChannelProfile\(meta,"visible-feed-avatar"\)/);
+ assert.doesNotMatch(ui,/fetch\([^\n]*yt1988_upsert_channel_directory/);
+});

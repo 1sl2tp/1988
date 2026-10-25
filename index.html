@@ -7445,10 +7445,17 @@ html.viewer-active.one-col body{
     // Prepared YouTube packages are authoritative. Never repair a package
     // avatar/name from client caches, edge snapshots or another channel row.
     const authoritative=packageYoutubeIdentityAuthoritative(meta);
+    const sourceId=String(meta?.sourceId||"").trim();
+    // An exact source-ID match in the canonical channel directory can fill
+    // a missing avatar from an older package without borrowing another
+    // channel's name-based image. Never replace a nonempty package avatar.
+    const exact=authoritative&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)&&
+      !String(meta?.sourceAvatar||"").trim()
+      ?localSourceIdentity(sourceId):{};
     const identity=authoritative
       ?{
-          sourceName:String(meta?.sourceName||"").trim(),
-          sourceAvatar:String(meta?.sourceAvatar||"").trim()
+          sourceName:String(meta?.sourceName||exact?.sourceName||"").trim(),
+          sourceAvatar:String(meta?.sourceAvatar||exact?.sourceAvatar||"").trim()
         }
       :resolvedSourceIdentity(meta);
     const avatar=displayYoutubeAvatarUrl(identity?.sourceAvatar||"");
@@ -8013,10 +8020,38 @@ html.viewer-active.one-col body{
   // video link unchanged. Trust uploader-provided Vietnamese localization.
   // Canonical localization only. Never fabricate translations in the browser:
   // titleVi can come from verified source metadata stored in the package.
+  // Read-model safety for packages created before the backend vi-only
+  // policy. This does not translate/alter the original YouTube metadata:
+  // the verified publisher localization remains the only Vietnamese title.
+  function untranslatedEnglishFeedTitle(raw=""){
+    const value=String(raw||"").replace(/\s+/g," ").trim();
+    const hasVietnameseLetters=/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(value);
+    const tokens=(value.toLowerCase().match(/[a-z]{2,}/g)||[]);
+    if(tokens.length<5)return false;
+    const words=new Set(["the","and","with","from","when","where","who","what",
+      "this","that","your","their","for","but","after","before","are","was",
+      "were","into","about","only","while","will","than","then","they","you",
+      "how","why","whose","which","has","have","had","his","her","its","of",
+      "by","in","on","at","to","an","is","part"]);
+    const signals=tokens.filter(token=>words.has(token)).length;
+    // Channel branding may include Vietnamese diacritics after an English
+    // title (e.g. "... Funny Gãy TV"), so do not exempt it unconditionally.
+    return signals>=(hasVietnameseLetters?3:2);
+  }
+
   function videoDisplayTitle(meta={}){
-    return String(meta?.titleVi||meta?.localizedTitleVi||
-      meta?.localizations?.vi?.title||meta?.localized?.vi?.title||
-      meta?.title||"").replace(/\s+/g," ").trim();
+    const localized=String(meta?.titleVi||meta?.localizedTitleVi||
+      meta?.localizations?.vi?.title||meta?.localized?.vi?.title||"")
+      .replace(/\s+/g," ").trim();
+    if(localized)return localized;
+    const original=String(meta?.title||"").replace(/\s+/g," ").trim();
+    if(typeof feedMode!=="undefined"&&feedMode==="package"&&
+      untranslatedEnglishFeedTitle(original)){
+      // Keep the video and thumbnail in the list. Flag incomplete localized
+      // metadata rather than inventing a translation or showing English.
+      return "Đang cập nhật tiêu đề tiếng Việt";
+    }
+    return original;
   }
 
   function cardMarkup(meta,index=0){
@@ -8936,6 +8971,32 @@ html.viewer-active.one-col body{
     }
   }
 
+  // Missing logos use one exact channel-ID lookup; only visible first-row
+  // cards are eligible. No list-level source refresh and no polling.
+  const FEED_AVATAR_REPAIRS_PER_OPEN=2;
+  const feedAvatarRepairAttempted=new Set();
+  function hydrateVisibleMissingAvatars(rows){
+    if(document.hidden||(typeof navigator!=="undefined"&&navigator.onLine===false)||!rows)return;
+    for(const card of [...rows.querySelectorAll(".row[data-video-id]")].slice(0,8)){
+      if(!card.querySelector(".row-avatar.placeholder"))continue;
+      const rect=card.getBoundingClientRect();
+      if(rect.top>window.innerHeight+300||rect.bottom<-200)continue;
+      const id=String(card.dataset.videoId||"").trim();
+      const meta=feedMetas.find(item=>String(item?.id||"")===id);
+      const sourceId=String(meta?.sourceId||"").trim();
+      if(!/^UC[A-Za-z0-9_-]+$/.test(sourceId))continue;
+      const cached=localSourceIdentity(sourceId);
+      if(cached?.sourceAvatar){
+        applySourceIdentityToVideo(id,{sourceId,sourceAvatar:cached.sourceAvatar});
+        continue;
+      }
+      if(feedAvatarRepairAttempted.has(sourceId)||
+        feedAvatarRepairAttempted.size>=FEED_AVATAR_REPAIRS_PER_OPEN)continue;
+      feedAvatarRepairAttempted.add(sourceId);
+      void hydrateYoutubeDiscoveredChannelProfile(meta,"visible-feed-avatar");
+    }
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
 
@@ -8980,7 +9041,7 @@ html.viewer-active.one-col body{
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
       syncFeedMoreSentinel(rows,hasMore);
-      
+      hydrateVisibleMissingAvatars(rows);
       return;
     }
 
@@ -8997,7 +9058,7 @@ html.viewer-active.one-col body{
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
       syncFeedMoreSentinel(rows,hasMore);
-      
+      hydrateVisibleMissingAvatars(rows);
       return;
     }
 
@@ -9021,7 +9082,7 @@ html.viewer-active.one-col body{
     primeVisibleLivePreviews();
     observeFeedMasonryRows();
     syncFeedMoreSentinel(rows,hasMore);
-      
+    hydrateVisibleMissingAvatars(rows);
   }
 
   function normalizedSearchQuery(value){
