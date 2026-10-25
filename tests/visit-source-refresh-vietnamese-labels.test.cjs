@@ -32,17 +32,12 @@ test('YouTube system and exact English category labels render naturally in Vietn
   assert.equal(labels.hash_c,'Công nghệ');
   assert.deepEqual(Array.from(rows.slice(0,3),x=>x.key),['live','latest','week']);
 });
-test('every configured category gets an accessible pictogram or safe fallback',()=>{
-  const tags=['Live','Ngày','Tuần','Teen','Kid','Review','SHOWS','Showbiz','Nhạc','Phim','Hài','Sinh tồn','Khám phá','Công nghệ','Thể thao','Tự tạo'];
-  for(const label of tags){
-    const normalized=c.friendlySourceTabLabel(label,label==='Live'?'live':'');
-    assert(c.sourceTabIcon(normalized),'icon absent for '+label);
-  }
-  assert.equal(c.sourceTabIcon('Đánh giá'),'⭐');
-  assert.equal(c.sourceTabIcon('Tự tạo'),'▦');
-  assert.match(html,/class="source-chip-icon" aria-hidden="true"/);
+test('source tabs use text-only Vietnamese labels with an accessible name',()=>{
+  assert.doesNotMatch(html,/class="source-chip-icon" aria-hidden="true"/);
+  assert.doesNotMatch(html,/function sourceTabIcon\(/);
   assert.match(html,/class="source-chip-text"/);
   assert.match(html,/aria-label=.{0,80}escapeHtml\(label\)/);
+  assert.match(html,/data-source-tab/);
   assert(!html.includes('translateVideoTitlesOnClient'),'original YouTube video titles remain authoritative');
 });
 test('switching categories after one accepted visit does not issue duplicate refresh POSTs',()=>{
