@@ -213,3 +213,18 @@ test('compact Watch controls hide only text, never their SVG icons',()=>{
   assert.match(ui,/\.row-action-icon svg\{[\s\S]*?stroke:currentColor/);
   assert.match(ui,/\.info-toolbar \.floating-mode-bar\{/);
 });
+
+test('AI-57 YouTube: reload restores explicit URL video even with existing history.state',()=>{
+ assert.match(ui,/const initialWatchId=routeVideoId\(\)/);
+ assert.match(ui,/if\(initialWatchId\)\{\s*openVideoFromLocation\(\{\.\.\.history\.state,videoId:initialWatchId\}\)/);
+ assert.match(ui,/const id=routeVideoId\(\)\|\|historyVideoId\(state\)/);
+ assert.doesNotMatch(ui,/if\(restoredAppVideoState\)\{\s*history\.replaceState\(null/);
+ const start=ui.indexOf('  function routeVideoId(){');
+ const end=ui.indexOf('  function videoHistoryState(',start);
+ const code=ui.slice(start,end).replace('  function historyVideoId(state=history.state){','  function historyVideoId(state){');
+ const location={hash:'#/watch/current-video-ABCDEFGHIJK',search:''};
+ const context={location,URLSearchParams,decodeURIComponent,String};
+ vm.createContext(context);vm.runInContext(code,context);
+ assert.equal(context.routeVideoId(),'ABCDEFGHIJK');
+ assert.equal(context.historyVideoId({videoId:'ZZZZZZZZZZZ'}),'ZZZZZZZZZZZ');
+});

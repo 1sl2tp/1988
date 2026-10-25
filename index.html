@@ -5342,7 +5342,8 @@ html.viewer-active.one-col body{
   }
 
   function openVideoFromLocation(state=history.state){
-    const id=historyVideoId(state)||routeVideoId();
+    // Explicit URL wins over browser-restored history.state after refresh.
+    const id=routeVideoId()||historyVideoId(state);
     if(!id){
       // Compatibility with legacy empty app entries created by older builds.
       // Do not leave the same video on screen under a route with no video.
@@ -10825,16 +10826,16 @@ html.viewer-active.one-col body{
   // so this cannot autoplay or resurrect the old waiting MAIN.
   void ensureYoutubePlayer();
 
-  // A video selected inside the app writes yt1988:"video" into history.state.
-  // Browsers/PWAs preserve that state across F5 and session restore, which used
-  // to resurrect the last video automatically. Treat that as stale UI state and
-  // reopen on the feed instead. A genuine pasted/shared deep link still has no
-  // app-owned history.state, so it continues to open normally.
-  const restoredAppVideoState=history.state?.yt1988==="video";
-  if(restoredAppVideoState){
-    history.replaceState(null,"",location.pathname+location.search);
-  }else{
-    openVideoFromLocation();
+  // AI-57: the explicit URL is authoritative even after F5.
+  // Chrome/Pages restores history.state on reload; it is not an instruction
+  // to throw away a genuine /watch/ URL. Never auto-select a recommendation.
+  const initialWatchId=routeVideoId();
+  if(initialWatchId){
+    openVideoFromLocation({...history.state,videoId:initialWatchId});
+  }else if(history.state?.yt1988==="video"){
+    // A stale state with no URL target is not a deep link. Discard only the
+    // stale state, keeping pathname/query/hash and avoiding history.back().
+    history.replaceState(null,"",location.pathname+location.search+location.hash);
   }
 
   restoreSharedChannelLogoLibrary();
