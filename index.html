@@ -3390,25 +3390,31 @@ html.viewer-active.one-col body{
   }
 
   function primeUnifiedChannelLibrary(remote={}){
-    channelLibraryByKey.clear();
-    channelLibraryVersion=Math.max(0,Number(remote?.channelLibraryVersion)||0);
+    // Merge, never clear identities discovered by LIVE/search/video while
+    // a previously fetched server library snapshot was still in flight.
+    channelLibraryVersion=Math.max(channelLibraryVersion,Number(remote?.channelLibraryVersion)||0);
     const rows=Array.isArray(remote?.channelLibrary)?remote.channelLibrary:[];
     for(const raw of rows){
       const platform=String(raw?.platform||"").trim().toLowerCase();
       if(platform!=="youtube")continue;
       const id=String(raw?.id||"").trim().replace(/^@/,"");
       const key=channelLibraryKey(platform,id);
-      if(!key)continue;
+      if(!key||!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+      const previous=channelLibraryByKey.get(key)||{};
       const avatar=String(
         raw?.avatar?.url||
         raw?.avatar?.storedUrl||
         raw?.avatar?.sourceUrl||
+        previous?.avatar?.url||
         ""
       ).trim();
       const row={
+        ...previous,
         ...raw,
         platform,
+        name:String(raw?.name||previous?.name||"").trim(),
         avatar:{
+          ...(previous?.avatar&&typeof previous.avatar==="object"?previous.avatar:{}),
           ...(raw?.avatar&&typeof raw.avatar==="object"?raw.avatar:{}),
           url:avatar
         }
@@ -3429,6 +3435,90 @@ html.viewer-active.one-col body{
       }
     }
     return channelLibraryByKey.size;
+  }
+
+  // YT-09: One persistent canonical channel directory is shared by packages,
+  // search, LIVE and video pages. Package blobs never own the channel logo.
+  const CHANNEL_LOGO_LIBRARY_CACHE_KEY="yt1988-channel-logo-library-v1";
+  let channelLogoLibraryHash="";
+  let channelLogoLibraryAttemptedHash="";
+  let channelLogoLibraryPending=null;
+  const failedChannelLogoUrls=new Set();
+
+  function cachedChannelLogoManifest(){
+    try{
+      return JSON.parse(localStorage.getItem(SOURCE_STATE_MANIFEST_CACHE_KEY)||"null")||{};
+    }catch{return {};}
+  }
+
+  function restoreSharedChannelLogoLibrary(){
+    try{
+      const saved=JSON.parse(localStorage.getItem(CHANNEL_LOGO_LIBRARY_CACHE_KEY)||"null");
+      if(!saved||!Array.isArray(saved.channels))return false;
+      primeUnifiedChannelLibrary({
+        channelLibrary:saved.channels.map(entry=>({
+          platform:"youtube",
+          id:entry.id,
+          name:entry.name,
+          avatar:{url:entry.avatar},
+          checkedAt:entry.checkedAt||null
+        }))
+      });
+      channelLogoLibraryHash=String(saved.hash||"");
+      return true;
+    }catch{return false;}
+  }
+
+  function saveSharedChannelLogoLibrary(payload={}){
+    try{
+      const channels=(Array.isArray(payload.channelLibrary)?payload.channelLibrary:[])
+        .filter(row=>row?.platform==="youtube"&&
+          /^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")))
+        .map(row=>({
+          id:String(row.id),
+          name:String(row?.name||"").trim(),
+          avatar:String(row?.avatar?.url||row?.avatar?.sourceUrl||"").trim(),
+          checkedAt:String(row?.checkedAt||"")
+        })).slice(0,1600);
+      localStorage.setItem(CHANNEL_LOGO_LIBRARY_CACHE_KEY,JSON.stringify({
+        hash:String(payload.libraryHash||""),
+        channels,
+        at:Date.now()
+      }));
+    }catch{
+      // RAM directory remains usable when browser storage is unavailable.
+    }
+  }
+
+  function sharedChannelLogoLibraryNeedsRefresh(){
+    const nextHash=String(cachedChannelLogoManifest()?.libraryHash||"").trim();
+    return !!nextHash&&nextHash!==channelLogoLibraryHash&&
+      nextHash!==channelLogoLibraryAttemptedHash;
+  }
+
+  async function refreshSharedChannelLogoLibrary(){
+    const nextHash=String(cachedChannelLogoManifest()?.libraryHash||"").trim();
+    if(!nextHash)return false;
+    if(channelLogoLibraryHash===nextHash)return true;
+    if(channelLogoLibraryPending)return channelLogoLibraryPending;
+    if(channelLogoLibraryAttemptedHash===nextHash)return false;
+    channelLogoLibraryAttemptedHash=nextHash;
+    channelLogoLibraryPending=(async()=>{
+      try{
+        const response=await fetch(SOURCE_STATE_URL+"?view=library",{cache:"no-store"});
+        if(!response.ok)return false;
+        const payload=await response.json();
+        if(payload?.ok!==true||!Array.isArray(payload.channelLibrary))return false;
+        // Only the manifest gates this single, versioned library read. The
+        // source-state lite response does not contain channel avatars.
+        primeUnifiedChannelLibrary(payload);
+        channelLogoLibraryHash=String(payload.libraryHash||"");
+        saveSharedChannelLogoLibrary(payload);
+        return true;
+      }catch{return false;}
+      finally{channelLogoLibraryPending=null;}
+    })();
+    return channelLogoLibraryPending;
   }
 
   function channelDirectorySignature(row={}){
@@ -8431,6 +8521,9 @@ html.viewer-active.one-col body{
     prefetchPackages([activePackageScope]);
     dailyContentRows=rows;
     startupDailyWakePending=false;
+    // Manifest is now known. Repair only visible missing channel logos from
+    // the shared directory before making any bounded upstream profile calls.
+    hydrateVisibleMissingAvatars(document.getElementById("rows"));
     setTimeout(()=>{
       if(document.hidden||feedMode!=="package")return;
       void wakeDailyContentOnVisibleVisit(dailyContentRows).then(accepted=>{
@@ -8562,6 +8655,15 @@ html.viewer-active.one-col body{
     // A failed image is not a missing channel. Keep the correct source text
     // and show a real circular initial instead of a browser broken-image glyph.
     if(img.matches(".row-avatar,.info-avatar")){
+      const card=img.closest(".row[data-video-id]");
+      if(card){
+        const id=String(card.dataset.videoId||"");
+        const meta=feedMetas.find(row=>String(row?.id||"")===id);
+        const sourceId=String(meta?.sourceId||"").trim();
+        if(sourceId){
+          failedChannelLogoUrls.add(sourceId+"|"+String(img.getAttribute("src")||""));
+        }
+      }
       const sourceName=img.classList.contains("row-avatar")
         ?String(img.dataset.avatarLetter||img.closest(".row")?.querySelector(".row-source")?.textContent||"")
         :String(videoSourceEl?.textContent||"");
@@ -8570,6 +8672,7 @@ html.viewer-active.one-col body{
       fallback.className=img.className+" placeholder";
       fallback.textContent=letter;
       img.replaceWith(fallback);
+      if(card)hydrateVisibleMissingAvatars(rowsImageHost);
       return;
     }
     if(!img.closest(".row-thumb"))return;
@@ -8975,25 +9078,74 @@ html.viewer-active.one-col body{
   // cards are eligible. No list-level source refresh and no polling.
   const FEED_AVATAR_REPAIRS_PER_OPEN=2;
   const feedAvatarRepairAttempted=new Set();
+  let feedAvatarVisibilityObserver=null;
+
+  function watchMissingChannelLogos(rows){
+    if(!("IntersectionObserver" in window))return;
+    if(!feedAvatarVisibilityObserver){
+      feedAvatarVisibilityObserver=new IntersectionObserver(entries=>{
+        let visible=false;
+        for(const entry of entries){
+          if(!entry.isIntersecting)continue;
+          feedAvatarVisibilityObserver.unobserve(entry.target);
+          visible=true;
+        }
+        if(visible)hydrateVisibleMissingAvatars(document.getElementById("rows"));
+      },{rootMargin:"300px 0px"});
+    }
+    rows.querySelectorAll(".row-avatar.placeholder").forEach(avatar=>{
+      if(avatar.dataset.logoObserved==="1")return;
+      avatar.dataset.logoObserved="1";
+      feedAvatarVisibilityObserver.observe(avatar);
+    });
+  }
+
   function hydrateVisibleMissingAvatars(rows){
     if(document.hidden||(typeof navigator!=="undefined"&&navigator.onLine===false)||!rows)return;
-    for(const card of [...rows.querySelectorAll(".row[data-video-id]")].slice(0,8)){
+    watchMissingChannelLogos(rows);
+    const unresolved=[];
+    for(const card of rows.querySelectorAll(".row[data-video-id]")){
       if(!card.querySelector(".row-avatar.placeholder"))continue;
       const rect=card.getBoundingClientRect();
       if(rect.top>window.innerHeight+300||rect.bottom<-200)continue;
       const id=String(card.dataset.videoId||"").trim();
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
+      if(!meta)continue;
       const sourceId=String(meta?.sourceId||"").trim();
-      if(!/^UC[A-Za-z0-9_-]+$/.test(sourceId))continue;
-      const cached=localSourceIdentity(sourceId);
-      if(cached?.sourceAvatar){
-        applySourceIdentityToVideo(id,{sourceId,sourceAvatar:cached.sourceAvatar});
+      const cached=/^UC[A-Za-z0-9_-]+$/.test(sourceId)
+        ?localSourceIdentity(sourceId):{};
+      const avatar=String(cached?.sourceAvatar||"").trim();
+      if(avatar&&!failedChannelLogoUrls.has(sourceId+"|"+displayYoutubeAvatarUrl(avatar))){
+        applySourceIdentityToVideo(id,{sourceId,sourceAvatar:avatar});
         continue;
       }
-      if(feedAvatarRepairAttempted.has(sourceId)||
+      unresolved.push({id,sourceId,meta});
+    }
+    if(!unresolved.length)return;
+
+    // Manifest-first, single-flight refresh of the one canonical library.
+    // Never call an external metadata API before checking the stored catalog.
+    if(sharedChannelLogoLibraryNeedsRefresh()){
+      void refreshSharedChannelLogoLibrary().then(()=>{
+        if(rows.isConnected!==false)hydrateVisibleMissingAvatars(rows);
+      });
+      return;
+    }
+    if(channelLogoLibraryPending)return;
+    if(!String(cachedChannelLogoManifest()?.libraryHash||"")&&startupDailyWakePending)return;
+
+    for(const {id,sourceId,meta} of unresolved){
+      const key=/^UC[A-Za-z0-9_-]+$/.test(sourceId)?sourceId:"video:"+id;
+      if(feedAvatarRepairAttempted.has(key)||
         feedAvatarRepairAttempted.size>=FEED_AVATAR_REPAIRS_PER_OPEN)continue;
-      feedAvatarRepairAttempted.add(sourceId);
-      void hydrateYoutubeDiscoveredChannelProfile(meta,"visible-feed-avatar");
+      feedAvatarRepairAttempted.add(key);
+      if(/^UC[A-Za-z0-9_-]+$/.test(sourceId)){
+        void hydrateYoutubeDiscoveredChannelProfile(meta,"visible-feed-avatar");
+      }else{
+        // An older package may omit channelId. Resolve by exact videoId,
+        // never borrow an avatar from a channel with a similar name.
+        queueDiscoveredYoutubeHydration([meta],"visible-feed-avatar");
+      }
     }
   }
 
@@ -10619,6 +10771,7 @@ html.viewer-active.one-col body{
     openVideoFromLocation();
   }
 
+  restoreSharedChannelLogoLibrary();
   loadExistingSourceNames();
   requestAnimationFrame(()=>{
     updateHeaderSearchRoom();

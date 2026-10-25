@@ -77,3 +77,77 @@ test('missing prepared avatar uses only same-channel ID and bounded visible prof
  assert.match(ui,/hydrateYoutubeDiscoveredChannelProfile\(meta,"visible-feed-avatar"\)/);
  assert.doesNotMatch(ui,/fetch\([^\n]*yt1988_upsert_channel_directory/);
 });
+
+test('YT-09: channel logos are restored from one versioned library independently of feed packages',()=>{
+ assert.match(ui,/const CHANNEL_LOGO_LIBRARY_CACHE_KEY="yt1988-channel-logo-library-v1"/);
+ assert.match(ui,/restoreSharedChannelLogoLibrary\(\);\s*loadExistingSourceNames\(\)/);
+ assert.match(ui,/SOURCE_STATE_URL\+"\?view=library"/);
+ assert.match(ui,/cachedChannelLogoManifest\(\)\?\.libraryHash/);
+ assert.match(ui,/channelLogoLibraryPending/);
+ assert.match(ui,/channelLogoLibraryHash===nextHash/);
+ assert.match(ui,/saveSharedChannelLogoLibrary\(payload\)/);
+ assert.match(ui,/function primeUnifiedChannelLibrary\(remote=\{\}\)\{\s*\/\/ Merge/);
+ assert.match(ui,/queueYoutubeChannelDirectory\(meta,source\)/);
+ assert.match(ui,/function watchMissingChannelLogos\(rows\)/);
+ assert.match(ui,/failedChannelLogoUrls\.add/);
+ assert.match(ui,/queueDiscoveredYoutubeHydration\(\[meta\],"visible-feed-avatar"\)/);
+ assert.doesNotMatch(ui,/channelLibraryByKey\.clear\(\)/);
+});
+
+test('YT-09: shared logo directory restores from cache, uses manifest hash, and single-flights library fetch',async()=>{
+ const begin=ui.indexOf('  const CHANNEL_LOGO_LIBRARY_CACHE_KEY=');
+ const end=ui.indexOf('  function channelDirectorySignature(',begin);
+ assert(begin>=0&&end>begin);
+ const key='yt1988-channel-logo-library-v1';
+ const cache=new Map([
+   ['yt1988-source-state-manifest-v1',JSON.stringify({libraryHash:'h1'})],
+   [key,JSON.stringify({hash:'h1',channels:[{
+     id:'UC1234567890123456789AA',name:'Cú Đêm Review',
+     avatar:'https://yt3.googleusercontent.com/logo1',checkedAt:''
+   }]})]
+ ]);
+ const channelById=new Map();
+ let fetches=0;
+ const ctx={
+   JSON,Map,Set,Number,String,Date,Promise,
+   SOURCE_STATE_MANIFEST_CACHE_KEY:'yt1988-source-state-manifest-v1',
+   SOURCE_STATE_URL:'https://example.invalid/state',
+   localStorage:{
+     getItem:k=>cache.get(k)||null,
+     setItem:(k,v)=>cache.set(k,v)
+   },
+   primeUnifiedChannelLibrary:payload=>{
+     for(const channel of payload.channelLibrary||[]){
+       if(channel.platform==='youtube')channelById.set(channel.id,channel);
+     }
+   },
+   fetch:async url=>{
+     fetches++;
+     assert.equal(url,'https://example.invalid/state?view=library');
+     return {ok:true,json:async()=>({
+       ok:true,view:'library',libraryHash:'h2',channelLibrary:[
+         {platform:'youtube',id:'UC1234567890123456789AA',
+          name:'Cú Đêm Review',avatar:{url:'https://yt3.googleusercontent.com/logo2'}},
+         {platform:'tiktok',id:'not-channel',avatar:{url:'https://example.invalid/a'}}
+       ]
+     })};
+   }
+ };
+ vm.createContext(ctx);
+ vm.runInContext(ui.slice(begin,end),ctx);
+ assert.equal(vm.runInContext('restoreSharedChannelLogoLibrary()',ctx),true);
+ assert.equal(channelById.get('UC1234567890123456789AA').avatar.url,'https://yt3.googleusercontent.com/logo1');
+ assert.equal(await vm.runInContext('refreshSharedChannelLogoLibrary()',ctx),true);
+ assert.equal(fetches,0,'matching manifest hash does not download full library');
+ cache.set('yt1988-source-state-manifest-v1',JSON.stringify({libraryHash:'h2'}));
+ await Promise.all([
+   vm.runInContext('refreshSharedChannelLogoLibrary()',ctx),
+   vm.runInContext('refreshSharedChannelLogoLibrary()',ctx)
+ ]);
+ assert.equal(fetches,1,'one shared library request for the changed revision');
+ assert.equal(channelById.get('UC1234567890123456789AA').avatar.url,'https://yt3.googleusercontent.com/logo2');
+ assert.equal(JSON.parse(cache.get(key)).hash,'h2');
+ assert.equal(JSON.parse(cache.get(key)).channels.length,1,'only YouTube channels stored');
+ assert.equal(await vm.runInContext('refreshSharedChannelLogoLibrary()',ctx),true);
+ assert.equal(fetches,1,'no refetch of unchanged revision');
+});
