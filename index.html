@@ -8004,77 +8004,12 @@ html.viewer-active.one-col body{
 
   // YT-252: Vietnamese DISPLAY title, keeping original video metadata and
   // video link unchanged. Trust uploader-provided Vietnamese localization.
-  const sessionVietnameseTitleCache=new Map();
-  let optionalTitleTranslatorPromise=null;
-  let optionalTitleTranslationBusy=false;
-  function titleNeedsEnglishTranslation(title=""){
-    const value=String(title||"").trim();
-    if(!value||/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(value))
-      return false;
-    const matches=value.toLowerCase().match(/\b(?:the|for|with|when|what|why|this|that|from|your|and|are|was|were|have|will|but|about|after|before)\b/g)||[];
-    return matches.length>=2;
-  }
-  async function optionalTitleTranslator(){
-    if(optionalTitleTranslatorPromise)return optionalTitleTranslatorPromise;
-    optionalTitleTranslatorPromise=(async()=>{
-      // Offline Chrome Translator API when its model is already installed.
-      // No model download, no external translation requests and no new key.
-      const API=window.Translator;
-      if(!API?.availability||!API?.create)return null;
-      const config={sourceLanguage:"en",targetLanguage:"vi"};
-      if(await API.availability(config)!=="available")return null;
-      return API.create(config);
-    })().catch(()=>null);
-    return optionalTitleTranslatorPromise;
-  }
-  function localizeVisibleEnglishTitles(){
-    if(optionalTitleTranslationBusy||!window.Translator)return;
-    optionalTitleTranslationBusy=true;
-    void (async()=>{
-      const translator=await optionalTitleTranslator();
-      if(!translator)return;
-      const ids=new Set();
-      const visible=Array.isArray(feedMetas)?feedMetas:[];
-      for(const meta of visible.slice(0,36)){
-        if(!meta?.id||ids.has(meta.id))continue;
-        ids.add(meta.id);
-        const original=String(meta?.title||"").trim();
-        if(videoDisplayTitle(meta)!==original||!titleNeedsEnglishTranslation(original))continue;
-        const translated=String(await translator.translate(original)||"").trim();
-        if(!translated||translated===original)continue;
-        sessionVietnameseTitleCache.set(String(meta.id),{original,vi:translated});
-        const card=[...document.querySelectorAll(".row[data-video-id]")]
-          .find(row=>row.dataset.videoId===String(meta.id));
-        if(card){
-          const label=card.querySelector(".row-title");
-          if(label){label.textContent=translated;label.title=original;}
-        }
-        if(String(current?.id||"")===String(meta.id)&&currentMeta?.title===original){
-          titleEl.textContent=translated;
-          titleEl.title=original;
-        }
-      }
-    })().catch(error=>console.warn("optional_title_translation",String(error))).finally(()=>{
-      optionalTitleTranslationBusy=false;
-    });
-  }
-  const knownVietnameseTitles=[
-    [/^hired a tutor for 100k an hour,? but the parent slashed the pay in half/i,
-      "Thuê gia sư 100 nghìn một giờ nhưng phụ huynh giảm một nửa tiền công | Phim ngắn"],
-    [/^october 20th\s*-\s*when men are the weaker sex/i,
-      "Ngày 20/10 – Khi đàn ông là phái yếu | Hai anh em tập 1178 | Gãy Media"]
-  ];
+  // Canonical localization only. Never fabricate translations in the browser:
+  // titleVi can come from verified source metadata stored in the package.
   function videoDisplayTitle(meta={}){
-    const original=String(meta?.title||"").replace(/\s+/g," ").trim();
-    const vi=String(meta?.titleVi||meta?._displayTitleVi||
-      meta?.localizedTitleVi||meta?.localizations?.vi?.title||
-      meta?.localized?.vi?.title||"").replace(/\s+/g," ").trim();
-    if(vi)return vi;
-    const cached=sessionVietnameseTitleCache.get(String(meta?.id||""));
-    if(cached?.original===original&&cached?.vi)return cached.vi;
-    for(const [pattern,translation] of knownVietnameseTitles)
-      if(pattern.test(original))return translation;
-    return original;
+    return String(meta?.titleVi||meta?.localizedTitleVi||
+      meta?.localizations?.vi?.title||meta?.localized?.vi?.title||
+      meta?.title||"").replace(/\s+/g," ").trim();
   }
 
   function cardMarkup(meta,index=0){
@@ -9018,7 +8953,7 @@ html.viewer-active.one-col body{
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
       syncFeedMoreSentinel(rows,hasMore);
-      if(typeof setTimeout==='function'&&typeof localizeVisibleEnglishTitles==='function')setTimeout(localizeVisibleEnglishTitles,0);
+      
       return;
     }
 
@@ -9035,7 +8970,7 @@ html.viewer-active.one-col body{
       applyRenderedCardTints(rows);
       observeFeedMasonryRows();
       syncFeedMoreSentinel(rows,hasMore);
-      if(typeof setTimeout==='function'&&typeof localizeVisibleEnglishTitles==='function')setTimeout(localizeVisibleEnglishTitles,0);
+      
       return;
     }
 
@@ -9059,7 +8994,7 @@ html.viewer-active.one-col body{
     primeVisibleLivePreviews();
     observeFeedMasonryRows();
     syncFeedMoreSentinel(rows,hasMore);
-      if(typeof setTimeout==='function'&&typeof localizeVisibleEnglishTitles==='function')setTimeout(localizeVisibleEnglishTitles,0);
+      
   }
 
   function normalizedSearchQuery(value){
