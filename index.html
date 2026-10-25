@@ -2008,6 +2008,11 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   background:#f00;
   font:600 12px/16px Roboto,Arial,sans-serif;
 }
+.duration-badge.live-unverified{
+  background:rgba(91,97,110,.95);
+  color:#fff;
+  font:600 11px/17px Roboto,Arial,sans-serif;
+}
 .duration-badge.live svg{
   width:14px;
   height:14px;
@@ -8024,12 +8029,19 @@ html.viewer-active.one-col body{
       :(String(meta.thumbnail||"").trim()||providerFallbackThumb);
     const thumb=baseThumb;
 
+    // Read-only UI status: a stale server package does not establish NOW.
+    // Cloudflare is discovery-only; never fabricate LIVE membership in browser.
+    const liveUpdatedAt=Date.parse(String(packageManifest?.live?.updatedAt||""));
+    const liveSnapshotStale=meta.isLive&&feedMode==="package"&&activePackageScope==="live"&&
+      (!Number.isFinite(liveUpdatedAt)||Date.now()-liveUpdatedAt>45*60*1000);
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
     const durationMarkup=meta.isLive
-      ?'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>'
+      ?(liveSnapshotStale
+        ?'<span class="duration-badge live-unverified">Chưa xác minh</span>'
+        :'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>')
       :(duration?'<span class="duration-badge">'+escapeHtml(duration)+'</span>':"");
-    const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
-    const factsMarkup=compactFactsMarkup(meta);
+    const facts=liveSnapshotStale?"":[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
+    const factsMarkup=liveSnapshotStale?"":compactFactsMarkup(meta);
     const verified=meta.verified?verifiedBadgeMarkup():"";
     const thumbStyle="";
 
