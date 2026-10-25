@@ -1940,9 +1940,11 @@ html.one-col .row.selected:has(.row-menu:active)::before{
   object-fit:cover;
   transition:transform .18s cubic-bezier(.2,0,0,1);
 }
+/* YT-252: selecting/opening a video never removes its feed thumbnail or
+   duration. The player lives in the focused viewer; the list is independent. */
 html.one-col .row-thumb.inline-playing:not(.pip-floating) > img,
 html.one-col .row-thumb.inline-playing:not(.pip-floating) > .duration-badge{
-  visibility:hidden;
+  visibility:visible;
 }
 html.one-col .row-thumb.inline-playing.pip-floating{
   overflow:visible;
