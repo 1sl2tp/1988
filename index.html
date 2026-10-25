@@ -1706,7 +1706,7 @@ html.two-col.landscape .info-menu{
     padding:0;
     justify-content:center;
   }
-  html.two-col.landscape .info-action > span{
+  html.two-col.landscape .info-action > .info-action-label{
     display:none;
   }
 }
@@ -1753,7 +1753,7 @@ html.two-col.landscape .info-menu{
   .info-toolbar{gap:6px}
   .info-actions{gap:4px}
   .info-action{min-width:32px;width:32px;padding:0;justify-content:center}
-  .info-action > span{display:none}
+  .info-action > .info-action-label{display:none}
   .info-menu{width:34px;flex:0 0 34px;height:34px}
 }
 @container media-card (max-width:520px){
@@ -7144,8 +7144,8 @@ html.viewer-active.one-col body{
   }
 
   function infoActionButton(action,label,icon,className=""){
-    return '<button class="info-action '+escapeHtml(className)+'" type="button" data-info-action="'+escapeHtml(action)+'">'+
-      menuIcon(icon)+'<span>'+escapeHtml(label)+'</span></button>';
+    return '<button class="info-action '+escapeHtml(className)+'" type="button" data-info-action="'+escapeHtml(action)+'" aria-label="'+escapeHtml(label)+'" title="'+escapeHtml(label)+'">'+
+      menuIcon(icon)+'<span class="info-action-label">'+escapeHtml(label)+'</span></button>';
   }
 
   function renderInfoQuickActions(meta={}){

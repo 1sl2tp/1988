@@ -191,3 +191,25 @@ test('floating PiP button shares the channel action toolbar on responsive layout
  assert.match(ui,/@container media-card \(max-width:520px\)\{\s*\.info-actions\{display:none!important\}/);
  assert.match(ui,/\.background-mode-bar\[hidden\]\{display:none!important\}/);
 });
+
+test('compact Watch controls hide only text, never their SVG icons',()=>{
+  const narrow=ui.indexOf('@container media-card (max-width:700px)');
+  const ends=ui.indexOf('@container media-card (max-width:520px)',narrow);
+  assert(narrow>=0&&ends>narrow);
+  const rule=ui.slice(narrow,ends);
+  assert.match(rule,/\.info-action > \.info-action-label\{display:none\}/);
+  assert.doesNotMatch(rule,/\.info-action > span\{display:none\}/);
+  const twoCol=ui.indexOf('@container media-card (max-width:899px)');
+  const twoColEnd=ui.indexOf('@media(max-width:656px)',twoCol);
+  assert(twoCol>=0&&twoColEnd>twoCol);
+  const compact=ui.slice(twoCol,twoColEnd);
+  assert.match(compact,/\.info-action > \.info-action-label\{\s*display:none/);
+  assert.doesNotMatch(compact,/\.info-action > span\{\s*display:none/);
+  const button=ui.slice(ui.indexOf('  function infoActionButton('),ui.indexOf('  function renderInfoQuickActions('));
+  assert.match(button,/class="info-action-label"/);
+  assert.match(button,/aria-label=/);
+  assert.match(button,/title=/);
+  assert.match(button,/menuIcon\(icon\)/);
+  assert.match(ui,/\.row-action-icon svg\{[\s\S]*?stroke:currentColor/);
+  assert.match(ui,/\.info-toolbar \.floating-mode-bar\{/);
+});
