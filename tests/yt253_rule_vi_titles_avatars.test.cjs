@@ -73,7 +73,7 @@ test('missing prepared avatar uses only same-channel ID and bounded visible prof
  assert.match(ui,/const exact=authoritative&&\/\^UC\[A-Za-z0-9_-\]\+\$\/\.test\(sourceId\)/);
  assert.match(ui,/sourceAvatar:String\(meta\?\.sourceAvatar\|\|exact\?\.sourceAvatar\|\|""\)/);
  assert.match(ui,/const FEED_AVATAR_REPAIRS_PER_OPEN=2/);
- assert.match(ui,/feedAvatarRepairAttempted\.has\(sourceId\)/);
+ assert.match(ui,/feedAvatarRepairAttempted\.has\(key\)/);
  assert.match(ui,/hydrateYoutubeDiscoveredChannelProfile\(meta,"visible-feed-avatar"\)/);
  assert.doesNotMatch(ui,/fetch\([^\n]*yt1988_upsert_channel_directory/);
 });

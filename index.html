@@ -9122,6 +9122,9 @@ html.viewer-active.one-col body{
       unresolved.push({id,sourceId,meta});
     }
     if(!unresolved.length)return;
+    // Wait for the entry's fresh, compact manifest. An old cached manifest
+    // could otherwise cause a redundant full-library request during startup.
+    if(startupDailyWakePending)return;
 
     // Manifest-first, single-flight refresh of the one canonical library.
     // Never call an external metadata API before checking the stored catalog.
