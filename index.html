@@ -7302,6 +7302,7 @@ html.viewer-active.one-col body{
     // No second oversized "Trở lại xem" control on the original Watch.
     floatingModeBar.hidden=!supportsFloatingPip()||!!floatingPipWindow||
       !/^[A-Za-z0-9_-]{11}$/.test(id)||
+      (currentMeta?.id&&String(currentMeta.id)!==id)||
       currentMeta?.isLive===true||activePackageScope==="live";
     const label=document.getElementById("floatingModeLabel");
     if(label)label.textContent=floatingPipWindow?"Trở lại xem":(floatingPipPending?"Đang mở…":"Xem nổi");
@@ -7373,7 +7374,9 @@ html.viewer-active.one-col body{
     if(!supportsFloatingPip()||floatingPipPending||floatingPipWindow||
       backgroundNativeActive||!embedMediaCore)return false;
     const payload=backgroundWatchPayload();
-    if(!payload)return false;
+    // The selected Watch metadata and playback ID must agree. Never float a
+    // stale player or a recommendation while the newly selected card loads.
+    if(!payload||(currentMeta?.id&&String(currentMeta.id)!==payload.id))return false;
     const src=floatingEmbedUrl(payload);
     if(!src)return false;
     floatingPipPending=true;
