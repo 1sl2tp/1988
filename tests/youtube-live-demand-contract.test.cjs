@@ -4,15 +4,15 @@ const fs=require('node:fs');
 
 const html=fs.readFileSync('index.html','utf8');
 
-test('opening YouTube LIVE shows a fresh owner-verified snapshot, falling back to recent package and wakes rebuild',()=>{
+test('opening YouTube LIVE reads only prepared server package and wakes its rebuild',()=>{
   const start=html.indexOf('async function showPackageScope(');
   const end=html.indexOf('\n  let packageSyncRunning=',start);
   assert.ok(start>=0&&end>start,'showPackageScope missing');
   const block=html.slice(start,end);
   assert.match(block,/scope==="live"/);
   assert.match(block,/ensurePreparedPackageReady\(scope\)/);
-  assert.match(block,/feedMetas=currentYoutubeLiveMetas\(baseMetas\)/);
-  assert.match(block,/void syncVerifiedLiveSnapshot\(\{paint:true\}\)/);
+  assert.match(block,/feedMetas=Array\.isArray\(baseMetas\)\?baseMetas:\[\]/);
+  assert.doesNotMatch(block,/syncVerifiedLiveSnapshot\(/);
   assert.match(block,/refreshUnifiedLiveInBackground\(\{/);
   assert.match(block,/reason:"tab-open"/);
   assert.doesNotMatch(block,/fetchYoutubeLiveSnapshot\(/);
