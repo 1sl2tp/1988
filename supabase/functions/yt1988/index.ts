@@ -53,8 +53,18 @@ function validId(value: string, kind: "video" | "playlist" | "channel") {
   return /^[A-Za-z0-9_@.-]{3,160}$/.test(value);
 }
 
-async function fetchJson(base: string, path: string, timeoutMs = 4500) {
+async function fetchJson(
+  base: string,
+  path: string,
+  timeoutMs = 4500,
+  externalSignal?: AbortSignal,
+) {
   const controller = new AbortController();
+  const abortFromExternal = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(base + path, {
@@ -65,6 +75,7 @@ async function fetchJson(base: string, path: string, timeoutMs = 4500) {
     return await res.json();
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
   }
 }
 
@@ -89,16 +100,41 @@ function setUpstreamCache(path: string, source: string, data: any) {
   if (upstreamCache.size > 120) upstreamCache.delete(upstreamCache.keys().next().value);
 }
 
+const PIPED_HEDGE_FIRST_WAVE = 3;
+const PIPED_HEDGE_SECOND_WAVE = 7;
+const PIPED_HEDGE_SECOND_WAVE_MS = 220;
+const PIPED_HEDGE_FINAL_WAVE_MS = 450;
+
 async function raceApis(path: string, candidates: string[], timeoutMs = 1900) {
-  const winner = await Promise.any(
-    candidates.map(async (base, index) => {
-      // Give the first known instances a short head start, then fan out quickly.
-      if (index >= 7) await delay(300);
-      const data = await fetchJson(base, path, timeoutMs);
-      return { base, data };
-    }),
-  );
-  return winner;
+  const raceController = new AbortController();
+  let settled = false;
+  try {
+    const winner = await Promise.any(
+      candidates.map(async (base, index) => {
+        if (index >= PIPED_HEDGE_SECOND_WAVE) {
+          await delay(PIPED_HEDGE_FINAL_WAVE_MS);
+        } else if (index >= PIPED_HEDGE_FIRST_WAVE) {
+          await delay(PIPED_HEDGE_SECOND_WAVE_MS);
+        }
+
+        // A fast winner prevents later waves from starting at all.
+        if (settled) throw new Error("piped_race_settled");
+
+        const data = await fetchJson(base, path, timeoutMs, raceController.signal);
+        if (!settled) {
+          settled = true;
+          // Abort already-started losers. Delayed candidates see settled=true
+          // and never create their upstream fetch.
+          raceController.abort();
+        }
+        return { base, data };
+      }),
+    );
+    return winner;
+  } finally {
+    settled = true;
+    raceController.abort();
+  }
 }
 
 async function chooseApi(exclude = "") {
