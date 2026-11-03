@@ -391,10 +391,13 @@
     const match=normalized.match(/([\d.]+)\s*(k|n|nghìn|nghin|m|tr|triệu|trieu|b|tỷ|ty)?/i);
     if(!match)return 0;
 
-    let number=Number(match[1]);
-    if(!Number.isFinite(number))return 0;
-
     const unit=String(match[2]||'').toLowerCase();
+    const digits=match[1];
+    // Vietnamese grouped integers: 1.234 / 1.234.567 views.
+    // Preserve decimal abbreviations such as 1.2K and 1,5 triệu.
+    const grouped=!unit&&/^\d{1,3}(?:\.\d{3})+$/.test(digits);
+    let number=Number(grouped?digits.replace(/\./g,''):digits);
+    if(!Number.isFinite(number))return 0;
     if(unit==='k'||unit==='n'||unit==='nghìn'||unit==='nghin')number*=1e3;
     else if(unit==='m'||unit==='tr'||unit==='triệu'||unit==='trieu')number*=1e6;
     else if(unit==='b'||unit==='tỷ'||unit==='ty')number*=1e9;
