@@ -24,7 +24,8 @@
 
   function activeTimeForMode(mode,videoTime,audioTime){
     const value=modeUsesAudio(mode)?audioTime:videoTime;
-    return Math.max(0,Number(value)||0);
+    const seconds=Number(value);
+    return Number.isFinite(seconds)?Math.max(0,seconds):0;
   }
 
   function pipMethod(video,doc){
