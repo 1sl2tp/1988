@@ -33,6 +33,10 @@ assert.equal(activeTimeForMode('audio',12.5,44.25),44.25);
 assert.equal(activeTimeForMode('lock',12.5,44.25),44.25);
 assert.equal(activeTimeForMode('video',12.5,44.25),12.5);
 assert.equal(activeTimeForMode('pip',12.5,44.25),12.5);
+assert.equal(activeTimeForMode('video',Infinity,44.25),0);
+assert.equal(activeTimeForMode('video',-Infinity,44.25),0);
+assert.equal(activeTimeForMode('lock',12.5,NaN),0);
+assert.equal(activeTimeForMode('audio',12.5,-3),0);
 
 assert.equal(pipMethod({requestPictureInPicture(){}},{pictureInPictureEnabled:true}),'standard');
 assert.equal(pipMethod({
