@@ -7304,7 +7304,7 @@ html.viewer-active.one-col body{
     floatingModeBar.hidden=!supportsFloatingPip()||!!floatingPipWindow||
       !/^[A-Za-z0-9_-]{11}$/.test(id)||
       (currentMeta?.id&&String(currentMeta.id)!==id)||
-      currentMeta?.isLive===true||activePackageScope==="live";
+      false;
     const label=document.getElementById("floatingModeLabel");
     if(label)label.textContent=floatingPipWindow?"Trở lại xem":(floatingPipPending?"Đang mở…":"Xem nổi");
     const button=document.getElementById("floatingModeButton");
@@ -7374,7 +7374,12 @@ html.viewer-active.one-col body{
   async function enterFloatingPipWindow(){
     if(!supportsFloatingPip()||floatingPipPending||floatingPipWindow||
       backgroundNativeActive||!embedMediaCore)return false;
-    const payload=backgroundWatchPayload();
+    // LIVE has no seek position or next-video queue; it must start at the live edge.
+    const liveSelected=currentMeta?.isLive===true||activePackageScope==="live";
+    const liveId=String(current?.id||"").trim();
+    const payload=liveSelected
+      ?(/^[A-Za-z0-9_-]{11}$/.test(liveId)?{id:liveId,seconds:0,next:[]}:null)
+      :backgroundWatchPayload();
     // The selected Watch metadata and playback ID must agree. Never float a
     // stale player or a recommendation while the newly selected card loads.
     if(!payload||(currentMeta?.id&&String(currentMeta.id)!==payload.id))return false;
