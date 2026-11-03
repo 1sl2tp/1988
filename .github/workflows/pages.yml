@@ -51,6 +51,7 @@ jobs:
           node tests/search-ux-1988.test.cjs
           node tests/read-model-resource-contract.test.cjs
           node tests/media-core.test.cjs
+          node tests/media-meta.test.cjs
           node tests/integration-shape.test.cjs .
           node tests/channel-library-contract.test.cjs
           node tests/host-architecture-contract.test.cjs
