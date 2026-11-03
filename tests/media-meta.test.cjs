@@ -49,8 +49,8 @@ assert.equal(
     videoId:'abcdefghijk',
     thumbnail:'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg'
   }),
-  'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',
-  '4:3 hqdefault must normalize to stable 16:9 mqdefault'
+  'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+  'preserve sharper hqdefault artwork; card crops to 16:9'
 );
 
 assert.equal(
@@ -75,8 +75,8 @@ assert.equal(
       }
     }
   }),
-  'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',
-  'YouTube API thumbnail sets should select the 16:9 candidate'
+  'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+  'prefer higher-quality hqdefault artwork over mqdefault'
 );
 
 console.log('media-meta tests passed');
