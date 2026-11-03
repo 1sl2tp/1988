@@ -7303,8 +7303,7 @@ html.viewer-active.one-col body{
     // No second oversized "Trở lại xem" control on the original Watch.
     floatingModeBar.hidden=!supportsFloatingPip()||!!floatingPipWindow||
       !/^[A-Za-z0-9_-]{11}$/.test(id)||
-      (currentMeta?.id&&String(currentMeta.id)!==id)||
-      false;
+      (currentMeta?.id&&String(currentMeta.id)!==id);
     const label=document.getElementById("floatingModeLabel");
     if(label)label.textContent=floatingPipWindow?"Trở lại xem":(floatingPipPending?"Đang mở…":"Xem nổi");
     const button=document.getElementById("floatingModeButton");
