@@ -22,7 +22,12 @@
 
     try{
       const url=new URL(raw,'https://www.youtube.com');
-      const host=url.hostname.replace(/^www\./,'');
+      const host=url.hostname.replace(/^www\./,'').toLowerCase();
+      if(/^[a-z][a-z\d+.-]*:\/\//i.test(raw)&&
+         host!=='youtu.be'&&host!=='youtube.com'&&
+         !host.endsWith('.youtube.com')&&
+         host!=='youtube-nocookie.com'&&
+         !host.endsWith('.youtube-nocookie.com'))return '';
       if(host==='youtu.be'){
         const id=url.pathname.split('/').filter(Boolean)[0]||'';
         if(VIDEO_ID_RE.test(id))return id;
