@@ -115,7 +115,9 @@ window.onYouTubeIframeAPIReady=function(){
         onStateChange:function(event){
           if(event.data===YT.PlayerState.PLAYING){
             const actual=String(event.target?.getVideoData?.()?.video_id||"");
-            if(actual!==videoId){
+            // IFrame API may report PLAYING before video metadata is populated.
+            // Reject a confirmed different video, not a transient empty ID.
+            if(actual&&actual!==videoId){
               try{event.target.pauseVideo()}catch{}
               fail('video-id-mismatch');
               return;
