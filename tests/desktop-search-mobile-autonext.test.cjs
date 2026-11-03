@@ -244,6 +244,8 @@ assert(html.includes('floatingPipDimensions()'),
   'PiP initial width and height derive from the selected video aspect');
 assert(floatingHostHtml.includes('id="tap-play"')&&floatingHostHtml.includes('aria-label="Phát video trong cửa sổ nổi"'),
   'one compact manual Play fallback inside the HTTPS player host');
+assert(floatingHostHtml.includes('if(actual&&actual!==videoId){'),
+  'PiP must not reject PLAYING while YouTube getVideoData has not yet supplied its ID');
 assert(floatingHostHtml.includes("onAutoplayBlocked:function(){"),
   'show Play fallback only when browser blocks autoplay');
 assert(floatingHostHtml.includes('<div id="media-viewport"><div id="player"></div></div>'),
