@@ -4794,6 +4794,8 @@ html.viewer-active.one-col body{
           if(event.data===YTApi.PlayerState.PLAYING){
             scheduleCurrentPlayerKind(event.target);
           }else if(event.data===YTApi.PlayerState.ENDED){
+            // A LIVE broadcast ending must not jump to another live channel.
+            if(currentMeta?.isLive===true||activePackageScope==="live")return;
             queueMicrotask(()=>playNextFeedVideo());
           }
         },
