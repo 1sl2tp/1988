@@ -27,7 +27,8 @@
         const id=url.pathname.split('/').filter(Boolean)[0]||'';
         if(VIDEO_ID_RE.test(id))return id;
       }
-      if(host.endsWith('youtube.com')||host.endsWith('youtube-nocookie.com')){
+      if(host==='youtube.com'||host.endsWith('.youtube.com')||
+         host==='youtube-nocookie.com'||host.endsWith('.youtube-nocookie.com')){
         const direct=url.searchParams.get('v')||'';
         if(VIDEO_ID_RE.test(direct))return direct;
         const parts=url.pathname.split('/').filter(Boolean);
