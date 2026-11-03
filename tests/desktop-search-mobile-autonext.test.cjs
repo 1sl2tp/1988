@@ -217,6 +217,10 @@ assert(html.includes('if(floatingPipWindow||floatingPipPending)exitFloatingPipWi
 assert(html.includes('if(backgroundNativeActive||floatingPipWindow||floatingPipPending)return null;'),
   'late YouTube iframe API cannot make a second player');
 assert(!html.includes('window.open('),'never mimic topmost PiP using an ordinary web popup');
+assert(html.includes('const liveSelected=currentMeta?.isLive===true||activePackageScope==="live";'),
+  'LIVE scope must be eligible for floating playback');
+assert(html.includes('?(/^[A-Za-z0-9_-]{11}$/.test(liveId)?{id:liveId,seconds:0,next:[]}:null)'),
+  'LIVE floating must start without stale seek position or next-video queue');
 const floatingHostHtml=fs.readFileSync('sources/floating-youtube.html','utf8');
 assert(floatingHostHtml.includes('<meta name="referrer" content="strict-origin-when-cross-origin">'),
   'HTTPS YouTube wrapper must send real origin Referer to avoid observed error 153');
