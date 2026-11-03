@@ -15,6 +15,10 @@ assert.equal(M.extractVideoId('https://youtube.com.attacker.test/watch?v=abcdefg
 assert.equal(M.extractVideoId('https://notyoutu.be/abcdefghijk'),'');
 
 assert.equal(M.viewLabel(100),'100 lượt xem');
+assert.equal(M.parseViewCountText('1.234 lượt xem'),1234);
+assert.equal(M.parseViewCountText('1.234.567 lượt xem'),1234567);
+assert.equal(M.parseViewCountText('1,5 triệu lượt xem'),1500000);
+assert.equal(M.parseViewCountText('1.2K views'),1200);
 assert.equal(M.viewLabel(999),'999 lượt xem');
 assert.equal(M.viewLabel(1000),'1K');
 assert.equal(M.viewLabel(1500),'1.5K');
