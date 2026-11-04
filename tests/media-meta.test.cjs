@@ -13,6 +13,8 @@ assert.equal(M.extractVideoId('https://youtu.be/abcdefghijk'),'abcdefghijk');
 assert.equal(M.extractVideoId('https://fakeyoutube.com/watch?v=abcdefghijk'),'');
 assert.equal(M.extractVideoId('https://youtube.com.attacker.test/watch?v=abcdefghijk'),'');
 assert.equal(M.extractVideoId('https://notyoutu.be/abcdefghijk'),'');
+assert.equal(M.extractVideoId('//evil.example/shorts/abcdefghijk'),'');
+assert.equal(M.extractVideoId('//youtu.be/abcdefghijk'),'abcdefghijk');
 
 assert.equal(M.viewLabel(100),'100 lượt xem');
 assert.equal(M.parseViewCountText('1.234 lượt xem'),1234);
