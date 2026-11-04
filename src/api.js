@@ -8,7 +8,7 @@ async function call(action,params={},options={}){
   });
   const res=await fetch(url.toString(),{signal:options.signal,cache:"no-store"});
   const body=await res.json().catch(()=>({ok:false,error:"bad_json"}));
-  if(!res.ok||body.ok!==true)throw new Error(body.error||("HTTP "+res.status));
+  if(!res.ok||!body||typeof body!=="object"||body.ok!==true)throw new Error(body?.error||("HTTP "+res.status));
   return body;
 }
 const home=(seed)=>call("home",{seed});
