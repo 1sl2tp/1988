@@ -118,7 +118,7 @@
 
   function escapeRegex(value=''){
     const special=new Set(['\\','^','$','.','*','+','?','(',')','[',']','{','}','|']);
-    return [...String(value)].map(ch=>special.has(ch)?'\\\\'+ch:ch).join('');
+    return [...String(value)].map(ch=>special.has(ch)?'\\'+ch:ch).join('');
   }
 
   function stripSourcePrefix(value='',source=''){
