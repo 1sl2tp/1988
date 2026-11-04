@@ -10,6 +10,9 @@ assert.ok(M,'MediaMeta global should exist');
 
 assert.equal(M.extractVideoId('https://www.youtube.com/watch?v=abcdefghijk'),'abcdefghijk');
 assert.equal(M.extractVideoId('https://youtu.be/abcdefghijk'),'abcdefghijk');
+assert.equal(M.videoId({videoId:'invalid',url:'https://www.youtube.com/watch?v=abcdefghijk'}),'abcdefghijk');
+assert.equal(M.videoId({videoId:'invalid',url:'https://evil.example/watch?v=abcdefghijk',id:'abcdefghijk'}),'abcdefghijk');
+assert.equal(M.videoId({videoId:'abcdefghijk',url:'https://www.youtube.com/watch?v=zzzzzzzzzzz'}),'abcdefghijk');
 assert.equal(M.extractVideoId('https://fakeyoutube.com/watch?v=abcdefghijk'),'');
 assert.equal(M.extractVideoId('https://youtube.com.attacker.test/watch?v=abcdefghijk'),'');
 assert.equal(M.extractVideoId('https://notyoutu.be/abcdefghijk'),'');
