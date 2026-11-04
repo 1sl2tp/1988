@@ -23,7 +23,7 @@
     try{
       const url=new URL(raw,'https://www.youtube.com');
       const host=url.hostname.replace(/^www\./,'').toLowerCase();
-      if(/^[a-z][a-z\d+.-]*:\/\//i.test(raw)&&
+      if((/^[a-z][a-z\d+.-]*:\/\//i.test(raw)||raw.startsWith('//'))&&
          host!=='youtu.be'&&host!=='youtube.com'&&
          !host.endsWith('.youtube.com')&&
          host!=='youtube-nocookie.com'&&
