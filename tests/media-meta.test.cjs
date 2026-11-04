@@ -20,6 +20,9 @@ assert.equal(M.extractVideoId('https://www.youtube.com/redirect?next=v=abcdefghi
 assert.equal(M.extractVideoId('https://www.youtube.com/watch?next=shorts/abcdefghijk'),'');
 assert.equal(M.extractVideoId('https://youtu.be/not-a-valid-video?v=abcdefghijk'),'');
 assert.equal(M.sourceId({channelUrl:'https://www.youtube.com/channel/UCabcdefghijk123'}),'UCabcdefghijk123');
+assert.equal(M.sourceId({_sourceId:'invalid',channelId:'UCabcdefghijk123'}),'UCabcdefghijk123');
+assert.equal(M.sourceId({_sourceId:'invalid',channelId:'invalid too',author:{id:'UCabcdefghijk123'}}),'UCabcdefghijk123');
+assert.equal(M.sourceId({_sourceId:'UCprimary123456',channelId:'UCabcdefghijk123'}),'UCprimary123456');
 assert.equal(M.sourceId({channelUrl:'/channel/UCabcdefghijk123'}),'UCabcdefghijk123');
 assert.equal(M.sourceId({channelUrl:'https://evil.example/channel/UCabcdefghijk123'}),'');
 assert.equal(M.sourceId({channelUrl:'https://evil.example/channel/UCabcdefghijk123',uploaderUrl:'https://www.youtube.com/channel/UCvalid123456789'}),'UCvalid123456789');
