@@ -63,15 +63,17 @@
   }
 
   function sourceId(row={}){
-    const direct=pick(
+    for(const candidate of [
       row?._sourceId,
       row?.channelId,
       row?.uploaderId,
       row?.authorId,
       row?.channel_id,
       row?.author?.id
-    );
-    if(CHANNEL_ID_RE.test(direct))return direct;
+    ]){
+      const direct=clean(candidate);
+      if(CHANNEL_ID_RE.test(direct))return direct;
+    }
 
     const links=[
       row?.channelUrl,
