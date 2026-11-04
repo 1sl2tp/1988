@@ -19,6 +19,8 @@
   function extractVideoId(value=''){
     const raw=clean(value);
     if(VIDEO_ID_RE.test(raw))return raw;
+    // Do not extract an ID from opaque/non-web schemes such as javascript: or data:.
+    if(/^[a-z][a-z\d+.-]*:/i.test(raw)&&!/^https?:\/\//i.test(raw))return '';
 
     try{
       const url=new URL(raw,'https://www.youtube.com');
