@@ -55,7 +55,11 @@
   }
 
   function videoId(row={}){
-    return extractVideoId(row?.videoId||row?.url||row?.id||'');
+    for(const candidate of [row?.videoId,row?.url,row?.id]){
+      const id=extractVideoId(candidate);
+      if(id)return id;
+    }
+    return '';
   }
 
   function sourceId(row={}){
