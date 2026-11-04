@@ -69,23 +69,26 @@
     );
     if(CHANNEL_ID_RE.test(direct))return direct;
 
-    const link=pick(
+    const links=[
       row?.channelUrl,
       row?.uploaderUrl,
       row?.authorUrl,
       row?.ownerUrl,
       row?.url
-    );
-    if(!link)return '';
-    try{
-      const url=new URL(link,'https://www.youtube.com');
-      const host=url.hostname.replace(/^www\./,'').toLowerCase();
-      if(host!=='youtube.com'&&!host.endsWith('.youtube.com')&&
-         host!=='youtube-nocookie.com'&&!host.endsWith('.youtube-nocookie.com'))return '';
-      const match=url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]+)\/?$/);
-      return match?.[1]||'';
-    }catch{return '';}
-
+    ];
+    for(const candidate of links){
+      const link=clean(candidate);
+      if(!link)continue;
+      try{
+        const url=new URL(link,'https://www.youtube.com');
+        const host=url.hostname.replace(/^www\./,'').toLowerCase();
+        if(host!=='youtube.com'&&!host.endsWith('.youtube.com')&&
+           host!=='youtube-nocookie.com'&&!host.endsWith('.youtube-nocookie.com'))continue;
+        const match=url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]+)\/?$/);
+        if(match)return match[1];
+      }catch{continue;}
+    }
+    return '';
   }
 
   function sourceName(row={}){
