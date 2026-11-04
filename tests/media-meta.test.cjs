@@ -89,4 +89,8 @@ assert.equal(
   'prefer higher-quality hqdefault artwork over mqdefault'
 );
 
+
+assert.equal(M.title({title:'A+B - Bài hát',uploader:'A+B'}),'Bài hát');
+assert.equal(M.title({title:'Kênh (Live) - Bản ghi',uploader:'Kênh (Live)'}),'Bản ghi');
+
 console.log('media-meta tests passed');
