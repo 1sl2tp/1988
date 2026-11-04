@@ -15,6 +15,9 @@ assert.equal(M.extractVideoId('https://youtube.com.attacker.test/watch?v=abcdefg
 assert.equal(M.extractVideoId('https://notyoutu.be/abcdefghijk'),'');
 assert.equal(M.extractVideoId('//evil.example/shorts/abcdefghijk'),'');
 assert.equal(M.extractVideoId('//youtu.be/abcdefghijk'),'abcdefghijk');
+assert.equal(M.extractVideoId('javascript:alert("v=abcdefghijk")'),'');
+assert.equal(M.extractVideoId('data:text/plain,v=abcdefghijk'),'');
+assert.equal(M.extractVideoId('https://www.youtube.com/watch?v=abcdefghijk'),'abcdefghijk');
 
 assert.equal(M.viewLabel(100),'100 lượt xem');
 assert.equal(M.parseViewCountText('1.234 lượt xem'),1234);
