@@ -43,7 +43,10 @@
           return parts[1];
         }
       }
-    }catch{}
+    }catch{
+      // Malformed absolute URLs must not bypass hostname validation via text fallback.
+      if(/^[a-z][a-z\d+.-]*:\/\//i.test(raw)||raw.startsWith('//'))return '';
+    }
 
     return raw.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/)?.[1]||'';
   }
