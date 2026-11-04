@@ -76,10 +76,10 @@
     if(!link)return '';
     try{
       const url=new URL(link,'https://www.youtube.com');
-      const host=url.hostname.replace(/^www\\./,'').toLowerCase();
+      const host=url.hostname.replace(/^www\./,'').toLowerCase();
       if(host!=='youtube.com'&&!host.endsWith('.youtube.com')&&
          host!=='youtube-nocookie.com'&&!host.endsWith('.youtube-nocookie.com'))return '';
-      const match=url.pathname.match(/^\\/channel\\/(UC[A-Za-z0-9_-]+)\\/?$/);
+      const match=url.pathname.match(/^\/channel\/(UC[A-Za-z0-9_-]+)\/?$/);
       return match?.[1]||'';
     }catch{return '';}
 
