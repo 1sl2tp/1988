@@ -48,6 +48,9 @@
       if(/^[a-z][a-z\d+.-]*:\/\//i.test(raw)||raw.startsWith('//'))return '';
     }
 
+    // Parsed web URLs must use their validated host/path/query only.
+    // Text fallback is reserved for loose legacy strings, not full URLs.
+    if(/^[a-z][a-z\d+.-]*:\/\//i.test(raw)||raw.startsWith('//'))return '';
     return raw.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/)?.[1]||'';
   }
 
