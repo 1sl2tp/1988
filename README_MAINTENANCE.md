@@ -379,3 +379,7 @@ Trước khi thay đổi 1988, đọc [RULE 04 — SDD/Spec/Test/Acceptance](htt
 - YouTube-only; không revive TikTok/News; LIVE demand-only, package/hash; không sinh poll khi test.
 - Docs-only update **không deploy production** và không cập nhật trạng thái nguồn nghiệp vụ; không sửa task `CURRENT_WORK` đang chờ nghiệm thu chỉ vì thêm SDD rule.
 
+
+## Quy tắc phát hành và thông báo cập nhật chung
+
+Mọi sửa đổi giao diện, mã chạy hoặc PWA phải tuân thủ [`skills/universal-release-update/SKILL.md`](skills/universal-release-update/SKILL.md): kiểm thử → canonical build → deploy → xác minh live build ID → tự phát hiện và hiện nút **Cập nhật** trên web/mobile PWA. Commit nguồn không đồng nghĩa đã phát hành. Nếu không có bằng chứng kiểm chứng, báo `PENDING` thay vì `PASS`. Không yêu cầu người dùng tự xóa cache hoặc cài lại ứng dụng.
