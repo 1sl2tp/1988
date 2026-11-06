@@ -49,6 +49,7 @@ jobs:
           node tests/search-resource-contract.test.cjs
           node tests/read-model-resource-contract.test.cjs
           node tests/media-core.test.cjs
+          node --test tests/floating-youtube-runtime.test.cjs
           node tests/media-meta.test.cjs
           node tests/api-response-contract.test.cjs
           node tests/integration-shape.test.cjs .
