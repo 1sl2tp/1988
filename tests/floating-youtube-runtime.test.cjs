@@ -98,3 +98,27 @@ test('YouTube API loading failure is visible and bounded',()=>{
  assert.equal(app.node('error').hidden,false);
  assert.equal(app.messages.at(-1).message.code,'api-load');
 });
+
+test('player construction failure reports a bounded error without starting playback',()=>{
+ const app=boot('?v=jfKfPfyJRdk');
+ app.ctx.YT.Player=function(){throw new Error('simulated constructor failure')};
+ app.ctx.window.onYouTubeIframeAPIReady();
+ assert.equal(app.node('error').hidden,false);
+ assert.equal(app.node('tap-play').hidden,true);
+ assert.equal(app.messages.at(-1).message.code,'player-create');
+ assert.equal(app.messages.at(-1).message.state,'error');
+});
+
+test('YouTube playback error hides the manual overlay and reports the error',()=>{
+ const app=boot('?v=jfKfPfyJRdk');
+ let config;
+ app.ctx.YT.Player=function(id,opts){config=opts;return {}};
+ app.ctx.window.onYouTubeIframeAPIReady();
+ config.events.onAutoplayBlocked();
+ assert.equal(app.node('tap-play').hidden,false);
+ config.events.onError({data:153});
+ assert.equal(app.node('error').hidden,false);
+ assert.equal(app.node('tap-play').hidden,true);
+ assert.equal(app.messages.at(-1).message.code,'153');
+ assert.equal(app.messages.at(-1).message.state,'error');
+});
