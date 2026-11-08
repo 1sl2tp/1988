@@ -6216,9 +6216,10 @@ html.viewer-active.one-col body{
     // from the server roster. Refresh exactly the enabled non-LIVE scopes.
     if(!scopes.length)return false;
     const signature=scopes.slice().sort().join("|");
-    if(acceptedVisitSignature===signature)return true;
-    if(dailyContentWakePending)return dailyContentWakePending;
     const day=dailyVietnamKey();
+    const visitIdentity=day+"|"+signature;
+    if(acceptedVisitSignature===visitIdentity)return true;
+    if(dailyContentWakePending)return dailyContentWakePending;
     let prior={};
     try{prior=JSON.parse(localStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"{}")||{};}
     catch{}
@@ -6228,7 +6229,7 @@ html.viewer-active.one-col body{
     if(!due.length){
       // This visit still checks the package manifest; only the server-owned
       // crawl/wake is suppressed for a previously accepted Vietnam day.
-      acceptedVisitSignature=signature;
+      acceptedVisitSignature=visitIdentity;
       return true;
     }
     // Failed, offline, or lease-busy visits may retry on a later foreground
@@ -6251,7 +6252,7 @@ html.viewer-active.one-col body{
         if(result?.skipped===true&&result?.reason!=="not_due")return false;
         // Server may return "refresh_queued" because another source is
         // running. This is durable queue acknowledgement, not completion.
-        acceptedVisitSignature=signature;
+        acceptedVisitSignature=visitIdentity;
         try{
           localStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
             date:day,scopes:[...new Set([...done,...due])],
