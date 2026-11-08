@@ -6127,10 +6127,11 @@ html.viewer-active.one-col body{
   const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
   const LIVE_ACTIVE_CHECK_MS=60_000;
   const PACKAGE_WAKE_CACHE_KEY="1988-package-wake-at-v1";
-  // One bounded wake PER DOCUMENT OPEN/RELOAD, not once per Vietnam day.
-  // The server processes up to two due source scopes at a time; this marker
-  // means accepted/checked, never that all packages have finished updating.
-  const DAILY_CONTENT_WAKE_KEY="1988-visit-content-request-v2";
+  // One accepted wake per Vietnamese calendar day and enabled source scope.
+  // Across devices the backend owns the final daily lease/dedup. A browser
+  // uses localStorage only to skip duplicate POSTs, never to suppress manifest
+  // checks or assume that the server has already finished its new package.
+  const DAILY_CONTENT_WAKE_KEY="1988-visit-content-request-v3";
   let acceptedVisitSignature="";
   let startupDailyWakePending=true;
   let dailyContentRows=[];
@@ -6215,11 +6216,21 @@ html.viewer-active.one-col body{
     // from the server roster. Refresh exactly the enabled non-LIVE scopes.
     if(!scopes.length)return false;
     const signature=scopes.slice().sort().join("|");
-    // Each newly loaded document is a new opening, including page reloads
-    // and PWA cold starts. In-memory acknowledgement blocks repeat callbacks
-    // during this one opening without suppressing the next one.
     if(acceptedVisitSignature===signature)return true;
     if(dailyContentWakePending)return dailyContentWakePending;
+    const day=dailyVietnamKey();
+    let prior={};
+    try{prior=JSON.parse(localStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"{}")||{};}
+    catch{}
+    const done=prior?.date===day&&prior?.status==="accepted"
+      ?new Set(Array.isArray(prior.scopes)?prior.scopes:[]):new Set();
+    const due=scopes.filter(scope=>!done.has(scope));
+    if(!due.length){
+      // This visit still checks the package manifest; only the server-owned
+      // crawl/wake is suppressed for a previously accepted Vietnam day.
+      acceptedVisitSignature=signature;
+      return true;
+    }
     // Failed, offline, or lease-busy visits may retry on a later foreground
     // visit, but never spin/retry/poll in the background.
     const now=Date.now();
@@ -6230,7 +6241,7 @@ html.viewer-active.one-col body{
         const response=await fetch(PACKAGE_REFRESH_URL,{
           method:"POST",cache:"no-store",
           headers:{"content-type":"application/json"},
-          body:JSON.stringify({scopes,client_check:true,daily_open:true})
+          body:JSON.stringify({scopes:due,client_check:true,daily_open:true})
         });
         if(!response.ok)return false;
         const result=await response.json();
@@ -6242,8 +6253,9 @@ html.viewer-active.one-col body{
         // running. This is durable queue acknowledgement, not completion.
         acceptedVisitSignature=signature;
         try{
-          sessionStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
-            signature,status:"accepted",at:Date.now(),
+          localStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
+            date:day,scopes:[...new Set([...done,...due])],
+            status:"accepted",at:Date.now(),
             queued:result?.reason==="refresh_queued"
           }));
         }catch{}
@@ -6280,12 +6292,14 @@ html.viewer-active.one-col body{
     lastPackageDemandAt=now;
 
     packageDemandPending=(async()=>{
-      const due=wanted.filter(scope=>packageWakeDue(scope,now));
+      // Normal packages are woken once by the visible daily visit, not by
+      // every tab click/focus. Those read only manifest hashes. LIVE remains
+      // on its separate explicit visible-demand wake/lease.
+      const due=wanted.filter(scope=>scope==="live"&&packageWakeDue(scope,now));
 
       // Browser focus/visibility may happen many times. Manifest checks stay
-      // cheap, but only wake the package builder at the same cadence as the
-      // server's intended scope freshness. Explicit LIVE/source actions use
-      // their dedicated wake paths and are not blocked by this cache.
+      // cheap, and unchanged hashes never download a package. Explicit
+      // LIVE/source actions retain their dedicated server-owned wake paths.
       if(wake&&due.length){
         const woke=await requestPreparedRefresh(due);
         if(woke)markPackageWake(due,Date.now());
