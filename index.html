@@ -8199,30 +8199,56 @@ html.viewer-active.one-col body{
   // the verified publisher localization remains the only Vietnamese title.
   function untranslatedEnglishFeedTitle(raw=""){
     const value=String(raw||"").replace(/\s+/g," ").trim();
-    const hasVietnameseLetters=/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(value);
-    const tokens=(value.toLowerCase().match(/[a-z]{2,}/g)||[]);
-    if(tokens.length<5)return false;
-    const words=new Set(["the","and","with","from","when","where","who","what",
+    const accented=(value.match(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/g)||[]).length;
+    const tokens=value.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .replace(/[đĐ]/g,"d").toLowerCase().match(/[a-z]{2,}/g)||[];
+    if(!tokens.length)return false;
+    const english=new Set(["the","and","with","from","when","where","who","what",
       "this","that","your","their","for","but","after","before","are","was",
       "were","into","about","only","while","will","than","then","they","you",
       "how","why","whose","which","has","have","had","his","her","its","of",
-      "by","in","on","at","to","an","is","part"]);
-    const signals=tokens.filter(token=>words.has(token)).length;
-    // Channel branding may include Vietnamese diacritics after an English
-    // title (e.g. "... Funny Gãy TV"), so do not exempt it unconditionally.
-    return signals>=(hasVietnameseLetters?3:2);
+      "by","in","on","at","to","an","is","part","top","hits","pop","radio",
+      "songs","music","new","heavy","rain","sleeping","live","world","news",
+      "best","movie","english","story","village","drama"]);
+    const vietnamese=new Set(["viet","nam","tin","tuc","nhac","phim","nguoi",
+      "khong","tieng","voi","cho","cua","hom","nay","truc","tiep","tinh",
+      "yeu","chuyen","doi","song","nha","con","tre","moi","tong","ket",
+      "nhung","bai","hat","hay","giai","tri","ca","si","tai","ban","sau",
+      "truoc","tai","viet","nham","the","noi","dung"]);
+    let en=0,vi=0;
+    for(const token of tokens){
+      if(english.has(token))en++;
+      if(vietnamese.has(token)&&!english.has(token))vi++;
+    }
+    if(vi>=2&&vi>=en)return false;
+    // Mixed English headline + one accented Vietnamese channel brand is
+    // still English. Do not hide a predominantly Vietnamese title.
+    if(en>=2&&en>=vi+2&&accented<=2)return true;
+    if(vi===0&&accented===0&&tokens.length>=3)return true;
+    if(vi===0&&accented===0&&tokens.length===2&&en>=1)return true;
+    return false;
   }
 
-  function videoDisplayTitle(meta={}){
+  function verifiedVietnameseDisplayTitle(meta={}){
     const localized=String(meta?.titleVi||meta?.localizedTitleVi||
       meta?.localizations?.vi?.title||meta?.localized?.vi?.title||"")
       .replace(/\s+/g," ").trim();
+    return localized&&!untranslatedEnglishFeedTitle(localized)?localized:"";
+  }
+
+  function packageTitleAllowed(meta={}){
+    const original=String(meta?.title||"").replace(/\s+/g," ").trim();
+    return !!verifiedVietnameseDisplayTitle(meta)||!untranslatedEnglishFeedTitle(original);
+  }
+
+  function videoDisplayTitle(meta={}){
+    const localized=verifiedVietnameseDisplayTitle(meta);
     if(localized)return localized;
     const original=String(meta?.title||"").replace(/\s+/g," ").trim();
     if(typeof feedMode!=="undefined"&&feedMode==="package"&&
       untranslatedEnglishFeedTitle(original)){
-      // Keep the video and thumbnail in the list. Flag incomplete localized
-      // metadata rather than inventing a translation or showing English.
+      // No misleading translation: stale package entries are filtered from
+      // feed rendering; explicit video/search views retain original metadata.
       return "Đang cập nhật tiêu đề tiếng Việt";
     }
     return original;
@@ -9243,7 +9269,12 @@ html.viewer-active.one-col body{
     // player state when a package/search result is empty; that produced the
     // grey YouTube "..." thumbnail with source "1988".
     const cards=(Array.isArray(feedMetas)?feedMetas:[])
-      .filter(meta=>normalizedMediaProvider(meta?.provider)==="youtube");
+      .filter(meta=>normalizedMediaProvider(meta?.provider)==="youtube"
+        // Read-only hygiene for an old IndexedDB/server package: never show
+        // unrelated English thumbnails or placeholder titles while waiting
+        // for the next canonical Vietnamese-only package. Search and direct
+        // links are explicit user actions and keep publisher titles.
+        &&(feedMode!=="package"||packageTitleAllowed(meta)));
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
