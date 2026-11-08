@@ -16,7 +16,7 @@ assert.match(live,/refreshUnifiedLiveInBackground\(/);
 assert.doesNotMatch(body,/refreshUnifiedLiveInBackground|runYoutubeLiveCycle|youtube\/live-scan/);
 assert.match(body,/status:"accepted"/);
 assert.match(body,/result\?\.reason==="refresh_already_running"/);
-assert.match(body,/acceptedVisitSignature===signature/);
+assert.match(body,/acceptedVisitSignature===visitIdentity/);
 function create({hidden=false,online=true,reply={ok:true,scopes:[{scope:'latest'}]},
  sharedStorage=null,nowMs=Date.parse('2026-10-11T18:00:00.000Z')}={}){
   let now=nowMs; // 01:00 on October 12 in Vietnam
