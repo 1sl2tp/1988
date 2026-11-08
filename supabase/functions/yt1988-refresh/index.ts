@@ -18,8 +18,8 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v51-edge-authoritative-live-vi-only";
-const NON_LIVE_PIPELINE_VERSION="non-live-v20-vi-only";
+const LIVE_PIPELINE_VERSION="live-v52-edge-authoritative-live-vi-only";
+const NON_LIVE_PIPELINE_VERSION="non-live-v21-vi-only";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
 const LIVE_EDGE_FRESH_MS=3*60*1000;
@@ -237,31 +237,35 @@ const VI_TITLE_WORDS_STRONG=new Set(
 function titleLooksEnglishOnly(row:any){
   const raw=clean(row?._displayTitle||row?.title||"",500);
   if(!raw)return false;
-
-  // A real Vietnamese letter/diacritic is authoritative. The old rule stripped
-  // accents first, so Vietnamese "thể" became "the" and could make an English
-  // title look Vietnamese.
-  if(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(raw)){
-    return false;
-  }
-
-  const tokens=normalizeText(raw).split(" ").filter((token)=>token.length>1);
+  // Do NOT exempt a predominantly English title merely because the CHANNEL
+  // BRAND at the end has a Vietnamese accent (e.g. "... | Gãy TV").
+  const accented=(raw.match(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/g)||[]).length;
+  const tokens=normalizeText(raw).split(" ").filter(token=>token.length>1);
   if(!tokens.length)return false;
-
   let vi=0,en=0;
   for(const token of tokens){
     if(VI_TITLE_WORDS_STRONG.has(token))vi++;
     if(EN_TITLE_WORDS.has(token))en++;
   }
-
   if(vi>=2&&vi>=en)return false;
-  if(en>=2&&en>=vi+1)return true;
-
-  // This classifier is only used by system feeds (Live/Ngày/Tuần). A title
-  // with no Vietnamese signal and 3+ Latin words is treated as English.
-  if(vi===0&&tokens.length>=3)return true;
-  if(vi===0&&tokens.length===2&&en>=1)return true;
+  if(en>=2&&en>=vi+2&&accented<=2)return true;
+  // Without a Vietnamese language signal a long Latin-only title is NOT
+  // presumed Vietnamese simply because it belongs to a selected channel.
+  if(vi===0&&tokens.length>=3&&accented===0)return true;
+  if(vi===0&&tokens.length===2&&en>=1&&accented===0)return true;
   return false;
+}
+
+// The localized title must itself look Vietnamese; a copied English titleVi
+// is not translation evidence. This policy applies equally to LIVE and
+// non-LIVE saved packages, including old server fallback snapshots.
+function eligibleVietnamesePackageTitle(row:any){
+  if(!titleLooksEnglishOnly(row))return true;
+  const localized=clean(row?.titleVi||row?._displayTitleVi||
+    row?.localizations?.vi?.title||"",300);
+  return !!localized&&!titleLooksEnglishOnly({
+    title:localized,_displayTitle:localized
+  });
 }
 
 function titleLooksBroken(row:any){
@@ -2405,6 +2409,9 @@ Deno.serve(async(req:Request)=>{
   const authorization=clean(req.headers.get("authorization")||"",300);
   const internalRequest=authorization===("Bearer "+serviceKey);
   const clientCheck=!internalRequest||body?.client_check===true;
+  const dailyOpen=clientCheck&&body?.daily_open===true;
+  // One calendar day is defined in Vietnam, not UTC or each device's locale.
+  const vietnamDay=(ms:number)=>new Date(ms+7*60*60*1000).toISOString().slice(0,10);
 
   const hashtagRes=await fetch(
     rest+"/yt1988_hashtags?profile_key=eq."+encodeURIComponent(PROFILE)+
@@ -2444,6 +2451,10 @@ Deno.serve(async(req:Request)=>{
       .filter((s:string)=>SCOPES.includes(s))
   );
   let scopes=requested.size?[...requested]:(clientCheck?["latest"]:SCOPES.slice());
+  // The normal daily visit may NEVER discover LIVE. LIVE is activated only
+  // when someone actually opens that tab and uses Cloudflare's shared lease.
+  if(dailyOpen)scopes=scopes.filter(scope=>scope!=="live");
+  if(!scopes.length)return json({ok:true,skipped:true,reason:"not_due"});
 
   // Every YouTube surface, including LIVE, is server-packaged. Cloudflare is
   // only a discovery signal/source for LIVE; the browser never consumes that
@@ -2471,6 +2482,12 @@ Deno.serve(async(req:Request)=>{
         )
       );
       const last=Date.parse(String(row?.last_enqueued_at||""));
+      if(dailyOpen&&scope!=="live"){
+        // Server-owned cross-device gate: the first accepted visible request
+        // of a VN calendar day queues the refresh for this scope. Later visits
+        // only download the changed package via manifest/hash.
+        return !Number.isFinite(last)||vietnamDay(last)!==vietnamDay(now);
+      }
       return !Number.isFinite(last)||now-last>=minutes*60*1000;
     });
     if(!scopes.length){
@@ -2483,7 +2500,7 @@ Deno.serve(async(req:Request)=>{
     // existing deduplicated pending queue must retain that visit's due scopes;
     // otherwise a once-per-opening wake silently loses the entire refresh.
     // Internal follow-ups never requeue here, to avoid self-scheduling loops.
-    if(clientCheck&&body?.daily_open===true){
+    if(dailyOpen){
       const queued=await fetch(rest+"/rpc/yt1988_queue_refresh",{
         method:"POST",headers:authHeaders,
         body:JSON.stringify({p_profile_key:PROFILE,p_scopes:scopes})
@@ -3859,9 +3876,7 @@ Deno.serve(async(req:Request)=>{
         // RULE CHUNG 1988: the DEFAULT Vietnamese feed must not ship an
         // untranslated English display title to Safari. The publisher's
         // verified Vietnamese localization is accepted when present.
-        const localizedVi=clean(r?.titleVi||r?._displayTitleVi||
-          r?.localizations?.vi?.title||"",300);
-        if(titleLooksEnglishOnly(r)&&!localizedVi)return false;
+        if(!eligibleVietnamesePackageTitle(r))return false;
         return true;
       });
 
@@ -3886,21 +3901,31 @@ Deno.serve(async(req:Request)=>{
             raw
           );
         }else{
-          degradedNotes.push(scope+":empty_candidate_kept_previous");
-          await queuePendingRefresh(rest,authHeaders,[scope]);
-          results.push({
-            scope,
-            changed:false,
-            reason:"empty_candidate_kept_previous",
-            items:previousItems.length
-          });
-          continue;
+          // Do not keep shipping an invalid English-only older package forever.
+          // Retain its previously verified Vietnamese rows if upstream is
+          // temporarily empty; drop only titles disallowed by the current rule.
+          const validPrevious=previousItems.filter(eligibleVietnamesePackageTitle);
+          if(validPrevious.length===previousItems.length){
+            degradedNotes.push(scope+":empty_candidate_kept_previous");
+            await queuePendingRefresh(rest,authHeaders,[scope]);
+            results.push({
+              scope,changed:false,
+              reason:"empty_candidate_kept_previous",
+              items:previousItems.length
+            });
+            continue;
+          }
+          raw=validPrevious;
+          degradedNotes.push(scope+":english_only_previous_removed");
         }
       }
 
       // Rotation/shape is server data too. Merge only metadata that the player
       // already verified and stored; the browser does not resolve it per card.
       raw=await enrichRowsWithStoredVideoMeta(rest,authHeaders,raw);
+      // Metadata hydration may replace the display title; re-apply the same
+      // verified-Vietnamese title policy before hashing/publishing packages.
+      raw=raw.filter(eligibleVietnamesePackageTitle);
 
       const sig=sourceSignature(rows,scope);
       const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;

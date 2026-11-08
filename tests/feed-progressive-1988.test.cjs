@@ -35,7 +35,7 @@ class FakeIO{
 const ctx={
  document:{hidden:false,getElementById:()=>rows,createElement:()=>({dataset:{},style:{},setAttribute(){}})},
  window:{IntersectionObserver:FakeIO},IntersectionObserver:FakeIO,
- normalizedMediaProvider:()=> 'youtube',
+ normalizedMediaProvider:()=> 'youtube',packageTitleAllowed:()=>true,
  feedMode:'package',activePackageScope:'latest',channelFeedSourceId:'',
  searchInput:{value:''},current:{id:'first'},
  feedMetas:Array.from({length:37},(_,i)=>({id:'video'+i,provider:'youtube'})),

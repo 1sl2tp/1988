@@ -6127,10 +6127,11 @@ html.viewer-active.one-col body{
   const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
   const LIVE_ACTIVE_CHECK_MS=60_000;
   const PACKAGE_WAKE_CACHE_KEY="1988-package-wake-at-v1";
-  // One bounded wake PER DOCUMENT OPEN/RELOAD, not once per Vietnam day.
-  // The server processes up to two due source scopes at a time; this marker
-  // means accepted/checked, never that all packages have finished updating.
-  const DAILY_CONTENT_WAKE_KEY="1988-visit-content-request-v2";
+  // One accepted wake per Vietnamese calendar day and enabled source scope.
+  // Across devices the backend owns the final daily lease/dedup. A browser
+  // uses localStorage only to skip duplicate POSTs, never to suppress manifest
+  // checks or assume that the server has already finished its new package.
+  const DAILY_CONTENT_WAKE_KEY="1988-visit-content-request-v3";
   let acceptedVisitSignature="";
   let startupDailyWakePending=true;
   let dailyContentRows=[];
@@ -6215,11 +6216,22 @@ html.viewer-active.one-col body{
     // from the server roster. Refresh exactly the enabled non-LIVE scopes.
     if(!scopes.length)return false;
     const signature=scopes.slice().sort().join("|");
-    // Each newly loaded document is a new opening, including page reloads
-    // and PWA cold starts. In-memory acknowledgement blocks repeat callbacks
-    // during this one opening without suppressing the next one.
-    if(acceptedVisitSignature===signature)return true;
+    const day=dailyVietnamKey();
+    const visitIdentity=day+"|"+signature;
+    if(acceptedVisitSignature===visitIdentity)return true;
     if(dailyContentWakePending)return dailyContentWakePending;
+    let prior={};
+    try{prior=JSON.parse(localStorage.getItem(DAILY_CONTENT_WAKE_KEY)||"{}")||{};}
+    catch{}
+    const done=prior?.date===day&&prior?.status==="accepted"
+      ?new Set(Array.isArray(prior.scopes)?prior.scopes:[]):new Set();
+    const due=scopes.filter(scope=>!done.has(scope));
+    if(!due.length){
+      // This visit still checks the package manifest; only the server-owned
+      // crawl/wake is suppressed for a previously accepted Vietnam day.
+      acceptedVisitSignature=visitIdentity;
+      return true;
+    }
     // Failed, offline, or lease-busy visits may retry on a later foreground
     // visit, but never spin/retry/poll in the background.
     const now=Date.now();
@@ -6230,7 +6242,7 @@ html.viewer-active.one-col body{
         const response=await fetch(PACKAGE_REFRESH_URL,{
           method:"POST",cache:"no-store",
           headers:{"content-type":"application/json"},
-          body:JSON.stringify({scopes,client_check:true,daily_open:true})
+          body:JSON.stringify({scopes:due,client_check:true,daily_open:true})
         });
         if(!response.ok)return false;
         const result=await response.json();
@@ -6240,10 +6252,11 @@ html.viewer-active.one-col body{
         if(result?.skipped===true&&result?.reason!=="not_due")return false;
         // Server may return "refresh_queued" because another source is
         // running. This is durable queue acknowledgement, not completion.
-        acceptedVisitSignature=signature;
+        acceptedVisitSignature=visitIdentity;
         try{
-          sessionStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
-            signature,status:"accepted",at:Date.now(),
+          localStorage.setItem(DAILY_CONTENT_WAKE_KEY,JSON.stringify({
+            date:day,scopes:[...new Set([...done,...due])],
+            status:"accepted",at:Date.now(),
             queued:result?.reason==="refresh_queued"
           }));
         }catch{}
@@ -6280,12 +6293,14 @@ html.viewer-active.one-col body{
     lastPackageDemandAt=now;
 
     packageDemandPending=(async()=>{
-      const due=wanted.filter(scope=>packageWakeDue(scope,now));
+      // Normal packages are woken once by the visible daily visit, not by
+      // every tab click/focus. Those read only manifest hashes. LIVE remains
+      // on its separate explicit visible-demand wake/lease.
+      const due=wanted.filter(scope=>scope==="live"&&packageWakeDue(scope,now));
 
       // Browser focus/visibility may happen many times. Manifest checks stay
-      // cheap, but only wake the package builder at the same cadence as the
-      // server's intended scope freshness. Explicit LIVE/source actions use
-      // their dedicated wake paths and are not blocked by this cache.
+      // cheap, and unchanged hashes never download a package. Explicit
+      // LIVE/source actions retain their dedicated server-owned wake paths.
       if(wake&&due.length){
         const woke=await requestPreparedRefresh(due);
         if(woke)markPackageWake(due,Date.now());
@@ -8185,30 +8200,56 @@ html.viewer-active.one-col body{
   // the verified publisher localization remains the only Vietnamese title.
   function untranslatedEnglishFeedTitle(raw=""){
     const value=String(raw||"").replace(/\s+/g," ").trim();
-    const hasVietnameseLetters=/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(value);
-    const tokens=(value.toLowerCase().match(/[a-z]{2,}/g)||[]);
-    if(tokens.length<5)return false;
-    const words=new Set(["the","and","with","from","when","where","who","what",
+    const accented=(value.match(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/g)||[]).length;
+    const tokens=value.normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .replace(/[đĐ]/g,"d").toLowerCase().match(/[a-z]{2,}/g)||[];
+    if(!tokens.length)return false;
+    const english=new Set(["the","and","with","from","when","where","who","what",
       "this","that","your","their","for","but","after","before","are","was",
       "were","into","about","only","while","will","than","then","they","you",
       "how","why","whose","which","has","have","had","his","her","its","of",
-      "by","in","on","at","to","an","is","part"]);
-    const signals=tokens.filter(token=>words.has(token)).length;
-    // Channel branding may include Vietnamese diacritics after an English
-    // title (e.g. "... Funny Gãy TV"), so do not exempt it unconditionally.
-    return signals>=(hasVietnameseLetters?3:2);
+      "by","in","on","at","to","an","is","part","top","hits","pop","radio",
+      "songs","music","new","heavy","rain","sleeping","live","world","news",
+      "best","movie","english","story","village","drama"]);
+    const vietnamese=new Set(["viet","nam","tin","tuc","nhac","phim","nguoi",
+      "khong","tieng","voi","cho","cua","hom","nay","truc","tiep","tinh",
+      "yeu","chuyen","doi","song","nha","con","tre","moi","tong","ket",
+      "nhung","bai","hat","hay","giai","tri","ca","si","tai","ban","sau",
+      "truoc","tai","viet","nham","the","noi","dung"]);
+    let en=0,vi=0;
+    for(const token of tokens){
+      if(english.has(token))en++;
+      if(vietnamese.has(token)&&!english.has(token))vi++;
+    }
+    if(vi>=2&&vi>=en)return false;
+    // Mixed English headline + one accented Vietnamese channel brand is
+    // still English. Do not hide a predominantly Vietnamese title.
+    if(en>=2&&en>=vi+2&&accented<=2)return true;
+    if(vi===0&&accented===0&&tokens.length>=3)return true;
+    if(vi===0&&accented===0&&tokens.length===2&&en>=1)return true;
+    return false;
   }
 
-  function videoDisplayTitle(meta={}){
+  function verifiedVietnameseDisplayTitle(meta={}){
     const localized=String(meta?.titleVi||meta?.localizedTitleVi||
       meta?.localizations?.vi?.title||meta?.localized?.vi?.title||"")
       .replace(/\s+/g," ").trim();
+    return localized&&!untranslatedEnglishFeedTitle(localized)?localized:"";
+  }
+
+  function packageTitleAllowed(meta={}){
+    const original=String(meta?.title||"").replace(/\s+/g," ").trim();
+    return !!verifiedVietnameseDisplayTitle(meta)||!untranslatedEnglishFeedTitle(original);
+  }
+
+  function videoDisplayTitle(meta={}){
+    const localized=verifiedVietnameseDisplayTitle(meta);
     if(localized)return localized;
     const original=String(meta?.title||"").replace(/\s+/g," ").trim();
     if(typeof feedMode!=="undefined"&&feedMode==="package"&&
       untranslatedEnglishFeedTitle(original)){
-      // Keep the video and thumbnail in the list. Flag incomplete localized
-      // metadata rather than inventing a translation or showing English.
+      // No misleading translation: stale package entries are filtered from
+      // feed rendering; explicit video/search views retain original metadata.
       return "Đang cập nhật tiêu đề tiếng Việt";
     }
     return original;
@@ -9229,7 +9270,12 @@ html.viewer-active.one-col body{
     // player state when a package/search result is empty; that produced the
     // grey YouTube "..." thumbnail with source "1988".
     const cards=(Array.isArray(feedMetas)?feedMetas:[])
-      .filter(meta=>normalizedMediaProvider(meta?.provider)==="youtube");
+      .filter(meta=>normalizedMediaProvider(meta?.provider)==="youtube"
+        // Read-only hygiene for an old IndexedDB/server package: never show
+        // unrelated English thumbnails or placeholder titles while waiting
+        // for the next canonical Vietnamese-only package. Search and direct
+        // links are explicit user actions and keep publisher titles.
+        &&(feedMode!=="package"||packageTitleAllowed(meta)));
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
