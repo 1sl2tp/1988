@@ -20,7 +20,9 @@ test('server excludes untranslated English titles from every default package',()
  for(const title of [
    'Pop Hits Radio | Live Pop Radio | Top Hits 2026 | New Songs 2026',
    'Heavy Rain on a Tin Roof for Sleeping 24/7',
-   'CRUSHING ON TAKEN FLOWER | The Cunning Village Boy - Part 2'
+   'CRUSHING ON TAKEN FLOWER | The Cunning Village Boy - Part 2',
+   'CRUSHING ON TAKEN FLOWER | The Cunning Village Boy - Part 2 | Funny Gãy TV',
+   'Pop Hits Radio | Live Pop Radio | Top Hits 2026 | New Songs 2026 | Gãy Media'
  ])assert.equal(classify({title}),true,'English title should be excluded: '+title);
  for(const title of [
    'TRỰC TIẾP: Tin tức thời sự Việt Nam hôm nay',
@@ -28,7 +30,9 @@ test('server excludes untranslated English titles from every default package',()
    'Trại Làng Lắm Chiêu | Phần 2',
    'Tiếng Việt không thể nhầm với the'
  ])assert.equal(classify({title}),false,'Vietnamese title must remain: '+title);
- assert.match(server,/if\(titleLooksEnglishOnly\(r\)&&!localizedVi\)return false;/);
+ assert.match(server,/if\(!eligibleVietnamesePackageTitle\(r\)\)return false;/);
+ assert.match(server,/raw=raw\.filter\(eligibleVietnamesePackageTitle\)/);
+ assert.match(server,/const validPrevious=previousItems\.filter\(eligibleVietnamesePackageTitle\)/);
  assert.match(server,/LIVE_PIPELINE_VERSION="[^"]*vi-only"/);
  assert.match(server,/NON_LIVE_PIPELINE_VERSION="[^"]*vi-only"/);
 });
@@ -67,6 +71,14 @@ test('stale package English titles are labeled as awaiting real Vietnamese local
  assert.equal(ctx.videoDisplayTitle({title:'Tin tuc Viet Nam hom nay'}),'Tin tuc Viet Nam hom nay');
  ctx.feedMode='search';
  assert.equal(ctx.videoDisplayTitle({title:english[0]}),english[0],'user-initiated search retains original title');
+ ctx.feedMode='package';
+ for(const title of [...english,'Pop Hits Radio | Top Hits 2026']){
+   assert.equal(ctx.packageTitleAllowed({title}),false,'no stale English package card: '+title);
+   assert.equal(ctx.packageTitleAllowed({title,titleVi:'The New English Hits'}),false,'English titleVi is NOT a translation');
+   assert.equal(ctx.packageTitleAllowed({title,titleVi:'Nhạc Việt mới nhất'}),true,'genuine Vietnamese localization is valid');
+ }
+ assert.equal(ctx.packageTitleAllowed({title:'Tin tuc Viet Nam hom nay'}),true);
+ assert.match(ui,/&&\(feedMode!=="package"\|\|packageTitleAllowed\(meta\)\)/);
 });
 
 test('missing prepared avatar uses only same-channel ID and bounded visible profile fallback',()=>{
