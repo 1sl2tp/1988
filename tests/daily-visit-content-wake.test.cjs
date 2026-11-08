@@ -50,12 +50,14 @@ test('each opening sends one batched normal-scope wake, excludes LIVE and rememb
   assert.equal(JSON.parse(s.items.get('local:daily-test')).status,'accepted');
   assert.equal(s.box.dailyContentScopes([{key:'live'}]).length,0);
 });
-test('calendar rollover does not repeat an accepted batch in the same opening',async()=>{
+test('a visible return after Vietnam midnight wakes next-day content without background polling',async()=>{
   const s=create();await s.box.wakeDailyContentOnVisibleVisit(rows);
   s.setNow(Date.parse('2026-10-12T18:01:00.000Z'));
   assert.equal(s.today(),'2026-10-13');
   await s.box.wakeDailyContentOnVisibleVisit(rows);
-  assert.equal(s.requests.length,1);
+  assert.equal(s.requests.length,2,'a foreground visit on the new Vietnam day is a new wake');
+  await s.box.wakeDailyContentOnVisibleVisit(rows);
+  assert.equal(s.requests.length,2,'not twice on the new day');
 });
 test('another opening on the same device/day only checks manifest; new day wakes again',async()=>{
   const shared=new Map();
