@@ -1,3 +1,12 @@
+## 2026-11-08 — YT-266: gói video mỗi ngày & ẩn tiếng Anh không liên quan (Web/PWA PASS; Supabase 1988 pending)
+
+- Người dùng chỉ muốn **một người mở trong ngày VN** đánh thức gói Ngày/Tuần/danh mục, người đến sau dùng manifest/hash để tải gói mới; LIVE chỉ hoạt động khi mở tab. Bản cũ thức quá nhiều: mỗi lần tải trang cộng các nhịp 5/15/30 phút trên các scope thường.
+- PR #228 (`ea171d0`) sửa `index.html`, `sw.js`, bộ lọc ở `yt1988-refresh`, và regression về ngày Việt Nam, hai thiết bị, LIVE cách ly, tiêu đề Anh kèm brand Việt, gói cũ, search trực tiếp. CI Verify PR `42473946927` PASS; main Verify `42474007676` PASS; Pages `42474007677` PASS.
+- **Đã chạy:** frontend Web/PWA không quét lại thường xuyên và ẩn các thẻ tiếng Anh cũ. **Chưa chạy:** máy chủ Supabase project 1988 cần quyền để deploy `yt1988-refresh`, giới hạn một lần chung/ngày và republish canonical package. Kết nối hiện thấy chỉ project Chat, 1988 bị `permission denied`. Không coi backend là hoàn tất và không thay đổi dữ liệu hay trigger refresh thủ công.
+- Chờ quyền project đúng rồi deploy backend, xác minh gói/hashes/truy cập chéo thiết bị và nhật ký tài nguyên. Không có crawl nền, cron hay relay video mới.
+
+---
+
 ## 2026-10-15 — Sửa Xem nổi che thông tin YouTube bằng Rail đen như media chính
 
 - Ảnh người dùng: Document PiP ngoài Chrome vẫn lộ title/channel/YouTube chrome dù trước đó có nền/viền đen. Owner `sources/floating-youtube.html` đang để YT iframe phủ đúng 100%, không thực hiện crop Rail như `index.html` MAIN.

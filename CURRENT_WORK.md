@@ -1,3 +1,16 @@
+## 2026-11-08 — YT-266: NGƯỜI ĐẦU TIÊN TRONG NGÀY ĐÁNH THỨC GÓI VIDEO / ẨN TIÊU ĐỀ TIẾNG ANH (WEB RELEASED; BACKEND PENDING ACCESS)
+
+- **Yêu cầu:** một lượt truy cập nhìn thấy app trong **ngày Việt Nam** kích hoạt gói Ngày/Tuần/hashtag mới theo từng scope, các lượt trở lại chỉ kiểm tra manifest/hash để tải gói đã được máy chủ chuẩn bị; LIVE chỉ khám phá khi mở/nhìn thấy tab LIVE. Không hiển thị video tiêu đề tiếng Anh không liên quan trong feed mặc định.
+- **Lỗi phát hiện:** bản trước POST `daily_open` cho mỗi document, thêm POST theo nhịp 5/15/30 phút khi focus/đổi tab; Supabase `yt1988-refresh` chỉ so phút kể từ `last_enqueued_at`, chưa có VN-day gate. Bộ lọc tiếng Anh bỏ qua cả tiêu đề pha tên thương hiệu Việt có dấu và chấp nhận `titleVi` tiếng Anh; fallback package giữ các dòng cũ không hợp lệ.
+- **Sửa Web/PWA:** `index.html` ghi ACK cục bộ theo VN-date + danh sách scope đã được máy chủ chấp nhận, chỉ POST khi có ngày/scope mới; mở lại/đổi tab vẫn check hash và tải payload khi hash khác. Khi hiện lại sau nửa đêm có một lượt wake mới, không thêm timer. Không tạo crawler trên client. Read-only UI filter ẩn card tiếng Anh cũ ở gói, không đổi kết quả tìm kiếm/direct-watch. SW epoch `1988-simple-media-v98`.
+- **Sửa nguồn backend đã commit:** `supabase/functions/yt1988-refresh/index.ts` giới hạn `daily_open` bởi ngày Việt Nam của `last_enqueued_at` (theo từng scope, dùng lease/queue chung), loại LIVE khỏi daily batch; bổ sung kiểm tra `titleVi`, tên kênh Việt ở cuối tiêu đề Anh và xử lý gói tiếng Anh cũ. Bump pipeline versions live-v52 / non-live-v21.
+- **Code & release:** PR #228 squash `ea171d0afececcc3d85e948256bf27acad360e01`; Verify PR `42473946927` PASS, main Verify `42474007676` PASS, GitHub Pages `42474007677` PASS. Chỉ HTML/SW đã phát hành tự động trên https://yt.taphoa.xyz. Bản APK WebView mở trang web mới khi online, nhưng chưa có thử trên thiết bị thật.
+- **BLOCKER rõ ràng:** Supabase project 1988 `mstltsunsawqomzniqok` không hiện trong kết nối Supabase hiện tại (chỉ thấy Chat) và get_edge_function trả permission denied. Vì vậy **chưa triển khai backend/day gate**; chưa thể tuyên bố một lượt duy nhất/ngày giữa tất cả thiết bị hay gói canonical mới được lọc lại. Cần cấp quyền kết nối đúng project và deploy `yt1988-refresh`, sau đó kiểm tra production manifest, 2 thiết bị cùng ngày, VN rollover, LIVE on-demand, bản PWA/APK thật.
+- **Resource:** không thêm cron, polling, media proxy, crawler client, API fan-out hay thay đổi dữ liệu nguồn. Failed refresh giữ last-known-good hợp lệ. **Rollback:** revert PR #228 + SW epoch, backend nếu đã deploy quay phiên bản trước. E4 thiết bị thật và E5 số request/egress vẫn chưa đo.
+- **Hồ sơ:** `NHAT_KY.md`, `README_RESOURCE_GUARDRAILS.md`. Google Sheet bảo trì chưa đối chiếu.
+
+---
+
 ## 2026-10-15 — XEM NỔI: CHE YOU TUBE TOP/BOTTOM NHƯ MAIN RAIL (CODE + CI + PAGES PASS, DEVICE E4 PENDING)
 
 - User screenshot sau bản viền 6px: thông tin YouTube vẫn lộ trong cửa sổ nổi. Nguyên nhân host HTTPS `#player` chiếm 100% media, thiếu source crop Rail 65px ngang / 59px dọc đang có ở MAIN.

@@ -152,6 +152,8 @@ Không biến những hành động này thành polling nền.
 
 **Direct action không được fan-out ẩn:** search/channel result có 20 card không được tự tạo 20 resolver/meta jobs. Chỉ reuse cache; metadata thiếu được resolve khi người dùng thật sự mở item cần nó.
 
+> **YT-266 — phạm vi triển khai 2026-11-08:** Web/PWA đã phát hành quy tắc kiểm tra hash, giới hạn POST theo ngày/scope trên cùng thiết bị và ẩn tiêu đề tiếng Anh cũ. Bộ xử lý Supabase `yt1988-refresh` (gate chung theo ngày Việt Nam) **chưa được triển khai** vì kết nối hiện tại không có quyền project 1988. Trước khi backend được triển khai, máy chủ vẫn có thể chạy nhịp cũ 5/30/15 phút khi thiết bị khác yêu cầu. Không được tuyên bố giới hạn cross-device hoặc gói canonical đã được lọc hoàn toàn cho đến khi có bằng chứng production.
+
 ## 2. Lịch tải / refresh chuẩn
 
 Mục tiêu là **stale-while-revalidate**: dùng gói hiện có trước, cập nhật nền sau.
@@ -159,9 +161,9 @@ Mục tiêu là **stale-while-revalidate**: dùng gói hiện có trước, cậ
 | Scope | Package server due | Client |
 |---|---:|---|
 | LIVE | theo demand khi LIVE visible, tối đa khoảng 1 lần/phút | mở LIVE mới scan/wake; hidden/đổi tab/không có web = không discovery |
-| Ngày / latest | 5 phút | mở tab đọc cache trước, check hash nền |
-| Tuần / week | 30 phút | mở tab đọc cache trước, check hash nền |
-| hashtag/content | 15 phút | chỉ refresh khi scope đến hạn |
+| Ngày / latest | theo ngày Việt Nam, lượt truy cập nhìn thấy đầu tiên | lượt sau chỉ tải khi manifest/hash đổi |
+| Tuần / week | theo ngày Việt Nam, lượt truy cập nhìn thấy đầu tiên | cùng server lease/queue; không quét khi đổi tab |
+| hashtag/content | theo ngày Việt Nam, khi scope được bật | chỉ thêm scope mới nếu đã đánh thức các scope cũ |
 | search | theo thao tác | không polling |
 | channel open | theo thao tác | không polling |
 | video metadata | theo video đang mở | không fan-out toàn feed |
