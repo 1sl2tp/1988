@@ -52,7 +52,8 @@ test('switching categories after one accepted visit does not issue duplicate ref
 test('backend visit refresh requests queue behind busy lease and retain the two-scope budget',()=>{
   const worker=fs.readFileSync('supabase/functions/yt1988-refresh/index.ts','utf8');
   assert.match(worker,/const MAX_SCOPES_PER_RUN=2/);
-  assert.match(worker,/if\(clientCheck&&body\?\.daily_open===true\)/);
+  assert.match(worker,/const dailyOpen=clientCheck&&body\?\.daily_open===true/);
+  assert.match(worker,/vietnamDay\(last\)!==vietnamDay\(now\)/);
   assert.match(worker,/rpc\/yt1988_queue_refresh/);
   assert.match(worker,/reason:"refresh_queued"/);
   assert.match(worker,/if\(scopes.length>MAX_SCOPES_PER_RUN\)/);
