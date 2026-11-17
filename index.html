@@ -2790,6 +2790,47 @@ html.viewer-active.one-col body{
   outline:2px solid var(--ui-focus-ring);
   outline-offset:2px;
 }
+
+/* YT-AXIS-20261117 — M1–M4 geometry: one document scroller, fixed chrome,
+   media in its existing owner, feed rows never widen their column.
+   P1–P4 analog for the existing settings popover; no iframe/PiP movement. */
+html,body,main,.rows,.rows > *,.sourcebar,.source-scroll,
+.searchbox,.search-input,.settings-popover{
+  box-sizing:border-box;
+  min-width:0;
+  max-width:100%;
+}
+.rows > *{overflow-wrap:anywhere}
+.searchbox{min-width:0}
+.search-input{min-width:0;max-width:100%;box-sizing:border-box}
+.source-scroll{min-width:0;max-width:100%;} /* keep native horizontal scroll */
+/* Existing floating settings surface (not a native modal): bound P2 to
+   visible height; P3 title/controls remain ordered; long options can scroll. */
+.settings-popover{
+  box-sizing:border-box;
+  width:min(280px,calc(100vw - 16px));
+  max-width:calc(100vw - 16px);
+  max-height:calc(100dvh - var(--safe-top,0px) - 64px - var(--safe-bottom,0px));
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.settings-popover :is(button,a){
+  box-sizing:border-box;
+  min-width:0;
+  max-width:100%;
+  min-height:44px;
+}
+.settings-popover :is(button,a):focus-visible{
+  outline-offset:-2px;
+}
+@media(max-height:450px){
+  .settings-popover{
+    top:calc(var(--safe-top,0px) + 8px);
+    max-height:calc(100dvh - var(--safe-top,0px) - var(--safe-bottom,0px) - 16px);
+  }
+}
 </style>
 </head>
 <body>
