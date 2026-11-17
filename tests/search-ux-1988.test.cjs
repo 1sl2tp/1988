@@ -44,3 +44,18 @@ let braces=0;
 for(const ch of css){if(ch==='{')braces++;if(ch==='}')braces--;}
 assert.equal(braces,0);
 console.log('1988 search UX contract PASS — main + source manager, no extra provider owner');
+
+
+// YT-AXIS-20261117: only Main axes and existing settings popover are capped.
+// Do not change player placement, iframe, PiP, or the one document scroller.
+const axis=main.slice(main.indexOf('/* YT-AXIS-20261117'),main.indexOf('</style>'));
+assert.ok(axis.startsWith('/* YT-AXIS-20261117'));
+for(const item of ['.rows > *','.source-scroll','.searchbox','.search-input','.settings-popover']){
+  assert(axis.includes(item),'missing responsive axis for '+item);
+}
+assert.match(axis,/\.settings-popover\{[\s\S]*?max-width:calc\(100vw - 16px\);[\s\S]*?max-height:calc\(100dvh/);
+assert.match(axis,/\.settings-popover :is\(button,a\)\{[\s\S]*?min-height:44px/);
+assert.match(axis,/@media\(max-height:450px\)/);
+assert.doesNotMatch(axis,/\.player\b|\.media-col\b|\.player-frame\b|\.watch-pip/);
+assert(!axis.includes('position:fixed')&&!axis.includes('scrollTop='));
+console.log('1988 YT-AXIS main/feed/search/settings responsive containment PASS');
